@@ -42,7 +42,7 @@ Eles aparecem aqui só como **restrição** — coisas que outras escolhas preci
 | Gerência de projeto com `uv` | **`uv` sozinho fecha env, lock, sync, build e publish**; falta task runner e release | §4 |
 | `ruff`: regras que valem × ruído | **`extend-select`, nunca `select`** — em 2026 um `select` explícito *desliga* 160 regras | §5 |
 | Tipagem `pyright` × `mypy` × `ty` | **`pyright` strict** — o estrito paga, e o custo está todo no JSON, não na I/O | §6 |
-| `pytest`, plugins, cobertura | §7 |
+| `pytest`, plugins, cobertura | **`strict = true`** (pytest 9) e **cobertura como catraca**, não como número escolhido | §7 |
 | Versionamento e trusted publishing | §8 |
 | CHANGELOG | §9 |
 | Piso de versão do Python | §10 |
@@ -821,5 +821,172 @@ tomar cedo e mais cara de adiar deste documento inteiro.
 
 **Custo de reverter:** trocar `"strict"` por `"standard"` é uma palavra, e é reversível a
 qualquer momento sem tocar em código. **Assimetria total a favor de começar estrito.**
+
+---
+
+## 7. `pytest`, os plugins que pagam, e cobertura
+
+### 7.1 Recomendação
+
+```toml
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+addopts = "-ra --import-mode=importlib"
+strict = true                       # ver §7.2 — supera o prior art
+filterwarnings = ["error"]
+markers = ["slow: teste que toca rede ou muitos arquivos"]
+required_plugins = ["pytest-cov", "syrupy", "pytest-randomly"]
+```
+
+Plugins: **`pytest-cov`, `syrupy`, `pytest-randomly`**. Mais nada por padrão.
+**`pytest-xdist` e `hypothesis`** entram sob gatilho declarado (§7.4).
+Cobertura: **catraca, não número escolhido** (§7.5).
+
+### 7.2 `strict = true` — a divergência do prior art, e ela é nova
+
+O prior art do `panlabs-tech/.github` usa `--strict-markers --strict-config`. Isso está
+certo e ficou **incompleto**: o pytest 9.0.0 (**lançado 2025-11-05**, changelog oficial)
+introduziu um interruptor único.
+
+> "Added a **'strict mode'** enabled by the `strict` configuration option. When set to
+> `true`, the `strict` option currently enables `strict_config`, `strict_markers`,
+> `strict_parametrization_ids`, `strict_xfail`"
+
+e, no mesmo release,
+
+> "The previously-deprecated `--strict` command-line flag now enables strict mode."
+
+([changelog do pytest](https://docs.pytest.org/en/stable/changelog.html), consultado
+2026-07-30. O `--strict` era, historicamente, um alias depreciado de `--strict-markers`;
+ele foi **reaproveitado**, não ressuscitado. Quem lembra da depreciação e evita a flag está
+usando informação que venceu.)
+
+Versão medida aqui: **`pytest 9.1.1`**. O `--help` da ferramenta confirma:
+
+```
+strict (bool): Enables all strictness options, currently:
+               strict_config, strict_markers, strict_xfail,
+               strict_parametrization_ids
+```
+
+**O que os dois modos veem no mesmo arquivo — [medido aqui].** Uma suíte com três defeitos
+plantados: marcador não registrado, um `xfail` que passa, e dois casos parametrizados com
+`ids` idênticos.
+
+| | sem `strict` | com `strict = true` |
+| --- | --- | --- |
+| marcador `slow` não registrado | `PytestUnknownMarkWarning` | **erro de coleta**: `'slow' not found in markers configuration option` |
+| `xfail` que na verdade passa | `1 xpassed` — **verde** | **falha**: `[XPASS(strict)] ...` |
+| `ids=["dup", "dup"]` | silêncio total | **erro de coleta**: `Duplicate parametrization IDs detected` |
+| resultado final | `3 passed, 1 xpassed, 1 warning` | `1 error during collection` |
+
+Os dois primeiros são clássicos: um marcador com typo simplesmente não filtra nada, e um
+`xfail` que passou é um bug **consertado** cujo teste ninguém religou. O terceiro,
+`strict_parametrization_ids`, é o que quase ninguém tem, porque não existia: dois casos com
+o mesmo id são dois casos indistinguíveis num relatório de CI.
+
+**Divergência recomendada: `strict = true` no lugar de `--strict-markers --strict-config`.**
+Ganha duas checagens, e a linha fica menor.
+
+### 7.3 `--import-mode=importlib`, que é consequência do §3
+
+A doc do pytest ([Good Integration
+Practices](https://docs.pytest.org/en/stable/explanation/goodpractices.html), consultada
+2026-07-30) recomenda, para projeto novo:
+
+> "For new projects, we recommend to use `importlib` [import mode]"
+
+com a razão: "The `importlib` import mode does not have any of the drawbacks above, because
+`sys.path` is not changed when importing test modules", enquanto no modo `prepend` (o
+padrão) "your test files must have **unique names**".
+
+Isso **completa** o eixo do §3. O layout `src/` faz o teste rodar contra o pacote instalado;
+o `importlib` garante que nem o `sys.path` de teste reintroduza o sombreamento pela porta
+dos fundos. Os dois juntos são o que dá o resultado do §3.3 — teste que falha quando o
+wheel está quebrado.
+
+Não há chave de `.ini` própria para isso; vai em `addopts`, como a própria doc instrui.
+
+### 7.4 Os plugins, um a um, com veredito
+
+| plugin | veredito | razão |
+| --- | --- | --- |
+| **`pytest-cov`** | **sim** | Integra a medição na mesma execução. `--cov-branch` e `--cov-fail-under` na mão. Ver §7.5. |
+| **`syrupy`** | **sim** | Já decidido em #4: congela layout de saída rica sem congelar cor — 9 testes, zero quebras ao trocar a cor da marca. 55 KB. |
+| **`pytest-randomly`** | **sim** | Ordem aleatória com semente reprodutível. Numa suíte que escreve em diretório temporário e instala arquivos, **dependência de ordem é o bug de teste mais provável do projeto**, e é o único que não aparece rodando a suíte de novo. |
+| **`pytest-xdist`** | **não agora** | Paralelismo é remédio para suíte lenta, e ainda não há suíte. Complica cobertura e ordem. **Gatilho: suíte passando de ~30 s local.** |
+| **`hypothesis`** | **não agora, mas com alvo nomeado** | O overpower normaliza e junta caminhos, e resolve destino por tabela framework × runtime (#5, #6). É exatamente o tipo de função onde property test acha o caso que ninguém escreveu. **Gatilho: a primeira função pura de manipulação de caminho.** |
+| **`pyfakefs`** | **não** | `tmp_path` é **built-in** do pytest, "a temporary directory unique to each test function" e "a `pathlib.Path` object", com `tmp_path_factory` de escopo de sessão. Um FS falso adicionaria uma emulação entre o teste e o `pathlib` real — e o `pathlib` real, num projeto cujo produto é escrever arquivo, **é o que a gente quer testar**. Além disso, `symlink` no Windows tem três degraus (#5): FS falso mentiria justamente aí. |
+| **`pytest-mock`** | **não** | `monkeypatch` é built-in e `unittest.mock` é stdlib. `mocker` é açúcar de escopo. Uma dependência a menos. |
+| **`pytest-sugar`, `pytest-clarity`** | **não** | Cosmético. Num repo que quer ser template, cada linha de dependência precisa se justificar. |
+| **`pytest-timeout`** | **não, com ressalva** | O achado de #4 é que **`textual` pendura o processo sem TTY** — e `textual` está fora. Se algum dia um caminho interativo entrar em teste, este plugin vira a rede de segurança. |
+| **`typer.testing.CliRunner`** | **sim, e não é plugin** | Achado de #4: o typer vendoriza o click desde a 0.26.0 e traz runner próprio com `stdout` e `stderr` separados. Nada a instalar. |
+
+### 7.5 Cobertura: gate ou sinal? — **catraca**
+
+**As duas posições comuns estão erradas para este projeto**, e por motivos opostos.
+
+*Cobertura como número escolhido* (`fail_under = 80`) mede a distância até um número que
+alguém inventou. Assim que o CI fica vermelho num PR legítimo, o número desce — e um limiar
+que desce quando incomoda não é gate, é decoração.
+
+*Cobertura como puro sinal* (medir e relatar, sem gate) é honesto e não segura nada: a
+cobertura cai de PR em PR, cada queda pequena demais para alguém comentar.
+
+**A recomendação é a catraca:** `fail_under` **igual à cobertura atual**, e só sobe. Todo PR
+que baixa fica vermelho; todo PR que sobe **muda o número no mesmo commit**, e essa linha do
+diff é o registro. Não há número a defender — só uma direção.
+
+```toml
+[tool.coverage.run]
+source_pkgs = ["overpower"]
+branch = true              # "measure branch coverage in addition to statement coverage"
+relative_files = true      # medir num ambiente, relatar em outro
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 0             # sobe para o valor real no primeiro PR com testes; nunca desce
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]
+```
+
+`branch = true` não é opcional aqui. O overpower é feito de decisão binária sobre o mundo
+de fora — o arquivo existe?, é symlink?, tem TTY?, o `core.symlinks` está falso? (#5) —
+e cobertura de linha dá 100% num `if` cujo ramo falso nunca rodou. **Cobertura de ramo é a
+única que mede o que este projeto faz.**
+
+Três notas de precisão, todas de fonte primária:
+
+- `fail_under` "If the total coverage measurement is under this value, then exit with a
+  status code of 2"
+  ([coverage.py, config](https://coverage.readthedocs.io/en/latest/config.html), consultada
+  2026-07-30). Status **2**, não 1 — importa para quem escreve o passo de CI.
+- O `pytest-cov` **sobrescreve** opções do coverage: a doc diz que ele controla `parallel`,
+  `source` e `branch`, o que torna essas chaves no arquivo de config "pointless" a menos que
+  o coverage rode sozinho ([pytest-cov,
+  config](https://pytest-cov.readthedocs.io/en/latest/config.html), consultada 2026-07-30).
+  Então **`--cov-branch` vai na linha de comando/`addopts`**, mesmo com `branch = true`
+  declarado. É a pegadinha mais comum do par.
+- A própria FAQ do coverage.py aponta para um texto chamado *"Flaws in Coverage
+  Measurement"* e admite que a medição "isn't perfect". Não achei na doc oficial nenhuma
+  declaração de que 100% signifique bem testado — **quem diz isso não tem fonte primária, e
+  eu também não tenho a de sinal contrário.** A posição do §7.5 é minha, com o argumento
+  acima.
+
+**E há uma parte do overpower que a cobertura não mede, por construção:** o conteúdo
+vendorizado dos frameworks. São centenas de arquivos que não são código executável do
+pacote. Um número de cobertura que os incluísse seria ficção — daí o `source_pkgs` apontando
+para o pacote, e não para o diretório.
+
+### 7.6 Custo, e custo de reverter
+
+**Custo:** três dependências de dev, todas puras. `strict = true` cobra o registro de
+marcador — que é justamente a documentação que a gente quer.
+
+**Custo de reverter:** desligar `strict` é uma linha, e o efeito é imediato. Baixar a
+catraca é uma linha, e **é visível no diff** — que é o ponto inteiro do desenho. Trocar
+`importlib` por `prepend` depois é o único item com custo escondido: exigiria nomes de
+arquivo de teste únicos em toda a suíte. **Adotar `importlib` agora é grátis; adotar depois
+é renomear.**
 
 ---

@@ -43,7 +43,7 @@ Eles aparecem aqui só como **restrição** — coisas que outras escolhas preci
 | `ruff`: regras que valem × ruído | **`extend-select`, nunca `select`** — em 2026 um `select` explícito *desliga* 160 regras | §5 |
 | Tipagem `pyright` × `mypy` × `ty` | **`pyright` strict** — o estrito paga, e o custo está todo no JSON, não na I/O | §6 |
 | `pytest`, plugins, cobertura | **`strict = true`** (pytest 9) e **cobertura como catraca**, não como número escolhido | §7 |
-| Versionamento e trusted publishing | §8 |
+| Versionamento e trusted publishing | **manual com `uv version --bump`** — o `hatch-vcs` publica versão errada em clone raso | §8 |
 | CHANGELOG | §9 |
 | Piso de versão do Python | §10 |
 
@@ -988,5 +988,193 @@ catraca é uma linha, e **é visível no diff** — que é o ponto inteiro do de
 `importlib` por `prepend` depois é o único item com custo escondido: exigiria nomes de
 arquivo de teste únicos em toda a suíte. **Adotar `importlib` agora é grátis; adotar depois
 é renomear.**
+
+---
+
+## 8. Versionamento: manual × `hatch-vcs` × `setuptools-scm`
+
+### 8.1 Recomendação
+
+**Versão literal no `pyproject.toml`, movida por `uv version --bump`, com a tag derivada
+dela — e uma asserção de CI que reprova se tag e versão discordarem.** Nada de
+`dynamic = ["version"]`.
+
+Esta é a recomendação em que mais custei a me decidir, porque o versionamento por VCS é o
+que "parece" moderno. Os três experimentos abaixo me moveram na direção contrária.
+
+### 8.2 Achado 1: `uv version` e versão dinâmica são mutuamente exclusivos — [medido aqui]
+
+Já registrado em §4.4, e é o custo que ninguém menciona:
+
+```
+$ uv version                    # projeto com dynamic = ["version"] + hatch-vcs
+error: We cannot get or set dynamic project versions in: pyproject.toml
+$ uv version --bump patch
+error: We cannot get or set dynamic project versions in: pyproject.toml
+```
+
+Adotar `hatch-vcs` **desliga o comando de versão da ferramenta que gerencia o projeto**.
+Não é fatal — `git tag` passa a ser o bump — mas é um trade que precisa ser dito, e a doc
+do `hatch-vcs` não o diz porque não é problema dela.
+
+Com versão literal, o ferramental existe e é bom **[medido aqui]**:
+
+```
+$ uv version --short
+0.1.0
+$ uv version --bump minor --dry-run
+libinit 0.1.0 => 0.2.0
+```
+
+`--bump` aceita `major, minor, patch, stable, alpha, beta, rc, post, dev`, e tem
+`--dry-run`, `--locked` e `--frozen` (`uv version --help`, `uv 0.11.7`).
+
+### 8.3 Achado 2: fora da tag, o `hatch-vcs` produz versão que o PyPI proíbe — [medido aqui]
+
+Projeto com `hatch-vcs`, tag `v0.1.0`, `uv build --wheel`:
+
+| estado do repo | wheel produzido |
+| --- | --- |
+| exatamente na tag `v0.1.0` | `vdemo-0.1.0-py3-none-any.whl` |
+| **um commit além da tag** | `vdemo-0.1.1.dev1+g277ae8e26-...whl` |
+| **árvore suja** (arquivo não commitado) | `vdemo-0.1.1.dev1+g277ae8e26.d20260731-...whl` |
+
+O `+g277ae8e26` é um **local version identifier**, e a especificação de versões da PyPA
+([Version specifiers](https://packaging.python.org/en/latest/specifications/version-specifiers/),
+consultada 2026-07-30) é categórica:
+
+> "As the Python Package Index is intended solely for indexing and hosting upstream
+> projects, it MUST NOT allow the use of local version identifiers."
+
+**Leitura justa: isso é metade proteção, metade armadilha.** Proteção, porque torna
+impossível publicar um build fora da tag por acidente. Armadilha, porque também impossibilita
+o ensaio — subir um build de desenvolvimento no TestPyPI para exercitar o caminho de
+publicação inteiro. E "provar o pipeline ponta a ponta antes de construir" é exatamente a
+mitigação que o mapa combinou em [#13](https://github.com/panlabs-tech/overpower/issues/13).
+
+### 8.4 Achado 3: o que quebra de verdade — clone raso publica versão errada em silêncio — [medido aqui]
+
+Este é o achado que decide o eixo.
+
+```
+$ git clone --depth 1 file://.../proj shallow
+$ cd shallow && uv build --wheel
+UserWarning: ".../shallow" is shallow and may cause errors
+Successfully built dist/vdemo-0.1.dev1+g277ae8e26-py3-none-any.whl
+```
+
+Três coisas, na ordem em que doem:
+
+1. A tag `v0.1.0` não veio no clone raso, então a versão derivada é **`0.1.dev1`** — que
+   não é `0.1.0` nem `0.1.1.dev1`. É **outra versão**, inventada a partir de história
+   ausente.
+2. **O build não falha.** Emite um `UserWarning` e sai com sucesso. Num log de CI de 400
+   linhas, um `UserWarning` é invisível.
+3. **É a configuração padrão do CI.** O `actions/checkout` documenta `fetch-depth` com
+   default **`1`** e `fetch-tags` com default **`false`**
+   ([README oficial](https://raw.githubusercontent.com/actions/checkout/main/README.md),
+   consultado 2026-07-30). O caminho feliz — copiar o exemplo do checkout e usar `hatch-vcs` —
+   **é exatamente o caminho quebrado**.
+
+Existe conserto (`fetch-depth: 0`), existe rede (`fallback-version` do hatch-vcs) — mas
+ambos são conhecimento que precisa estar na cabeça de quem escreve o workflow. **O modo de
+falha do versionamento manual é esquecer de bumpar, e ele é ruidoso: o PyPI recusa versão
+repetida. O modo de falha do `hatch-vcs` é silencioso e publica.** Entre errar alto e errar
+baixinho, numa lib que quer ser referência, escolho errar alto.
+
+### 8.5 `hatch-vcs` × `setuptools-scm`, para registro
+
+Não é uma escolha de dois: o README do `hatch-vcs` diz que ele é
+"a plugin for Hatch that uses your preferred version control system (like Git) to determine
+project versions" e que é **construído sobre o `setuptools-scm`** — o `raw-options` é
+literalmente um repasse de parâmetros para ele. Com `hatchling` fixado por #3, `hatch-vcs`
+é a única porta; `setuptools-scm` direto exigiria trocar o backend, o que #3 fechou.
+
+Uma nota do README que morde na prática: *"The version file is only updated upon install or
+build"* — em instalação editável, `overpower.__version__` fica velho até o próximo build.
+Num CLI que vai ter `--version`, isso é confusão garantida em desenvolvimento.
+
+**Contra-argumento honesto, e o gatilho de reabertura:** a favor do `hatch-vcs` está uma
+fonte de verdade só, e a impossibilidade estrutural de publicar `0.2.0` com a tag `v0.1.9`.
+São argumentos reais. **O gatilho é a frequência**: se o overpower passar a publicar mais
+de uma vez por semana, o custo de esquecer o bump ultrapassa o custo do `fetch-depth: 0`, e
+a decisão inverte.
+
+### 8.6 A interação com trusted publishing
+
+A doc do PyPI ([Trusted publishers](https://docs.pypi.org/trusted-publishers/), consultada
+2026-07-30) descreve o mecanismo:
+
+> "'Trusted Publishing' is our term for using the OpenID Connect (OIDC) standard to exchange
+> short-lived identity tokens between a trusted third-party service and PyPI."
+
+com o PyPI cunhando um token temporário de **15 minutos** quando o token OIDC bate com uma
+configuração confiada, o que elimina token de longa duração no CI.
+
+**A interação com o versionamento é indireta, e é aqui que quase todo mundo erra o
+diagnóstico:** o OIDC não sabe nem se importa com o número da versão. Ele autentica
+*quem publica*. O que a doc de
+[adicionar um publisher](https://docs.pypi.org/trusted-publishers/adding-a-publisher/) diz
+é que a confiança é amarrada a "the repository owner's name, the repository's name, and the
+filename of the GitHub Actions workflow", mais um Environment opcional que ela recomenda com
+ênfase:
+
+> "Configuring an environment is optional, but **strongly** recommended: with a GitHub
+> Environment, you can apply additional restrictions to your trusted workflow, such as
+> requiring manual approval on each run by a trusted subset of repository maintainers."
+
+Três consequências de desenho:
+
+1. **O nome do arquivo de workflow faz parte do contrato.** Renomear
+   `.github/workflows/release.yml` quebra a publicação — e quebra num lugar onde a mensagem
+   de erro não vai dizer "você renomeou um arquivo".
+2. **O Environment com aprovação manual é a proteção que o versionamento manual quer.** Ele
+   põe um humano entre "tag empurrada" e "artefato no PyPI" — que é exatamente o ponto em
+   que um bump esquecido seria pego. Os dois se completam: manual + aprovação = duas
+   chances de ver o número.
+3. **Publicar exige `permissions: id-token: write` no job.** *Não confirmado nas duas
+   páginas da doc do PyPI que consultei* — elas descrevem o fluxo OIDC sem mostrar o YAML.
+   A afirmação está aqui como lembrete de verificação, não como fato citado.
+
+Do lado do uv, nada a configurar: "For publishing to PyPI from GitHub Actions or another
+Trusted Publisher, you don't need to set any credentials"
+([uv, Packaging](https://docs.astral.sh/uv/guides/package/), consultada 2026-07-30). E o
+`uv publish` "can automatically discover and upload attestations alongside distributions",
+o que dá proveniência (PEP 740) de graça.
+
+**Contexto que já é do repo, de #3, e que este eixo não pode ignorar:** *pending publisher*
+**não reserva o nome** e expira em 30 dias; e o Curation do JFrog segura versão
+recém-publicada por dias, devolvendo **403 como 404**. Ou seja: no caminho corporativo,
+"a versão nova não aparece" **não é** sintoma de versionamento errado. Quem for depurar
+publicação precisa dessa distinção antes de mexer no esquema de versão.
+
+### 8.7 A asserção que fecha o buraco do versionamento manual
+
+O único modo de falha real da recomendação é tag e `pyproject.toml` discordarem. Ele custa
+uma linha de CI:
+
+```yaml
+- name: A tag tem que bater com a versão do projeto
+  run: |
+    test "v$(uv version --short)" = "${GITHUB_REF_NAME}" \
+      || { echo "tag ${GITHUB_REF_NAME} != versão v$(uv version --short)"; exit 1; }
+```
+
+`uv version --short` imprime só o número — **[medido aqui]**, `0.1.0`. Com essa asserção, o
+versionamento manual passa a ter a mesma garantia estrutural que o `hatch-vcs` dá de graça,
+**sem** herdar o modo de falha silencioso do §8.4.
+
+### 8.8 Custo, e custo de reverter
+
+**Custo:** lembrar de bumpar. Mitigado pela asserção do §8.7 (falha ruidosa), pelo
+Environment com aprovação (§8.6) e pelo `towncrier` (§9), que já obriga a mexer no release
+no mesmo PR.
+
+**Custo de reverter — e este é o argumento decisivo, porque a reversão é barata nos dois
+sentidos.** Ir de manual para `hatch-vcs` é trocar `version = "..."` por
+`dynamic = ["version"]`, somar duas tabelas e pôr `fetch-depth: 0` no checkout: **minutos**.
+Voltar é o mesmo caminho ao contrário. Nenhuma das duas escolhas prende. Sendo assim, a
+regra de decisão certa é **escolher a que falha mais alto agora** e trocar quando a
+frequência de release justificar — que é exatamente o gatilho do §8.5.
 
 ---

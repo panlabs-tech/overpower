@@ -30,7 +30,72 @@ Eles aparecem aqui só como **restrição** — coisas que outras escolhas preci
 
 ## 1. Resumo executivo
 
-> Preenchido ao final, quando todos os eixos estiverem escritos.
+**A recomendação por eixo, em uma tabela.** O `pyproject.toml` inteiro que sai dela está no
+§11.
+
+| eixo | recomendação | custo de reverter |
+| --- | --- | --- |
+| Layout | **`src/overpower/`** | Baixo hoje; caro é ter revertido — perde-se o detector de asset faltando no wheel |
+| Gerência | **`uv` sozinho**, sem task runner, sem workspaces | Baixo — nenhum arquivo publicado muda |
+| Lint | **`ruff` com `extend-select`**, nunca `select` | Quase zero para afrouxar; caro para apertar depois |
+| Tipagem | **`pyright` strict** + confinar `json.load` a um módulo | Uma palavra (`strict` → `standard`) |
+| Testes | **`pytest 9` com `strict = true`** + `importlib`; cov/syrupy/randomly | Uma linha; só `importlib` tem custo escondido |
+| Versão | **manual com `uv version --bump`** + asserção tag == versão | Minutos, nos dois sentidos |
+| CHANGELOG | **`towncrier`** emitindo Keep a Changelog | Baixo — a saída sobrevive ao abandono da ferramenta |
+| Piso Python | **`>=3.12`**, dev em **3.14** | Subir é um caractere; **descer é caro** — único eixo com a assimetria invertida |
+
+**Os seis achados que mandam no desenho.**
+
+1. **O layout `src/` não é estilo — é o único que faz o bug central do overpower falhar.**
+   Com um erro de empacotamento real (asset vendorizado fora do wheel), o flat layout
+   **passa verde** e o `src/` estoura `FileNotFoundError` na primeira execução. Como o
+   axioma 5 põe todo o conteúdo dos frameworks dentro do wheel, esse é o modo de falha
+   principal do produto. Medido em §3.3.
+
+2. **O `select` do `ruff` virou uma armadilha, e o prior art caiu nela.** O default do
+   `ruff 0.16.1` habilita **413 regras**; o `select = ["E","F","I","N","UP","B","SIM","RUF","ANN"]`
+   do `panlabs-tech/.github` habilita **253** — **160 a menos do que não escrever
+   configuração nenhuma**, apagando `PTH`, `S`, `TRY`, `PT`, `TC`, `LOG`, `PERF` e `FURB`.
+   Trocar `select` por `extend-select` é uma palavra e devolve tudo. §5.2.
+
+3. **O modo estrito paga, e o custo não está onde a issue supunha.** Num módulo com a
+   forma do overpower e as três dependências reais, `pyright` strict produz **1 erro** — e
+   ele não é sobre I/O de arquivo, é sobre JSON. A I/O custa **zero** (o `pathlib` é
+   integralmente tipado) e as dependências custam **zero** (typer, rich e questionary
+   publicam `py.typed`). §6.2.
+
+4. **Mas o `pyright` strict tem um ponto cego bem no meio do assunto, e a saída não é
+   trocar de checker.** `Any` explícito não é `Unknown`, então `return data["name"]` numa
+   função declarada `-> str` **passa** — e, pior, o strict reclama justamente do código que
+   *valida* com `isinstance`. Uma regra de arquitetura fecha o buraco: **`json.load` mora
+   num módulo só e devolve `object`**. Com ela, os três checkers pegam o bug — e o `ruff`
+   cobra a regra sozinho, via `TID251`. §6.4 e §6.5.
+
+5. **Versionamento por VCS falha em silêncio exatamente onde não pode.** Em `git clone
+   --depth 1` — que é o **default** do `actions/checkout` — o `hatch-vcs` não acha a tag,
+   emite só um `UserWarning`, **o build tem sucesso** e produz uma versão inventada. Some-se
+   que `uv version --bump` e `dynamic = ["version"]` são mutuamente exclusivos, com erro
+   duro. §8.3 e §8.4.
+
+6. **Duas peças novas de 2026 que superam o prior art sem discussão.** O `pytest 9.0.0`
+   (2025-11-05) criou `strict = true`, que liga quatro checagens onde o
+   `--strict-markers --strict-config` liga duas — medido pegando marcador não registrado,
+   `xfail` que passa e `ids` duplicados, todos verdes sem ele (§7.2). E o `ty` da Astral,
+   apesar de ~18× mais rápido que o pyright na partida, **está em beta e erra**: produz
+   falso positivo em `isinstance(x, dict)` + chave `str`, que é o primeiro padrão que este
+   projeto vai escrever (§6.7).
+
+**Onde divirjo do prior art, e onde não.**
+
+| item | prior art `panlabs-tech/.github` | aqui | por quê |
+| --- | --- | --- | --- |
+| `ruff` | `select = [...]` | **`extend-select = [...]`** | Diverge — 160 regras a mais, medido |
+| `pytest` | `--strict-markers --strict-config` | **`strict = true`** | Diverge — recurso do pytest 9, mais checagens em menos linha |
+| `pyright` | strict | **strict** | **Não diverge** — e §6.6 diz por que, mesmo tendo o mypy achado mais bug |
+| Python | 3.12 | **3.12** | **Não diverge** — mas por razão própria: o baseline do Ubuntu LTS, não gosto |
+
+As duas divergências têm a mesma forma: **não são discordância de critério, são fatos que
+chegaram depois.** O prior art estava certo quando foi escrito.
 
 ---
 
@@ -46,6 +111,8 @@ Eles aparecem aqui só como **restrição** — coisas que outras escolhas preci
 | Versionamento e trusted publishing | **manual com `uv version --bump`** — o `hatch-vcs` publica versão errada em clone raso | §8 |
 | CHANGELOG | **`towncrier` emitindo formato Keep a Changelog** — não é ou-um-ou-outro | §9 |
 | Piso de versão do Python | **`>=3.12`**, desenvolvendo em **3.14** — piso e versão de dev são decisões distintas | §10 |
+| — | O `pyproject.toml` inteiro que sai das oito, executado e verde | §11 |
+| — | Riscos, lacunas e o que **não** foi confirmado | §12 |
 
 ---
 
@@ -412,13 +479,20 @@ ignore = [
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "D", "ANN", "SLF001", "PLR2004"]
+"tests/**" = ["S101", "D", "ANN", "SLF001", "PLR2004", "INP001"]
 
 [tool.ruff.format]
 docstring-code-format = true
 ```
 
 E o formatter do ruff no lugar do `black`. Um binário faz as duas coisas.
+
+**Sobre o `INP001` no `per-file-ignores` — ele não é decoração, é um conflito real que
+esta pesquisa levou uma rodada para achar.** `INP001` exige `__init__.py` em todo
+diretório, e o `--import-mode=importlib` do §7.3 existe justamente para que a suíte **não**
+precise dele. **[medido aqui]**: com a config acima sem esse `ignore`, `ruff check .` acusa
+`INP001` em todo arquivo de `tests/`. Com ele, `All checks passed!`. Os dois eixos —
+lint e teste — só fecham juntos.
 
 ### 5.2 Por que `select` virou uma armadilha — [medido aqui]
 
@@ -436,7 +510,7 @@ contando as regras que o próprio ruff reporta em `--show-settings`:
 | --- | --- |
 | **nenhuma config** (default do ruff 0.16.1) | **413** |
 | `select = ["E","F","I","N","UP","B","SIM","RUF","ANN"]` (**o prior art**) | **253** |
-| `extend-select = [...]` (**a proposta do §5.1**) | **641** |
+| `extend-select = [...]` (**a proposta do §5.1**) | **720** |
 
 Comando: `uvx ruff check --isolated --show-settings <arquivo>` e a mesma coisa com
 `--config`, contando as linhas de `linter.rules.enabled`.
@@ -1490,3 +1564,183 @@ mesma lógica de assimetria, com o sinal trocado.
 que aquele LTS entregar. Até lá, `>=3.12`.
 
 ---
+
+## 11. O `pyproject.toml` que sai deste documento
+
+Consolidação das oito recomendações num arquivo só. Cada bloco aponta a seção que o
+justifica. Isto **não é** o `pyproject.toml` final do overpower — as dependências de
+runtime vêm de #3 e #4, e o ticket de estruturação é que escreve o arquivo de verdade.
+
+```toml
+[project]
+name = "overpower"
+version = "0.1.0"                       # §8 — literal, movida por `uv version --bump`
+requires-python = ">=3.12"              # §10 — o piso; o ruff lê daqui sozinho
+dependencies = [
+  "typer>=0.27",                        # §escopo — fixado em #4
+  "rich>=15",
+  "questionary>=2.1",
+  "prompt-toolkit>=3.0.53",             # #4 — pin direto, o questionary é frouxo demais
+]
+
+[project.scripts]
+overpower = "overpower.cli:app"         # #3 — pacote == comando == overpower
+
+[build-system]
+requires = ["hatchling"]                # §escopo — fixado em #3 (force-include/artifacts)
+build-backend = "hatchling.build"
+
+# ---------------------------------------------------------------- §4
+[tool.uv]
+required-version = ">=0.11"
+
+[dependency-groups]
+dev = ["pytest>=9", "pytest-cov", "syrupy", "pytest-randomly", "ruff", "towncrier"]
+typecheck = ["pyright"]                 # separado: arrasta Node
+
+# ---------------------------------------------------------------- §5
+[tool.ruff]
+line-length = 88
+src = ["src"]
+# NÃO declarar target-version: o ruff infere de requires-python (§10.5, medido)
+
+[tool.ruff.lint]
+extend-select = [
+  "E", "W", "F", "I", "N", "UP", "B", "SIM", "RUF",
+  "PTH", "ANN", "TC", "S", "PT", "D",
+  "EM", "TRY", "RSE", "RET",
+  "T20", "ARG", "SLF", "TID", "INP",
+  "C4", "C90", "PERF", "FURB", "PIE", "PL",
+  "DTZ", "LOG", "G", "A", "ERA", "FBT",
+]
+ignore = ["D203", "D213", "FBT002", "TRY003"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]                     # §6.5
+"json.load"  = { msg = "use overpower.jsonio.load_json, que devolve object" }
+"json.loads" = { msg = "use overpower.jsonio.loads_json, que devolve object" }
+
+[tool.ruff.lint.per-file-ignores]
+"src/overpower/jsonio.py" = ["TID251"]
+"tests/**"                = ["S101", "D", "ANN", "SLF001", "PLR2004", "INP001"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+# ---------------------------------------------------------------- §6
+[tool.pyright]
+include = ["src", "tests"]
+typeCheckingMode = "strict"
+pythonVersion = "3.12"                  # o PISO, não a versão de dev (§10.5)
+venvPath = "."
+venv = ".venv"
+
+# ---------------------------------------------------------------- §7
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+addopts = "-ra --import-mode=importlib --cov-branch"
+strict = true
+filterwarnings = ["error"]
+markers = ["slow: teste que toca rede ou muitos arquivos"]
+required_plugins = ["pytest-cov", "syrupy", "pytest-randomly"]
+
+[tool.coverage.run]
+source_pkgs = ["overpower"]
+branch = true
+relative_files = true
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 0                          # catraca: sobe e nunca desce (§7.5)
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]
+
+# ---------------------------------------------------------------- §9
+[tool.towncrier]
+name = "overpower"
+directory = "changelog.d"
+filename = "CHANGELOG.md"
+title_format = "## [{version}] - {project_date}"
+issue_format = "[#{issue}](https://github.com/panlabs-tech/overpower/issues/{issue})"
+# + um [[tool.towncrier.type]] para cada seção do Keep a Changelog
+```
+
+Arquivos irmãos: `.python-version` com `3.14` (§10.5), e `uv.lock` commitado (§4.2).
+
+**Este bloco foi executado, não só escrito — [medido aqui].** Montei o `pyproject.toml`
+acima num diretório com `src/overpower/jsonio.py`, `src/overpower/__init__.py` e
+`tests/test_x.py`, e rodei:
+
+```
+$ uvx ruff check .
+All checks passed!
+$ uvx ruff format --check .
+3 files already formatted
+```
+
+Com **720 regras habilitadas**, o `TID251` corretamente silencioso no módulo sancionado, e
+o `INP001` corretamente silencioso em `tests/`. Foi essa execução que revelou o conflito
+`INP001` × `importlib` do §5.1 — a config anterior deste documento estava errada.
+
+**Os quatro comandos**, que são o CI inteiro e o dia a dia (§4.4 — por isso não há task
+runner):
+
+```
+uv run ruff format --check .
+uv run ruff check .
+uv run --group typecheck pyright
+uv run pytest
+```
+
+Mais os três jobs que provam o que ninguém prova:
+
+```
+uv sync --locked                             # §4.5 — lock não muda em silêncio
+uv run --resolution lowest-direct pytest     # §4.2 — o piso de dependência é real
+test "v$(uv version --short)" = "$GITHUB_REF_NAME"   # §8.7 — tag == versão
+```
+
+---
+
+## 12. Riscos, lacunas e o que eu não confirmei
+
+Registrado de propósito, para que ninguém trate inferência como achado.
+
+1. **Provisionamento de interpretador no ambiente corporativo — a lacuna mais importante.**
+   #3 provou o índice de pacotes; **ninguém testou se o Artifactory-alvo deixa o `uv` baixar
+   o `python-build-standalone` do GitHub**. Se não deixar, o `uv` cai para o Python do
+   sistema e o piso do §10 passa de teórico a decisivo. **Retirar esse risco custa um
+   comando** nesse ambiente: `uv python list --all-versions`.
+
+2. **`permissions: id-token: write`.** As duas páginas de trusted publishing que consultei
+   descrevem o fluxo OIDC sem mostrar o YAML do job. Está no §8.6 como lembrete de
+   verificação, **não** como fato citado.
+
+3. **Cobertura como gate: a posição do §7.5 é minha.** A FAQ do coverage.py admite que a
+   medição "isn't perfect" e aponta para *"Flaws in Coverage Measurement"*, mas **não achei
+   declaração oficial** nem a favor nem contra usar um limiar como gate. O desenho de
+   catraca é argumento, não citação.
+
+4. **`select = ["ALL"]`: não achei recomendação contrária na doc da Astral.** O §5.3 o
+   recusa por argumento operacional meu (upgrade de ferramenta quebrando CI), não por fonte.
+
+5. **Os tempos do §6.7 medem partida, não escala.** Projeto de 2 arquivos. Eles **não**
+   verificam a alegação de "10x - 100x" da doc do `ty`, e não devem ser citados como se
+   verificassem.
+
+6. **`hatch-vcs` e clone raso: medi com `git clone --depth 1` local, não com
+   `actions/checkout` real.** O mecanismo é o mesmo (tag ausente), e os defaults do
+   `actions/checkout` estão citados da fonte, mas a composição exata dos dois **não foi
+   executada num runner**.
+
+7. **O que muda se o conteúdo vendorizado sair para um pacote próprio.** Dois eixos
+   reabrem juntos: workspaces do `uv` (§4.4) deixa de ser complexidade sem contraparte, e o
+   `source_pkgs` da cobertura (§7.5) precisa de revisão. É a mudança estrutural mais
+   provável do projeto, e vale reler estas duas seções quando ela vier.
+
+8. **Nada aqui foi verificado contra o Windows.** Todas as medições são WSL2/Linux. O
+   achado de #5 — três degraus de symlink no Windows, `core.symlinks=false` materializando
+   arquivo-texto — sugere que a suíte vai precisar de um job Windows. **Este documento não
+   tem dado sobre isso.**

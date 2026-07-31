@@ -40,7 +40,7 @@ Eles aparecem aqui só como **restrição** — coisas que outras escolhas preci
 | --- | --- | --- |
 | Layout `src/` × flat | **`src/`**, e não por estilo: é o único que faz o bug de empacotamento falhar no teste do dev | §3 |
 | Gerência de projeto com `uv` | **`uv` sozinho fecha env, lock, sync, build e publish**; falta task runner e release | §4 |
-| `ruff`: regras que valem × ruído | §5 |
+| `ruff`: regras que valem × ruído | **`extend-select`, nunca `select`** — em 2026 um `select` explícito *desliga* 160 regras | §5 |
 | Tipagem `pyright` × `mypy` × `ty` | §6 |
 | `pytest`, plugins, cobertura | §7 |
 | Versionamento e trusted publishing | §8 |
@@ -372,5 +372,183 @@ publicado muda. O que **não** é reversível barato é o caminho oposto — o a
 que `uv` **não** lê `pip.conf` nem `PIP_INDEX_URL`, e de que `uvx` só lê
 `~/.config/uv/uv.toml` e `/etc/uv/uv.toml`, é uma dívida de documentação corporativa que já
 foi paga naquele ticket e que voltaria a ser cobrada.
+
+---
+
+## 5. `ruff`: o que ligar, e o que é ruído
+
+### 5.1 Recomendação
+
+**`extend-select`, nunca `select`.** Esta é a recomendação principal do eixo, e ela
+**diverge do prior art** por uma razão que não existia quando o prior art foi escrito.
+
+```toml
+[tool.ruff]
+line-length = 88          # default do ruff; ver §5.5
+src = ["src"]             # ensina o isort onde mora o primeiro-partido
+
+[tool.ruff.lint]
+extend-select = [
+  "E", "W", "F", "I", "N", "UP", "B", "SIM", "RUF",   # a base
+  "PTH",                        # pathlib — a de maior rendimento aqui, ver §5.4
+  "ANN",                        # anotação obrigatória; casa com o §6
+  "TC",                         # imports só-de-tipo fora do runtime
+  "S",                          # bandit
+  "PT",                         # estilo de pytest
+  "D",                          # docstrings
+  "EM", "TRY", "RSE", "RET",    # forma de erro
+  "T20",                        # print() — ver §5.4
+  "ARG", "SLF", "TID", "INP",
+  "C4", "C90", "PERF", "FURB", "PIE", "PL",
+  "DTZ", "LOG", "G", "A", "ERA", "FBT",
+]
+ignore = [
+  "D203", "D213",   # incompatíveis com D211/D212; o ruff já avisa
+  "FBT002",         # falso positivo medido em opção `Annotated` do typer, ver §5.6
+  "TRY003",         # exige classe de exceção por mensagem; a CLI fala com humano
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "D", "ANN", "SLF001", "PLR2004"]
+
+[tool.ruff.format]
+docstring-code-format = true
+```
+
+E o formatter do ruff no lugar do `black`. Um binário faz as duas coisas.
+
+### 5.2 Por que `select` virou uma armadilha — [medido aqui]
+
+O conselho antigo era: `ruff` liga pouca coisa por padrão (`E4`, `E7`, `E9`, `F`), então
+escreva um `select` generoso. **Isso deixou de ser verdade.** A doc de hoje
+([Rules](https://docs.astral.sh/ruff/rules/), consultada 2026-07-30) diz:
+
+> "By default, Ruff enables rules from the `F`, `E`, `B`, `UP`, and `RUF` categories, as
+> well as many more, omitting any stylistic rules that overlap with the use of a formatter"
+
+E `select` **substitui** o padrão; quem soma é `extend-select`. A conta, com `ruff 0.16.1`,
+contando as regras que o próprio ruff reporta em `--show-settings`:
+
+| configuração | regras habilitadas |
+| --- | --- |
+| **nenhuma config** (default do ruff 0.16.1) | **413** |
+| `select = ["E","F","I","N","UP","B","SIM","RUF","ANN"]` (**o prior art**) | **253** |
+| `extend-select = [...]` (**a proposta do §5.1**) | **641** |
+
+Comando: `uvx ruff check --isolated --show-settings <arquivo>` e a mesma coisa com
+`--config`, contando as linhas de `linter.rules.enabled`.
+
+**O `select` do prior art hoje habilita 160 regras a menos do que instalar o ruff e não
+escrever configuração nenhuma.** Não é um detalhe de contagem: as famílias inteiras que ele
+apaga, medidas por diferença de conjuntos, são
+
+```
+ASYNC BLE C D DTZ EXE FA FLY FURB G INT ISC LOG PERF PGH PIE
+PLC PLE PLR PLW PT PTH PYI RET S T TC TRY W YTT
+```
+
+Isso inclui **`PTH`** (pathlib), **`S`** (bandit), **`PLE`** (erros do Pylint), **`TRY`**,
+**`PT`** (estilo de pytest), **`LOG`**, **`PERF`** e **`FURB`**. Um `select` escrito em
+2023 envelheceu para uma lista de exclusão.
+
+**Esta é a divergência do prior art que eu defendo com mais convicção**, e ela é barata:
+trocar `select` por `extend-select` é uma palavra.
+
+### 5.3 Por que não `select = ["ALL"]`
+
+O ruff suporta: "The special `ALL` code enables all rules, with automatic conflict
+resolution" ([Linter](https://docs.astral.sh/ruff/linter/)). A resolução automática é real
+— medi o ruff avisando e escolhendo sozinho entre `D203`/`D211` e `D212`/`D213`.
+
+**Não achei na doc do ruff nenhuma recomendação contra o `ALL`** — *não confirmado em
+fonte primária* que a Astral o desaconselhe. A razão de não usá-lo aqui é minha e é
+operacional: com `ALL`, **toda atualização do ruff pode quebrar o CI sem que uma linha de
+código tenha mudado**, porque regras novas entram habilitadas. Num repo que quer ser
+exemplar, o pior sinal possível é o CI vermelho por bump de ferramenta. `extend-select`
+explícito troca "surpresa a cada upgrade" por "uma linha a cada regra nova que eu quiser".
+
+Nota de precisão que mudou minha própria lista: **o default do ruff habilita
+*subconjuntos*, não famílias inteiras.** O default traz 29 regras de `B` — e **`B904` não
+está entre elas** (*"raise ... from err"*, dentro de `except`). **[medido aqui]**: com
+`extend-select = ["B"]`, o `B904` aparece; sem, não. Por isso a lista do §5.1 renomeia
+famílias que "já vêm por padrão": ela as promove de subconjunto para família inteira.
+
+### 5.4 As regras que pagam *neste* projeto — [medido aqui]
+
+Rodei `--select ALL` sobre um módulo escrito no formato que o overpower vai ter (typer +
+rich + I/O de arquivo + JSON). O que apareceu, e o veredito:
+
+| regra | o que pegou | vale? |
+| --- | --- | --- |
+| `PTH118`, `PTH123`, `PTH103`, `PTH120`, `PTH201` | `os.path.join`, `open()`, `os.makedirs`, `os.path.dirname`, `Path(".")` | **Sim — a de maior rendimento.** 5 achados num arquivo. O overpower é I/O de arquivo; `PTH` é a família feita para ele, e é a que o `select` do prior art desliga. |
+| `TRY004` | `isinstance(...)` falso levantando `ValueError` em vez de `TypeError` | **Sim.** Erro de contrato numa fronteira de JSON, que é exatamente o assunto do §6. |
+| `B904` | `raise typer.Exit(2)` dentro de `except` sem `from` | **Sim.** Traceback limpo importa numa CLI. |
+| `T201` | `print()` num módulo que já tem `Console` | **Sim.** A stack de #4 é `rich`; `print()` cru fura o `NO_COLOR` e a largura. |
+| `INP001` | falta `__init__.py` | Artefato do laboratório, não do repo real. Fica ligada. |
+| `ANN401` | `def f(payload: Any)` | **Sim, e ligada de propósito** — ver §6.6. É o alarme que impede `Any` de vazar de uma fronteira JSON para dentro do domínio. |
+| `CPY001` | falta aviso de copyright | **Não.** Ruído puro. Fica de fora (não está no `extend-select`). |
+| `FBT002` | `force: Annotated[bool, typer.Option(...)] = False` | **Não.** Falso positivo estrutural sobre o estilo idiomático do typer. Ver §5.6. |
+
+### 5.5 O formatter, e as regras que brigam com ele
+
+Usar o formatter do ruff e não `black`. A doc do ruff
+([Formatter](https://docs.astral.sh/ruff/formatter/), consultada 2026-07-30) publica a
+lista de regras que conflitam com ele, e nenhuma delas está no `extend-select` do §5.1:
+
+`W191`, `E111`, `E114`, `E117`, `D203`, `D206`, `D300`, `Q000`, `Q001`, `Q002`, `Q003`,
+`Q004`, `COM812`, `COM819`, `ISC002`.
+
+Duas notas de precisão. **`D203` está nessa lista e no `ignore` do §5.1** — ele é
+conflito com o formatter *e* incompatível com `D211`; um `ignore` resolve os dois. E
+`E501` (linha longa) a doc trata à parte: pode ser usado, mas "may produce warnings since
+formatted code sometimes exceeds configured line length limits". Mantenho `E501` ligado com
+`line-length = 88` (o default medido do ruff) porque o formatter resolve 99% dos casos
+sozinho, e o 1% restante — URL longa, string de erro — merece a atenção que o aviso pede.
+
+`COM812` e `ISC001` aparecem em listas de `ignore` alheias por causa desse conflito.
+**Aqui não são necessários**: `COM` não está no `extend-select`, e o default do ruff traz
+apenas `ISC004`, não `ISC001`. Listá-los seria cargo cult.
+
+### 5.6 O conflito com o `typer`, medido — e a boa notícia
+
+A dor conhecida é `B008` (*function-call-in-default-argument*) contra
+`x: T = typer.Option(...)`. A doc do ruff oferece
+`lint.flake8-bugbear.extend-immutable-calls` com exemplo
+`["fastapi.Depends", "fastapi.Query"]`.
+
+**[medido aqui]**, `ruff 0.16.1`, e o resultado é melhor do que a fama:
+
+| estilo | `B008` dispara? |
+| --- | --- |
+| `name: str = typer.Option("x")` | **não** — a doc: "Parameters with immutable type annotations will be ignored by this rule" |
+| `target: Path = typer.Option(...)` | **sim** |
+| `tags: list[str] = typer.Option([])` | **sim** |
+| `target: Annotated[Path, typer.Option(...)] = Path(".")` | **não** |
+
+Ou seja: **o conflito desaparece inteiro ao usar o estilo `Annotated`** — que é o estilo
+que o próprio typer recomenda hoje, e o que o protótipo de #4 já usa. **Recomendação:
+`Annotated` em todo comando, e nenhum `extend-immutable-calls` no `pyproject.toml`.** A
+configuração que todo mundo copia é o remédio de uma doença que o estilo moderno não tem.
+
+O que sobra de verdade é `FBT002` (*boolean-default-positional-argument*), que dispara
+mesmo no estilo `Annotated`, sobre `force: Annotated[bool, typer.Option(...)] = False`.
+Toda flag booleana de CLI é isso. **`FBT002` no `ignore`**, e `FBT001`/`FBT003` ficam
+ligados — eles pegam booleano posicional em função interna, que é o abuso real que a
+família existe para caçar (e que o laboratório também mediu, no `_install(..., force: bool
+= False)`).
+
+### 5.7 Custo, e custo de reverter
+
+**Custo:** um `extend-select` de 641 regras num repo verde é indolor; num repo com código
+legado seria um mutirão. O overpower não tem código ainda — **este é o momento de menor
+custo possível**, e o custo cresce monotonicamente com cada linha escrita.
+
+**Custo de reverter: quase zero, e assimétrico.** Afrouxar (`ignore` a mais, família a
+menos) é uma linha e vale imediatamente. Apertar depois é o mutirão. **Portanto: apertar
+agora, afrouxar sob evidência** — cada `ignore` futuro entra com um comentário dizendo qual
+falso positivo o justificou, e é essa disciplina que faz o arquivo servir de template.
 
 ---

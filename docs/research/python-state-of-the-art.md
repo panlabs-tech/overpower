@@ -44,7 +44,7 @@ Eles aparecem aqui só como **restrição** — coisas que outras escolhas preci
 | Tipagem `pyright` × `mypy` × `ty` | **`pyright` strict** — o estrito paga, e o custo está todo no JSON, não na I/O | §6 |
 | `pytest`, plugins, cobertura | **`strict = true`** (pytest 9) e **cobertura como catraca**, não como número escolhido | §7 |
 | Versionamento e trusted publishing | **manual com `uv version --bump`** — o `hatch-vcs` publica versão errada em clone raso | §8 |
-| CHANGELOG | §9 |
+| CHANGELOG | **`towncrier` emitindo formato Keep a Changelog** — não é ou-um-ou-outro | §9 |
 | Piso de versão do Python | §10 |
 
 ---
@@ -1176,5 +1176,145 @@ sentidos.** Ir de manual para `hatch-vcs` é trocar `version = "..."` por
 Voltar é o mesmo caminho ao contrário. Nenhuma das duas escolhas prende. Sendo assim, a
 regra de decisão certa é **escolher a que falha mais alto agora** e trocar quando a
 frequência de release justificar — que é exatamente o gatilho do §8.5.
+
+---
+
+## 9. CHANGELOG: `towncrier` × changesets × Keep a Changelog manual
+
+### 9.1 Recomendação
+
+**`towncrier`, configurado para emitir formato Keep a Changelog.** A pergunta do ticket
+opõe três coisas que não estão no mesmo eixo: **Keep a Changelog é um formato de saída,
+`towncrier` é o mecanismo de entrada, e changesets é do npm.** A resposta certa combina os
+dois primeiros e descarta o terceiro.
+
+### 9.2 As duas fontes primárias concordam contra a mesma coisa
+
+Antes de escolher, vale registrar o que as duas docs oficiais **proíbem** — porque é a
+opção que estaria mais à mão neste repo, que já usa Conventional Commits.
+
+Keep a Changelog ([1.1.0](https://keepachangelog.com/en/1.1.0/), consultado 2026-07-30):
+
+> "Using commit log diffs as changelogs is a bad idea: they're full of noise."
+
+towncrier ([doc oficial](https://towncrier.readthedocs.io/en/stable/), consultada
+2026-07-30), dizendo o mesmo por outro ângulo:
+
+> "Rather than reading the Git history, or having one single file which developers all write
+> to and produce merge conflicts, towncrier reads 'news fragments' which contain information
+> useful to end users."
+>
+> "Towncrier delivers the news which is convenient to those that hear it, not those that
+> write it."
+
+**Consequência direta e um pouco contraintuitiva:** o repo usa Conventional Commits — este
+documento mesmo é commitado assim — e isso **continua certo**, mas *não* é a fonte do
+CHANGELOG. Conventional Commits organiza o histórico para quem desenvolve; changelog é para
+quem instala. `git-cliff` e afins derivam o segundo do primeiro, e é exatamente essa
+derivação que as duas fontes chamam de ruído. **Recomendo não usar changelog derivado de
+commit**, e a razão não é minha, é das duas docs.
+
+### 9.3 changesets: fora, e por duas razões
+
+O README oficial ([changesets/changesets](https://raw.githubusercontent.com/changesets/changesets/main/README.md),
+consultado 2026-07-30) se define como "A tool to manage versioning and changelogs with a
+focus on monorepos", e o alvo é npm/JavaScript. Não há menção a Python.
+
+1. **Ecossistema errado.** É um monorepo de `package.json`. O overpower é um pacote Python.
+2. **Traz Node para o loop de desenvolvimento.** O motivo declarado do axioma 1
+   (`docs/agents/domain.md`) é ambiental: *"o alvo de replicação é um ambiente corporativo
+   sem esse ferramental"*. O axioma governa o **runtime**, não o dev loop, então isso **não
+   é** violação de axioma — mas seria estranho um projeto cuja razão de existir é não
+   depender de `npx` escolher uma ferramenta de `npx` para escrever o próprio changelog.
+
+### 9.4 Keep a Changelog manual: o formato fica, o arquivo único não
+
+O formato é bom e eu o adoto: as seis seções (`Added`, `Changed`, `Deprecated`, `Removed`,
+`Fixed`, `Security`), a seção `Unreleased` no topo, versão mais nova primeiro, data
+visível, seções linkáveis, e o princípio-raiz — "Changelogs are *for humans*, not machines."
+
+O que não adoto é o **arquivo único editado à mão**, e a razão é específica deste repo,
+não genérica.
+
+O argumento normal contra o arquivo único é conflito de merge, e o contra-argumento normal é
+"mas aqui é um mantenedor só, não há conflito". **Esse contra-argumento não vale aqui**, e
+dá para ver isso olhando o repo: no momento desta pesquisa, o overpower tem **seis
+worktrees simultâneas**, uma por agente, cada uma numa branch de pesquisa
+(`git worktree list`, 2026-07-30). O modelo de trabalho deste projeto é *muitos escritores
+paralelos em branches de vida curta* — que é literalmente a situação que o arquivo único
+pune, com um mantenedor humano só. **O padrão de trabalho, não o tamanho do time, é o que
+decide.**
+
+### 9.5 `towncrier` medido, e a configuração recomendada
+
+**[medido aqui]**, `towncrier 25.8.0`. Dois fragmentos e um `build --draft`:
+
+```
+$ cat changelog.d/2.added.md
+Instala AI Frameworks curados com `uvx overpower install`.
+$ cat changelog.d/5.fixed.md
+Corrige symlink em Windows sob `core.symlinks=false`.
+
+$ uvx towncrier build --draft --version 0.1.0
+## [0.1.0] - 2026-07-30
+
+### Added
+
+- Instala AI Frameworks curados com `uvx overpower install`. ([#2](https://github.com/panlabs-tech/overpower/issues/2))
+
+### Fixed
+
+- Corrige symlink em Windows sob `core.symlinks=false`. ([#5](https://github.com/panlabs-tech/overpower/issues/5))
+```
+
+**Saída em Markdown, no formato Keep a Changelog, com link automático para a issue.** É a
+prova de que os dois não competem: o `title_format` e os `[[tool.towncrier.type]]` fazem o
+towncrier emitir exatamente o que o Keep a Changelog descreve.
+
+E o link para a issue sai de graça do nome do arquivo, o que casa com o modelo de wayfinding
+deste repo, onde **a decisão mora no ticket**. O CHANGELOG vira índice navegável do mapa.
+
+```toml
+[tool.towncrier]
+name = "overpower"
+directory = "changelog.d"
+filename = "CHANGELOG.md"
+title_format = "## [{version}] - {project_date}"
+issue_format = "[#{issue}](https://github.com/panlabs-tech/overpower/issues/{issue})"
+
+[[tool.towncrier.type]]
+directory = "added"
+name = "Added"
+showcontent = true
+# idem para changed, deprecated, removed, fixed, security — as seis do Keep a Changelog
+```
+
+Os tipos padrão do towncrier são `feature`, `bugfix`, `doc`, `removal`, `misc`; **substituo
+pelos seis do Keep a Changelog**, porque o formato de saída é a decisão do §9.4 e o vocabulário
+do leitor deve ser o dele.
+
+**`towncrier check` como gate de PR**, com uma ressalva medida: ele compara contra uma base
+git, então precisa de `--compare-with origin/main` e de um checkout que tenha essa
+referência. **[medido aqui]**: rodado sem base válida, ele estoura um
+`subprocess.CalledProcessError` do `git diff` — falha feia, mas falha, então não passa
+despercebido. A doc descreve o outro lado: `towncrier check` "will fail if there are any
+news fragment files that have invalid filenames".
+
+### 9.6 Custo, e custo de reverter
+
+**Custo:** um arquivo a mais por PR que muda comportamento, e o `towncrier check` reprovando
+quem esquece. Para PR de refatoração pura, a saída é o `ignore` da config ou um fragmento
+`misc`. **É cerimônia real, e é a recomendação mais "cara em fricção" deste documento.**
+
+O contra-argumento honesto: enquanto a v0.1.0 não sair, **não há usuário para quem escrever
+o changelog**, e todo fragmento é escrito para um leitor hipotético. Quem quiser adiar tem
+um argumento defensável — e o custo de adiar é baixo, ver abaixo.
+
+**Custo de reverter: assimétrico, e a favor de adotar.** Sair do `towncrier` para o arquivo
+manual é rodar `towncrier build` uma última vez e apagar `changelog.d/` — **o CHANGELOG.md
+já está escrito e continua válido**, porque a saída é Keep a Changelog puro. Entrar depois é
+mais caro: o histórico anterior não vira fragmento retroativamente. E adotar changesets em
+qualquer momento significa Node no dev loop. **O `towncrier` é a única das três opções cuja
+saída sobrevive ao abandono da ferramenta.**
 
 ---

@@ -45,7 +45,7 @@ Eles aparecem aqui só como **restrição** — coisas que outras escolhas preci
 | `pytest`, plugins, cobertura | **`strict = true`** (pytest 9) e **cobertura como catraca**, não como número escolhido | §7 |
 | Versionamento e trusted publishing | **manual com `uv version --bump`** — o `hatch-vcs` publica versão errada em clone raso | §8 |
 | CHANGELOG | **`towncrier` emitindo formato Keep a Changelog** — não é ou-um-ou-outro | §9 |
-| Piso de versão do Python | §10 |
+| Piso de versão do Python | **`>=3.12`**, desenvolvendo em **3.14** — piso e versão de dev são decisões distintas | §10 |
 
 ---
 
@@ -1316,5 +1316,177 @@ já está escrito e continua válido**, porque a saída é Keep a Changelog puro
 mais caro: o histórico anterior não vira fragmento retroativamente. E adotar changesets em
 qualquer momento significa Node no dev loop. **O `towncrier` é a única das três opções cuja
 saída sobrevive ao abandono da ferramenta.**
+
+---
+
+## 10. Piso de versão do Python em 2026
+
+### 10.1 Recomendação
+
+**`requires-python = ">=3.12"`, com `.python-version` em `3.14` e matriz de CI nas duas
+pontas.**
+
+A recomendação de fundo deste eixo não é o número — é a distinção que quase todo projeto
+colapsa:
+
+> **O piso é uma promessa de compatibilidade com quem instala. A versão de
+> desenvolvimento é uma escolha de conforto de quem escreve. São decisões diferentes, com
+> donos diferentes e gatilhos diferentes.** Um projeto exemplar declara as duas, e prova as
+> duas no CI.
+
+### 10.2 O calendário, que é fato e não opinião
+
+[Status of Python versions](https://devguide.python.org/versions/), devguide oficial do
+CPython, consultado **2026-07-30**:
+
+| versão | status | lançamento | fim de vida |
+| --- | --- | --- | --- |
+| 3.15 | prerelease | *2026-10-01* | *2031-10* |
+| **3.14** | **bugfix** | 2025-10-07 | *2030-10* |
+| **3.13** | **bugfix** | 2024-10-07 | *2029-10* |
+| 3.12 | security | 2023-10-02 | *2028-10* |
+| 3.11 | security | 2022-10-24 | *2027-10* |
+| 3.10 | security | 2021-10-04 | ***2026-10*** |
+| 3.9 | **end-of-life** | 2020-10-05 | 2025-10-31 |
+
+Duas leituras imediatas, e uma armadilha:
+
+- **3.9 já morreu** (2025-10-31) e **3.10 morre em ~2 meses**. Qualquer piso em 3.10 ou
+  abaixo nasce vencido. Isso elimina metade das opções sem discussão.
+- **3.11 e 3.12 estão em fase de segurança**, não de correção. Só 3.13 e 3.14 recebem
+  bugfix.
+- **A armadilha:** o segundo ponto tenta a conclusão "então o piso deve ser 3.13". Ele não
+  deve, e o §10.4 explica por quê — **a fase de suporte governa em que versão se
+  desenvolve, não abaixo de qual não se instala.**
+
+### 10.3 Por que o piso quase não importa aqui — e onde ele volta a importar
+
+O `overpower` é invocado como `uvx overpower` (`docs/agents/domain.md`), e o `uv`
+**provisiona o próprio interpretador**. A doc de [Python
+versions](https://docs.astral.sh/uv/concepts/python-versions/) (consultada 2026-07-30):
+
+> "uv instead uses pre-built distributions from the Astral `python-build-standalone`
+> project."
+>
+> "By default, uv will automatically download Python versions when needed."
+
+Ou seja, no caminho feliz o Python do sistema do usuário é **irrelevante**: o `uv` baixa um
+compatível com o `requires-python`. Declarar `>=3.14` não deixaria ninguém de fora — só
+faria o `uv` baixar 3.14.
+
+**Onde volta a importar é o caminho corporativo, que é metade do destino do mapa.** Os
+downloads vêm de releases do GitHub, e a doc oferece justamente os interruptores que um
+ambiente fechado precisa:
+
+- `python-downloads`: "By default, it is set to `automatic`; set to `manual` to only allow
+  Python downloads during `uv python install`", mais a flag `--no-python-downloads`.
+- `python-install-mirror`: "The provided URL will replace
+  `https://github.com/astral-sh/python-build-standalone/releases/download` in download
+  paths. Distributions can be read from a local directory by using the `file://` URL
+  scheme."
+
+A existência desses interruptores é a prova de que **o cenário "a máquina não baixa Python"
+é real e previsto pela Astral**. Nele, o `uv` cai para o interpretador do sistema — e aí o
+piso declarado decide entre funcionar e não funcionar.
+
+**E o interpretador do sistema, no baseline corporativo mais comum, é 3.12.** O Ubuntu
+24.04 LTS (noble) entrega `python3` na versão **3.12.3** ([packages.ubuntu.com/noble/python3](https://packages.ubuntu.com/noble/python3),
+consultado 2026-07-30) — o mesmo número que esta máquina de pesquisa reporta em
+`/usr/bin/python3` **[medido aqui]**.
+
+**Este é o argumento inteiro do piso**, e ele é assimétrico: um piso em 3.13 quebra o
+overpower numa máquina Ubuntu LTS sem download de Python, e **compra em troca apenas
+açúcar de sintaxe**.
+
+**Lacuna honesta:** a pesquisa de #3 provou o índice corporativo (PEP 503 atrás de HTTP
+Basic, quatro formas de credencial), mas **não** testou provisionamento de interpretador
+nesse ambiente. *Não confirmado*: se o Artifactory-alvo permite ou bloqueia o download do
+`python-build-standalone`. **É a verificação que mais barato retira risco deste eixo**, e
+cabe num ticket de uma linha.
+
+### 10.4 O que se ganha subindo, e por que não paga
+
+| subir para | o que entra | vale o piso? |
+| --- | --- | --- |
+| **3.12** | PEP 695 (`type` e parâmetros de tipo com sintaxe própria), PEP 698 `@override`, PEP 701 (f-string sem restrição), `itertools.batched`, `pathlib.Path.walk` | **Sim, é o piso.** `Path.walk` e `@override` são usados por código que copia árvore de arquivo e por hierarquia de comando. |
+| 3.13 | PEP 696 (defaults em parâmetro de tipo), `warnings.deprecated`, REPL novo | Não como **piso**. Nada aqui é estrutural para um CLI que copia arquivo. |
+| 3.14 | PEP 649/749 (anotações preguiçosas), PEP 750 (t-strings), PEP 758 (`except A, B` sem parênteses), PEP 779 (free-threading oficialmente suportado) | Não como **piso** — mas **sim como versão de desenvolvimento**, §10.5. |
+
+Fonte das novidades de 3.14: [What's New In Python
+3.14](https://docs.python.org/3/whatsnew/3.14.html), consultado 2026-07-30; lançamento em
+**7 de outubro de 2025**.
+
+Vale um comentário sobre a mais tentadora. PEP 649/749 faz as anotações deixarem de ser
+avaliadas com pressa — "The annotations on functions, classes, and modules are no longer
+evaluated eagerly" — o que torna o `from __future__ import annotations` desnecessário. É
+uma melhoria real de ergonomia. **Mas ela é benefício de quem escreve, e o piso é promessa
+para quem instala.** Com o piso em 3.12, o `from __future__ import annotations` continua no
+topo dos arquivos, custa uma linha, e funciona nas duas pontas. Trocar compatibilidade
+corporativa por uma linha a menos é um mau negócio.
+
+### 10.5 Desenvolver em 3.14, declarar 3.12, provar as duas
+
+```toml
+# pyproject.toml
+[project]
+requires-python = ">=3.12"     # a promessa
+```
+
+```
+# .python-version
+3.14                            # o conforto — o uv respeita, e o uv init já gera este arquivo
+```
+
+E a matriz de CI **nas duas pontas, não no meio**: `3.12` (o piso, onde a promessa quebra
+se quebrar) e `3.14` (a versão de dev, e a que vai virar piso um dia). Testar 3.13 no meio
+custa um job e não descobre nada que os extremos não descubram.
+
+Combinado com o `--resolution lowest-direct` do §4.2, o CI passa a provar **as duas
+declarações de piso do projeto** — a de Python e a de dependência. São as duas promessas
+que um `pyproject.toml` faz e que ninguém verifica.
+
+**E o `requires-python` é fonte de verdade de mais gente do que parece.** A doc do ruff
+sobre `target-version` recomenda explicitamente não duplicar o número:
+
+> "If you're already using a `pyproject.toml` file, we recommend `project.requires-python`
+> instead, as it's based on Python packaging standards, and will be respected by other
+> tools."
+
+**[medido aqui]**: num projeto com `requires-python = ">=3.12"` e **nenhum**
+`target-version` declarado, o `ruff 0.16.1` reporta em `--show-settings`
+
+```
+linter.unresolved_target_version = 3.12
+formatter.unresolved_target_version = 3.12
+analyze.target_version = 3.12
+```
+
+Então **não escreva `target-version` no `[tool.ruff]`** — ele já lê o piso, e duplicar é
+criar duas verdades que vão divergir no dia do bump.
+
+O `pyright`, ao contrário, **não** infere: o `pythonVersion` do §6.6 precisa ser escrito à
+mão, e precisa ser **3.12, o piso — não 3.14**. Um type checker rodando na versão de
+desenvolvimento aceitaria alegremente `except A, B` sem parênteses e reprovaria o usuário,
+não o autor.
+
+### 10.6 Custo, e custo de reverter
+
+**Custo do piso em 3.12:** perde-se t-strings, `except` sem parênteses e anotação
+preguiçosa **no código publicado**. Custo real: um `from __future__ import annotations` por
+arquivo, que o `ruff` (família `FA`, já no default) cobra sozinho.
+
+**Custo de reverter — e aqui a assimetria inverte em relação aos outros eixos.** **Subir** o
+piso é trivial e sempre permitido: `>=3.12` → `>=3.13` é um caractere, e o pior efeito é um
+usuário antigo travar numa versão antiga do overpower, que é o comportamento correto do
+resolvedor. **Descer** é que é caro: exige revisar todo o código escrito com sintaxe nova.
+
+**Portanto, aqui e só aqui, a escolha conservadora é a certa** — o oposto de todos os
+outros eixos deste documento, e vale dizer por quê: nos outros, o rigor é barato agora e
+caro depois; **no piso de versão, a promessa é barata de apertar e cara de afrouxar.** É a
+mesma lógica de assimetria, com o sinal trocado.
+
+**Gatilho de reabertura, e ele tem data:** quando o 3.12 sair de suporte (**outubro de
+2028**), ou quando o Ubuntu LTS seguinte virar o baseline corporativo, o piso sobe para o
+que aquele LTS entregar. Até lá, `>=3.12`.
 
 ---

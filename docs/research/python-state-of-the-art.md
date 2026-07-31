@@ -41,7 +41,7 @@ Eles aparecem aqui só como **restrição** — coisas que outras escolhas preci
 | Layout `src/` × flat | **`src/`**, e não por estilo: é o único que faz o bug de empacotamento falhar no teste do dev | §3 |
 | Gerência de projeto com `uv` | **`uv` sozinho fecha env, lock, sync, build e publish**; falta task runner e release | §4 |
 | `ruff`: regras que valem × ruído | **`extend-select`, nunca `select`** — em 2026 um `select` explícito *desliga* 160 regras | §5 |
-| Tipagem `pyright` × `mypy` × `ty` | §6 |
+| Tipagem `pyright` × `mypy` × `ty` | **`pyright` strict** — o estrito paga, e o custo está todo no JSON, não na I/O | §6 |
 | `pytest`, plugins, cobertura | §7 |
 | Versionamento e trusted publishing | §8 |
 | CHANGELOG | §9 |
@@ -550,5 +550,276 @@ custo possível**, e o custo cresce monotonicamente com cada linha escrita.
 menos) é uma linha e vale imediatamente. Apertar depois é o mutirão. **Portanto: apertar
 agora, afrouxar sob evidência** — cada `ignore` futuro entra com um comentário dizendo qual
 falso positivo o justificou, e é essa disciplina que faz o arquivo servir de template.
+
+---
+
+## 6. Tipagem: `pyright` × `mypy` × `ty`, e se o estrito paga
+
+Este é o eixo em que a issue faz uma pergunta específica — *"o modo estrito paga o custo
+numa lib com muita I/O de arquivo e leitura de JSON sem esquema?"* — então ele é respondido
+com experimento, não com opinião.
+
+### 6.1 Recomendação
+
+**`pyright` em `strict`, como gate único. `mypy` não entra. `ty` fica no editor, não no
+CI.** E — a parte que importa mais que a escolha da ferramenta — **uma regra de arquitetura
+de uma linha, que o `ruff` sabe cobrar sozinho**:
+
+> **`json.load` é chamado em exatamente um módulo, e esse módulo devolve `object`,
+> nunca `Any`.**
+
+Sem essa regra, o `pyright` strict tem um ponto cego bem no meio do assunto do overpower.
+Com ela, o ponto cego vira erro de compilação. §6.5 mostra os dois lados medidos.
+
+### 6.2 A resposta curta: sim, e o custo não está onde se supõe
+
+**[medido aqui]** — módulo escrito no formato do overpower (typer + rich + I/O de arquivo
+com `pathlib` + JSON sem esquema), com as três dependências reais instaladas
+(`typer`, `rich`, `questionary`), `pyright 1.1.411` em `typeCheckingMode = "strict"`:
+
+```
+1 error, 0 warnings, 0 informations
+  cli.py:27:12 - error: Return type, "dict[Unknown, Unknown]", is partially unknown
+                 (reportUnknownVariableType)
+```
+
+**Um erro. E ele não é sobre I/O de arquivo — é sobre o JSON.**
+
+O custo da I/O de arquivo em modo estrito é **zero**, e a razão é estrutural: `pathlib`,
+`shutil` e `os` são inteiramente tipados no typeshed. Escrever `Path.rglob`,
+`Path.write_bytes`, `Path.relative_to` e `shutil.copy2` sob strict não custa uma anotação a
+mais do que sob `standard`.
+
+O custo das **dependências** também é zero, e isso foi verificado e não suposto: as três
+publicam o marcador `py.typed` no pacote — confirmado via API do GitHub nos repositórios
+oficiais `fastapi/typer`, `Textualize/rich` e `tmbo/questionary` (2026-07-30). Como
+`reportMissingTypeStubs` é `"error"` em strict e `"none"` em standard
+([configuration.md](https://raw.githubusercontent.com/microsoft/pyright/main/docs/configuration.md)),
+essa é justamente a linha em que uma stack mal escolhida faria o strict doer. A stack de #4
+não faz.
+
+**Todo o custo do modo estrito neste projeto está concentrado numa única fronteira: o
+`json.load`.** Que é uma fronteira que a gente quer estreita de qualquer jeito.
+
+### 6.3 Por que o JSON dói, e por que dói *menos* do que a fama
+
+O typeshed declara ([stdlib/json/__init__.pyi](https://raw.githubusercontent.com/python/typeshed/main/stdlib/json/__init__.pyi),
+consultado 2026-07-30) que `json.load` e `json.loads` devolvem **`Any`**.
+
+E aqui está o ponto que quase todo mundo erra: **`Any` explícito não é `Unknown`, e o
+`pyright` strict só reclama de `Unknown`.** A doc do pyright
+([type-inference.md](https://raw.githubusercontent.com/microsoft/pyright/main/docs/type-inference.md)):
+
+> "If a symbol's type cannot be inferred, Pyright sets its type to "Unknown", which is a
+> special form of "Any"."
+>
+> "The "Unknown" type allows Pyright to optionally warn when types are not declared and
+> cannot be inferred, thus leaving potential "blind spots" in type checking."
+
+Como `json.load` **declara** `Any` no stub, o valor que sai dele não é `Unknown`. **O
+pyright strict não emite um único diagnóstico sobre ele.** A confirmação vem de uma fonte
+adversarial: a doc do **basedpyright**, um fork que existe em parte por discordar disso,
+descreve sua regra exclusiva `reportAny` como cobrindo
+
+> "all scenarios not covered by the `reportUnknown*` rules (since "Unknown" isn't a real
+> type, but a distinction pyright makes to disallow the `Any` type only in certain
+> circumstances)"
+
+com default `"none"` em standard **e em strict**, `"error"` só em `all`
+([basedpyright, config-files](https://docs.basedpyright.com/latest/configuration/config-files/),
+consultada 2026-07-30). `reportAny` e `reportExplicitAny` **não existem no pyright
+upstream** — quem os cita como parte do "pyright strict" está descrevendo outra
+ferramenta.
+
+**Conclusão do sub-eixo:** ler JSON sem esquema sob `pyright` strict **não** gera enxurrada
+de erro. Gera **silêncio** — que é um problema diferente, e o §6.5 trata dele.
+
+### 6.4 O que cada checker faz com o mesmo arquivo — [medido aqui]
+
+Mesmo módulo, cinco funções, três checkers. Versões: `pyright 1.1.411` (strict),
+`mypy 2.3.0 (compiled: yes)` (`--strict`), `ty 0.0.65`.
+
+| a função | `pyright` strict | `mypy --strict` | `ty 0.0.65` |
+| --- | --- | --- | --- |
+| `def f(p) -> object: return json.load(...)` | ok | ok | ok |
+| `def f(p):` sem anotação de retorno | **ok** (o `Any` do stub não é `Unknown`) | **erro** `no-untyped-def` | ok |
+| `def f(p) -> str: ... return data["name"]` — **retorno inseguro** | **ok — passa** | **erro** `Returning Any from function declared to return "str"` | ok |
+| I/O de arquivo com `pathlib`, `rglob`, `write_bytes` | ok | ok | ok |
+| `isinstance(raw, list)` + `isinstance(item, dict)` + `item["name"]` — **o código que valida** | **3 erros** `reportUnknown*` | ok | **2 erros, falsos** |
+
+Três leituras saem daí, e elas invertem a intuição:
+
+**1. O `mypy --strict` pega o bug de verdade e o `pyright` strict não.** O caso
+`return data["name"]` numa função declarada `-> str` é *o* erro de fronteira de JSON, e
+quem o pega é o `--warn-return-any`, que a doc do mypy descreve como "generate a warning
+when returning a value with type Any from a function declared with a non-Any return type"
+e que o `--strict` inclui ([mypy, command_line](https://mypy.readthedocs.io/en/stable/command_line.html),
+consultada 2026-07-30 — a mesma página avisa que "the exact list of flags enabled by
+running `--strict` may change over time").
+
+**2. O `pyright` strict reclama exatamente do código que faz a coisa certa.** As três
+reclamações caem sobre a função que *valida* com `isinstance`, porque estreitar `object`
+para um `list`/`dict` pelado produz `list[Unknown]` e `dict[Unknown, Unknown]`. O código
+que não valida nada passa em silêncio. **É um incentivo invertido**, e é a crítica mais
+séria que se pode fazer ao strict do pyright nesse domínio.
+
+**3. O `ty 0.0.65` erra.** Reprodução mínima de 4 linhas:
+
+```python
+def f(raw: object) -> str:
+    if isinstance(raw, dict):
+        return str(raw["name"])   # ty: erro. pyright: ok. mypy: ok.
+    return ""
+```
+
+```
+error[invalid-argument-type]: Method `__getitem__` of type
+  `bound method Top[dict[Unknown, Unknown]].__getitem__(key: Never, /) -> object`
+  cannot be called with key of type `Literal["name"]`
+```
+
+Indexar um `dict` gradualmente tipado com uma chave `str` é Python legal e tipagem legal; o
+`ty` resolve o parâmetro de chave para `Never` e rejeita. `pyright` e `mypy` aceitam. É
+**falso positivo**, e não é obscuro — é o primeiro padrão que qualquer leitor de JSON
+escreve.
+
+### 6.5 A regra de uma linha que resolve os três problemas — [medido aqui]
+
+Se o `json.load` nunca escapa como `Any`, e sim como **`object`**, tudo se realinha:
+
+```python
+def load_json(path: Path) -> object:      # único ponto do codebase que chama json.load
+    with path.open(encoding="utf-8") as fh:
+        return cast("object", json.load(fh))
+```
+
+O mesmo bug de antes, agora com o valor tipado `object`:
+
+```
+pyright strict : error: "__getitem__" method not defined on type "object" (reportIndexIssue)
+mypy --strict  : error: Value of type "object" is not indexable  [index]
+ty 0.0.65      : error (gate.py:19)
+```
+
+**Os três pegam.** O ponto cego do `pyright` era uma consequência do `Any`, não do pyright —
+tirado o `Any`, some. E some **sem** um segundo checker no CI.
+
+E as reclamações do §6.4, item 2, também somem, desde que a validação produza tipo
+concreto em vez de estreitar um `dict` pelado. O padrão completo — `load_json() -> object`,
+mais validadores `_as_mapping(v: object) -> dict[str, object]` e
+`_as_str(v: object) -> str` — foi medido **limpo nos três**:
+
+```
+pyright strict : 0 errors     mypy --strict : Success     ty : All checks passed!
+```
+
+**E o `ruff` sabe cobrar a regra.** `TID251` com `banned-api` transforma "só um módulo
+chama `json.load`" em erro de lint, não em acordo de cavalheiros. **[medido aqui]**:
+
+```toml
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"json.load"  = { msg = "use overpower.jsonio.load_json, que devolve object" }
+"json.loads" = { msg = "use overpower.jsonio.loads_json, que devolve object" }
+
+[tool.ruff.lint.per-file-ignores]
+"src/overpower/jsonio.py" = ["TID251"]
+```
+
+```
+clean.py:19:31: TID251 `json.load` is banned: use overpower.jsonio.load_json, que devolve object
+```
+
+O módulo sancionado passa; qualquer outro é barrado. **Esta é a recomendação mais
+transferível deste documento inteiro**: a fronteira de dados sem esquema não se defende
+escolhendo um checker mais bravo, defende-se estreitando a fronteira até caber num arquivo
+— e aí qualquer checker serve.
+
+### 6.6 Por que `pyright` e não `mypy`, dado que o `mypy` pegou mais
+
+Honestamente: **o `mypy --strict` teve o melhor resultado bruto** nos experimentos —
+pegou o retorno inseguro, pegou a função sem anotação, e não produziu um único falso
+positivo. Se o critério fosse só "quem acha mais bug e reclama menos à toa", seria mypy.
+
+Escolho `pyright` assim mesmo, por quatro razões, e a primeira é a que decide:
+
+1. **A regra do §6.5 apaga a vantagem do mypy.** Os dois erros que só o mypy pegou existem
+   porque havia um `Any` solto. Com `json.load` confinado, o `pyright` pega os mesmos casos
+   (medido). A vantagem do mypy é real **e** é contingente a uma prática que já vamos
+   proibir por lint.
+2. **É o checker que o editor já roda.** `pyright` é o motor do Pylance no VS Code e o que
+   dá diagnóstico enquanto se digita. Um gate de CI que discorda do editor gera a pior das
+   experiências — vermelho no CI que não aparece na tela. Alinhar gate e editor vale mais
+   que uma regra a mais.
+3. **É o prior art do `panlabs-tech/.github`.** Aqui **não** divirjo, e conscientemente:
+   divergir custa consistência, e nas três razões acima não há ganho que pague.
+4. **A anotação obrigatória vem do `ruff`, não do checker.** `ANN` no `extend-select`
+   (§5.1) já cobra anotação em toda assinatura, que era o outro achado exclusivo do mypy.
+   E `ANN401` proíbe `Any` em assinatura — o mesmo alvo do `reportExplicitAny` do
+   basedpyright, sem trocar de checker.
+
+**A configuração:**
+
+```toml
+[tool.pyright]
+include = ["src", "tests"]
+typeCheckingMode = "strict"
+pythonVersion = "3.12"        # ver §10
+venvPath = "."
+venv = ".venv"
+```
+
+Note `include = ["src", "tests"]`: os testes também são código, e são onde o `Any` costuma
+entrar de fininho.
+
+### 6.7 `ty`: onde ele entra em 2026, e onde não
+
+O README oficial ([astral-sh/ty](https://raw.githubusercontent.com/astral-sh/ty), consultado
+2026-07-30) é explícito:
+
+> ty is currently in **beta** — "ty does not yet have a stable API; breaking changes,
+> including changes to diagnostics, may occur between any two versions."
+
+Versão medida: **`ty 0.0.65`**, ainda no esquema `0.0.x`.
+
+**Recomendação: não usar como gate de CI, usar no editor.** A velocidade é real e é
+mensurável **[medido aqui]**, no mesmo projeto de 2 arquivos com as três dependências:
+
+| checker | tempo (cache quente) | tempo (cache frio) |
+| --- | --- | --- |
+| `ty 0.0.65` | **0,095 s** | — |
+| `mypy 2.3.0` (compiled) | 0,161 s | 1,541 s |
+| `pyright 1.1.411` | 1,705 s | — |
+
+**Aviso de honestidade sobre esses números:** o projeto tem 2 arquivos, então o que está
+medido é essencialmente **custo de partida**, não escala. O 1,7 s do pyright é o Node
+subindo. Não trate a tabela como prova da alegação de "10x - 100x" da doc do ty
+([Introduction](https://docs.astral.sh/ty/)) — ela não mede isso, e eu **não** medi isso.
+
+O que **desqualifica** o `ty` como gate hoje não é velocidade, é o falso positivo do §6.4
+sobre o padrão central deste projeto. Um gate que reprova código correto é pior que gate
+nenhum.
+
+**O gatilho de reabertura é limpo e vai acontecer sozinho:** `ty` em 1.0, ou o falso
+positivo de `isinstance(x, dict)` + chave `str` corrigido. Vale reexecutar a matriz do §6.4
+a cada minor. Trocar `pyright` por `ty` depois é trocar uma linha de CI e uma seção de
+`pyproject.toml` — **é a reversão mais barata deste documento**, o que é precisamente o
+argumento para não apostar cedo.
+
+### 6.8 Custo, e custo de reverter
+
+**Custo do strict, medido e não estimado:** 1 erro num módulo representativo, e o erro
+aponta para uma decisão de desenho que a gente ia querer tomar de qualquer forma. Em
+`standard`, esse erro some junto com `reportUnknownParameterType`,
+`reportUnknownArgumentType`, `reportUnknownVariableType`, `reportUnknownMemberType`,
+`reportMissingParameterType`, `reportMissingTypeArgument`, `reportMissingTypeStubs` e
+`reportUnnecessaryIsInstance` — todos `"none"` em standard e `"error"` em strict, pela
+tabela oficial do pyright.
+
+**O custo real não é o strict: é largar o strict depois.** Adotar strict num repo vazio é
+grátis. Adotá-lo em 3.000 linhas é um projeto. O modo estrito é a decisão mais barata de
+tomar cedo e mais cara de adiar deste documento inteiro.
+
+**Custo de reverter:** trocar `"strict"` por `"standard"` é uma palavra, e é reversível a
+qualquer momento sem tocar em código. **Assimetria total a favor de começar estrito.**
 
 ---

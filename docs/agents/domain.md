@@ -36,6 +36,7 @@ Termos que aparecem em issues, specs e código, e que significam algo específic
 
 - **Artefato de cópia**: skill, comando, agente. Chega como arquivo ou árvore que não existia. Colisão é de **caminho**; no `git status` aparece como arquivo novo.
 - **Artefato de enxerto**: servidor MCP, hook. Chega como entrada **dentro de um documento que o usuário também edita** (`.mcp.json`, `.claude/settings.json`). Colisão é de **chave**; no `git diff` aparece como alteração num arquivo do usuário.
+  - Os dois não são simétricos, e o layout depende disso: **MCP é só contrato**, sem árvore a vendorizar; **hook é contrato *e* árvore** — no `obra/superpowers`, `run-hook.cmd` e `session-start` são executáveis que aterrissam, enquanto `hooks.json` e `hooks-cursor.json` são a mesma declaração em formato diferente por runtime, e nunca aterrissam como arquivo. Medido em [Onde os assets vivem e como entram no wheel](https://github.com/panlabs-tech/overpower/issues/11).
 - **Runtime**: o consumidor do equipamento instalado — Claude Code, Cursor, Codex, Copilot. Cada um tem caminho próprio e, para enxertos, **formato** próprio.
 - **Aterrissagem**: onde o overpower escreve — no repositório corrente ou na máquina (`~/`).
 

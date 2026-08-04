@@ -55,6 +55,20 @@ Consequências do vocabulário acima, decididas em [Modelo de domínio: AI Frame
 5. **Entradas de catálogo não têm eixo de versão.** A versão do overpower **é** a versão do catálogo embutido; conteúdo vindo do repositório remoto de assets é fresco e não reprodutível, por decisão. O modo de obtenção faz parte da identidade do resultado, e por isso `uvx overpower@latest` é requisito de correção, não estilo de README.
 6. **No alvo não aterrissa nada além do conteúdo da árvore dos artefatos.** "Framework instalado" não é entidade, é efeito: o repositório tem arquivos e não sabe de onde vieram — ver [ADR 0003](../adr/0003-sem-atribuicao-no-alvo.md).
 
+## Critério de curadoria
+
+O que pode entrar no catálogo, decidido em [Critério de elegibilidade e o conjunto de frameworks da v0.1.0](https://github.com/panlabs-tech/overpower/issues/15). São **três portões, e o primeiro que reprova encerra**.
+
+1. **Legal (veto).** O conteúdo é redistribuível dentro do wheel. Framework não-MIT obriga expressão SPDX composta no metadado — senão ele mente exatamente para quem decide se o pacote passa numa allow-list corporativa por licença.
+2. **Identidade.** O conteúdo aterrissado funciona sem ferramental que o overpower não pode garantir no alvo. **Reprovar aqui não é "framework recusado" — é não ser um AI Framework neste modelo**, porque autocontido é identidade, não elegibilidade.
+3. **Transformação.** Se o que aterrissa não é a árvore versionada, a transformação acontece **na curadoria**, com a saída vendorizada; o produto continua sendo cópia. Ver [ADR 0005](../adr/0005-transformacao-acontece-na-curadoria.md).
+
+**O critério mora no julgamento do curador, não em campo do catálogo.** O catálogo só contém o que já passou — um campo que registrasse "passou" seria constante.
+
+**Para artefato de pool a curadoria é livre**, com duas cláusulas: o mesmo portão legal, e o átomo funciona com o que aterrissou. **O veto de framework não propaga para o átomo**: origem é propriedade do corpo, não do átomo, e pela regra 6 o alvo não carrega atribuição nenhuma.
+
+**Escrever dentro de arquivo do usuário não reprova ninguém** — enxerto é classe legítima deste modelo. O que reprovou o `open-gsd/gsd-core` foi runtime: o conteúdo aterrissado exige Node ≥22, e os hooks embutem o caminho absoluto do binário da máquina que instalou.
+
 ## Axiomas
 
 Posições travadas na cartografia do mapa. Não se renegociam sem reabrir o mapa.
@@ -64,6 +78,20 @@ Posições travadas na cartografia do mapa. Não se renegociam sem reabrir o map
 3. **Ferramenta genérica.** O overpower não é ferramenta da org `panlabs-tech`. A decisão de distribuição de skills registrada em `panlabs-tech/skills` **não o vincula**.
 4. **Só equipamento de AI.** Anatomia de repositório — `pyproject.toml`, CI, portões de commit, layout de testes — está **fora de escopo**. Esse território é do `uv init`, `copier` e `cookiecutter`.
 5. **Conteúdo vendorizado.** O conteúdo dos frameworks viaja **dentro do wheel**, com o risco de redistribuição aceito conscientemente. Um repo remoto de assets existe como *override*, não como padrão.
+
+## Reservado para depois da v0.1.0
+
+**A v0.1.0 tem um AI Framework só** — `mattpocock/skills`, as 22 skills promovidas — mais o pool de artefatos e os bundles. Todo o conteúdo é **cópia**: nenhum servidor MCP, nenhum hook. A classe **enxerto** existe no vocabulário e não é exercitada.
+
+Isso é escopo, não modelo. O que o modelo exige é que a v0.1.0 **não feche a porta** do enxerto. Três travas, todas vindas de medição em [Formatos de configuração de MCP por runtime](https://github.com/panlabs-tech/overpower/issues/17):
+
+1. **Destino não é diretório.** Cópia aterrissa numa pasta; enxerto aterrissa em **arquivo mais chave dentro dele**. O destino tem de ser um dado com duas formas já na v0.1.0, mesmo com só uma implementada. Modelar destino como caminho de pasta é a regressão.
+2. **Um artefato pode custar mais de uma escrita, e a segunda pode ser fora do repositório.** Medido: `.mcp.json` commitado sozinho não funciona — o Claude Code exige aprovação gravada em `.claude/settings.local.json`, e o Codex exige `trust_level = "trusted"` na máquina. Um fluxo que assuma *"um artefato, uma escrita, toda dentro do alvo"* obriga reescrita na v0.2.
+3. **`--dry-run` e `doctor` falam de escritas planejadas, não de arquivos a copiar.** Consequência da 2, com armadilha medida: sem `trust_level`, o `doctor` dá **falso positivo** — reporta instalado o que não está.
+
+As três se pagam com uma decisão de forma: **toda escrita no alvo passa por uma fronteira única**. A v0.1.0 implementa uma operação (copiar árvore); a v0.2 acrescenta outra (enxertar chave). Somar implementação, não reescrever fluxo.
+
+O trabalho de desenho do enxerto está preservado e **se reabre, não se refaz** — três tickets rotulados `v0.2` ([#20](https://github.com/panlabs-tech/overpower/issues/20), [#21](https://github.com/panlabs-tech/overpower/issues/21), [#22](https://github.com/panlabs-tech/overpower/issues/22)) e as pesquisas em `research/mcp-config-formats` e `research/hook-formats`.
 
 ## Registro histórico
 

@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "overpower"
+version = "0.0.1"
+description = "Instala AI Frameworks curados num repositorio ou na maquina"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Thiago Panini" }]
+keywords = ["ai", "agent", "skills", "claude", "cursor", "codex"]
+classifiers = [
+  "Development Status :: 1 - Planning",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Software Development :: Code Generators",
+]
+
+# Zero dependencias e deliberado enquanto a 0.0.x existir: o teste do indice
+# corporativo tem que medir o `overpower` e nada mais. Com typer/rich na arvore,
+# uma falha no Artifactory seria ambigua entre o nosso pacote e o espelhamento
+# das transitivas. A stack de CLI decidida no #4 entra na v0.1.0.
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/panlabs-tech/overpower"
+Issues = "https://github.com/panlabs-tech/overpower/issues"
+
+[project.scripts]
+# pacote == comando == `overpower`. O `uvx <nome>` resolve pelo *comando* e
+# infere o pacote por igualdade de nome; divergir obriga `--from`.
+# Medido em https://github.com/panlabs-tech/overpower/issues/3
+overpower = "overpower.cli:main"
+
+# Nao ha `[tool.hatch.build...]` aqui, e a ausencia e decisao medida:
+# docs/adr/0004-build-nao-forca-inclusao-de-conteudo.md
+# Qualquer `force-include`, `artifacts`, `packages` ou `ignore-vcs` que apareca
+# neste arquivo e regressao ate prova em contrario, e a prova tem que vir do
+# build de CI a partir de clone limpo.

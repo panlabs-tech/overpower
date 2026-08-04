@@ -1,0 +1,63 @@
+# O NOME DESTE ARQUIVO E PARTE DA CREDENCIAL.
+#
+# O trusted publisher do PyPI casa owner + repositorio + *nome do arquivo* do
+# workflow + environment. Renomear `release.yml` invalida a publicacao com um
+# erro que nao menciona o nome do arquivo.
+name: Publish release to PyPI
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/overpower
+    permissions:
+      # Obrigatorio para o OIDC do trusted publishing, e tem que estar no job,
+      # nao no workflow. Faltando, o uv erra com "Failed to obtain OIDC token".
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.1"
+
+      # A tag e a versao sao duas fontes de verdade, e divergirem publica a
+      # versao errada ou falha por duplicata la no fim. Mesma classe do
+      # `hatch-vcs` sob clone raso medido no #2: sucesso com conteudo errado.
+      - name: A tag casa com a versao do pyproject
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(uv version --short)"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::tag v${tag} diverge de version = \"${pkg}\" no pyproject.toml"
+            exit 1
+          fi
+          echo "tag v${tag} == version ${pkg}"
+
+      - name: Build
+        run: uv build --no-sources
+
+      - name: Inventario do que foi construido
+        run: |
+          ls -l dist/
+          python3 -c "import zipfile,glob;[print(n) for n in sorted(zipfile.ZipFile(glob.glob('dist/*.whl')[0]).namelist())]"
+
+      # Os dois smoke tests nao sao redundantes. O `uv build` constroi o wheel
+      # a partir do sdist, entao o teste do sdist e o que prova que o conteudo
+      # sobrevive ao caminho sdist -> wheel — a armadilha do #3 secao 2.3.
+      - name: Smoke test do wheel
+        run: uv run --isolated --no-project --with dist/*.whl -- overpower
+
+      - name: Smoke test do sdist
+        run: uv run --isolated --no-project --with dist/*.tar.gz -- overpower
+
+      # Sem credencial nenhuma: `--trusted-publishing automatic` e o default e
+      # troca o token OIDC do Actions por um token curto do PyPI.
+      - name: Publicar no PyPI
+        run: uv publish

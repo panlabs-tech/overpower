@@ -22,6 +22,14 @@ from rich.theme import Theme
 THEME = Theme(
     {
         "op.brand": "bold magenta",
+        # Category heading in `list`. Same ink as the brand today, but a separate
+        # name on purpose: the palette is explicitly NOT decided by #12, and this
+        # is the entry someone will want to move first. `op.key` is taken — it is
+        # the artifact name — so the heading has to read as a different rank.
+        # `not dim` is load-bearing: rich composes a Panel's `border_style` into
+        # its title, so a dim border silently dims the heading too. Measured —
+        # without it the heading renders `ESC[1;2;35m`, bold DIM magenta.
+        "op.section": "bold magenta not dim",
         "op.ok": "bold green",
         "op.warn": "bold yellow",
         "op.err": "bold red",
@@ -147,31 +155,47 @@ BUNDLES = [
 
 ALL = FRAMEWORKS + SKILLS + BUNDLES
 
-# The 22 promoted skills of matt-pocock, for `list --ai-framework matt-pocock`.
-MATT_POCOCK_SKILLS = [
-    "ask-matt",
-    "caveman",
-    "code-review",
-    "domain-modeling",
-    "frontend-design",
-    "grill-me",
-    "grill-with-docs",
-    "grilling",
-    "handoff",
-    "implement",
-    "prototype",
-    "research",
-    "setup-matt-pocock-skills",
-    "tdd",
-    "teach",
-    "to-spec",
-    "to-tickets",
-    "triage",
-    "wayfinder",
-    "writing-great-skills",
-    "verifying-skills",
-    "skill-testing",
-]
+# The contents of matt-pocock, for `list --ai-framework matt-pocock`.
+#
+# Typed, because an AI Framework is not necessarily one kind of artifact: #11
+# measured hook FILES landing in the target (`run-hook.cmd`, `session-start`)
+# while per-runtime hook DECLARATIONS (`hooks.json`) never land. So the detail
+# screen prints the type as a prefix column, and it is driven by this data.
+#
+# matt-pocock happens to be 22 skills and nothing else (#15, measured), so for
+# THIS framework the column reads `skill` all the way down. Inventing a hook here
+# to make the column look busier would put unmeasured content in a file whose
+# docstring promises which numbers are measured.
+MATT_POCOCK_CONTENTS: tuple[tuple[str, str], ...] = tuple(
+    ("skill", name)
+    for name in (
+        "ask-matt",
+        "caveman",
+        "code-review",
+        "domain-modeling",
+        "frontend-design",
+        "grill-me",
+        "grill-with-docs",
+        "grilling",
+        "handoff",
+        "implement",
+        "prototype",
+        "research",
+        "setup-matt-pocock-skills",
+        "tdd",
+        "teach",
+        "to-spec",
+        "to-tickets",
+        "triage",
+        "wayfinder",
+        "writing-great-skills",
+        "verifying-skills",
+        "skill-testing",
+    )
+)
+
+# Kept so variants A..D — the archived first round — go on running untouched.
+MATT_POCOCK_SKILLS = [name for kind, name in MATT_POCOCK_CONTENTS if kind == "skill"]
 
 # What a real install of `matt-pocock` writes, for the progress/summary screens.
 WRITTEN = [

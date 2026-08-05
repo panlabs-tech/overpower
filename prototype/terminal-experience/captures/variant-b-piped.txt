@@ -1,21 +1,21 @@
 
  1 · list 
 
-…  matt-pocock          …  As 22 skills promovidas: engenharia e produtividade. 
-…  panlabs-python-sta…  …  Regua de forma para backend Python: contratos, erro,…
-…  prompt-engineering…  …  Padroes de prompt para producao: confiabilidade e co…
-…  grilling             …  Sabatina uma decisao ate ela ficar afiada.           
-…  tdd                  …  Red-green-refactor com teste de integracao.          
-…  research             …  Investiga contra fonte primaria e grava o achado no …
-…  writing-great-skil…  …  Vocabulario e principios para escrever skill previsi…
-…  api-python           …  Equipamento para trabalhar numa API Python.          
-…  terraform-developm…  …  Equipamento para trabalhar em infraestrutura.        
+fw  matt-pocock                  192.2 KiB  The 22 promoted skills: engineering…
+sk  panlabs-python-standards     229.0 KiB  Shape ruler for Python backends: co…
+sk  prompt-engineering-patterns   79.2 KiB  Production prompt patterns: reliabi…
+sk  grilling                         948 B  Grills a decision until it gets sha…
+sk  tdd                            6.8 KiB  Red-green-refactor with integration…
+sk  research                         893 B  Investigates against primary source…
+sk  writing-great-skills          27.4 KiB  Vocabulary and principles for writi…
+bd  api-python                   236.7 KiB  Equipment for working on a Python A…
+bd  terraform-development         80.1 KiB  Equipment for working on infrastruc…
 
-para ver o conteudo: overpower list --ai-framework matt-pocock
+to see what is inside: overpower list --ai-framework matt-pocock
 
  2 · list --ai-framework matt-pocock 
 
-matt-pocock  mattpocock/skills · MIT · 68 arq · 192.2 KiB · instala inteiro
+matt-pocock  mattpocock/skills · MIT · 68 files · 192.2 KiB · installs whole
 
   skill  ask-matt
   skill  caveman
@@ -44,7 +44,7 @@ matt-pocock  mattpocock/skills · MIT · 68 arq · 192.2 KiB · instala inteiro
 
  3 · install (plan) 
 
-plano  matt-pocock -> ./.agents/  8 arquivos + 1 symlink
+plan  matt-pocock -> ./.agents/  8 files + 1 symlink
 
  4 · install (progress + summary) 
 
@@ -59,18 +59,18 @@ plano  matt-pocock -> ./.agents/  8 arquivos + 1 symlink
    + ... +14
    + .claude/skills -> .agents/skills
 
-pronto  8 escritos, 1 symlink, ./.agents/skills
-proximo: git status — confira o que entrou antes de commitar.
+done  8 written, 1 symlink, ./.agents/skills
+next: git status — check what landed before you commit.
 
  5 · collision  (exit 3) 
 
-colisao: grilling chega por dois caminhos nesta linha.
+collision: grilling arrives by two paths on this line.
   matt-pocock  -> .agents/skills/grilling/
   grilling     -> .agents/skills/grilling/
-help: nada foi escrito. escolha um, ou use --force (o mais especifico vence).
+help: nothing written. pick one, or use --force (most specific wins).
 
  6 · symlink unavailable  (warning, exit 0) 
 
-symlink indisponivel: nao consegui criar ~/.claude/skills como link.
+symlink unavailable: could not create ~/.claude/skills as a link.
   OSError: [WinError 1314] required privilege is not held
-help: cai para copia real. nada foi perdido.
+help: fell back to a real copy. nothing was lost.

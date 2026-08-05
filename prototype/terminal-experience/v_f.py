@@ -65,7 +65,9 @@ def _panel(title: str, note: str, items, lang: str):
         if i:
             body.append("")
         body.append(_entry(it, lang))
-    return frame(Group(*body), f"[bold]{title}[/]  [op.dim]{note}[/]", style="op.dim")
+    # Colour, not thickness, is what makes the heading stand out — the border
+    # stays thin and dim on purpose.
+    return frame(Group(*body), f"[op.section]{title}[/]  [op.dim]{note}[/]", style="op.dim")
 
 
 def list_all(lang: str) -> None:

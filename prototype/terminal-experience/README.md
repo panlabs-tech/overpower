@@ -36,7 +36,7 @@ resolve `typer`, `rich`, `questionary` e o pin de `prompt-toolkit` na primeira e
 
 Quando terminar: `git worktree remove /tmp/op-proto`.
 
-## Passo 1 — a decisão aberta: E ou F
+## Passo 1 — a `list`, que é o que separa E de F
 
 `compare` recebe **a tela** e **quais variantes**. O default são as duas que estão em
 disputa:
@@ -55,13 +55,13 @@ entre categorias e nome em cyan. A diferença é onde a descrição mora:
 As duas coisas que você elogiou não cabem juntas: coluna alinhada não tem "linha de
 baixo" para identar. **Escolher E ou F é escolher entre elas.**
 
-**Decisão que informa**: a direção visual final. Hoje o default é a **F**; o raciocínio
-está no comentário de resolução do ticket.
+**Decisão que informa**: a direção visual final. **A escolhida é a F**; o raciocínio está
+no comentário de resolução do ticket.
 
-## Passo 1b — as outras telas, e a rodada anterior
+## Passo 1b — as outras telas, e as rodadas anteriores
 
 ```bash
-uv run op.py compare detail      # list --ai-framework matt-pocock
+uv run op.py compare detail      # list --ai-framework — empilhado, tipo como prefixo
 uv run op.py compare summary     # o resumo depois de instalar
 uv run op.py compare collision   # o erro que bloqueia (exit 3)
 uv run op.py compare symlink     # o aviso que não bloqueia
@@ -74,6 +74,18 @@ uv run op.py compare list abcdef # todas as seis
 
 Fora de `list`, **E e F são o mesmo código** — `v_f.py` importa as outras telas de
 `v_e.py`. Se você vir diferença ali, é bug, não desenho.
+
+Sobre `compare detail`: a lista é **empilhada, um artefato por linha, com o tipo como
+prefixo** (`skill  ask-matt`). O prefixo é dirigido por dado, não decoração — um AI
+Framework pode misturar skill, command, hook e MCP, e o
+[#11](https://github.com/panlabs-tech/overpower/issues/11) mediu arquivo de hook
+aterrissando junto com skill. Para o `matt-pocock` a coluna lê `skill` de ponta a ponta,
+porque o [#15](https://github.com/panlabs-tech/overpower/issues/15) mediu 22 skills e mais
+nada; inventar um hook aqui só para a coluna parecer ocupada poria conteúdo não medido num
+arquivo cujo docstring promete o contrário. Em troca, a grade de três colunas que isso
+substituiu — que trocava de número de colunas conforme a largura para não clipar
+`setup-matt-pocock-skills` — deixou de existir: empilhado **não clipa em largura nenhuma**,
+ao custo de 25 linhas contra 11.
 
 **O que olhar**: qual tratamento você consegue **ler** — não qual é mais bonito. Todas
 dizem a mesma coisa; a pergunta é onde seu olho encontra o nome, o tamanho e a descrição
@@ -125,8 +137,8 @@ acima — conte você mesmo, os números batem:
 (As duas colunas têm escopos diferentes: a primeira é só a tela do catálogo, a segunda
 inclui `list --ai-framework`, que tem uma grade de nomes de skill.)
 
-**Decisão que informa**: este passo separou a A da D na primeira rodada, e separa a E da
-F agora. A 60 colunas a coluna de descrição da E cai para **14 caracteres** — a descrição
+**Decisão que informa**: este passo separou a A da D na primeira rodada, e a E da F na
+segunda. A 60 colunas a coluna de descrição da E cai para **14 caracteres** — a descrição
 vira uma torre de uma palavra por linha, e palavra maior que 14 é cortada. A F reembrulha
 na largura inteira da moldura.
 
@@ -219,17 +231,18 @@ diff captures/variant-d-80cols.txt captures/variant-f-80cols.txt   # o que os aj
 
 ## As seis variantes
 
-| | aposta | catálogo @80 | corrida toda | truncagens @60 |
-| --- | --- | --- | --- | --- |
-| **A** Painel | molduras em tudo, catálogo como tabela com borda | 40 linhas | 12,1 KB | 5 |
-| **B** Linha | sem molduras, uma linha por coisa, erro no formato do cargo | 10 linhas | 2,8 KB | 9 |
-| **C** Documento | réguas e indentação como estrutura, sem bordas | 43 linhas | 5,8 KB | 0 |
-| **D** Impacto | as molduras da A, entrada de catálogo em bloco | 45 linhas | 12,5 KB | 0 |
-| **E** Herdada · linha | D + ajustes; `list` como a da B, sem a truncagem | 28 linhas | 10,7 KB | 2 |
-| **F** Herdada · bloco | D + ajustes; `list` com descrição identada, da C | 48 linhas | 12,7 KB | **0** |
+| | aposta | catálogo @80 | detalhe @80 | corrida toda | truncagens @60 |
+| --- | --- | --- | --- | --- | --- |
+| **A** Painel | molduras em tudo, catálogo como tabela com borda | 40 linhas | 11 linhas | 12,3 KB | 5 |
+| **B** Linha | sem molduras, uma linha por coisa, erro no formato do cargo | 10 linhas | 25 linhas | 3,0 KB | 9 |
+| **C** Documento | réguas e indentação como estrutura, sem bordas | 43 linhas | 14 linhas | 6,0 KB | 0 |
+| **D** Impacto | as molduras da A, entrada de catálogo em bloco | 45 linhas | 11 linhas | 12,7 KB | 0 |
+| **E** Herdada · linha | D + ajustes; `list` como a da B, sem a truncagem | 28 linhas | 25 linhas | 11,9 KB | 2 |
+| **F** Herdada · bloco | **a decisão** — D + ajustes, `list` em bloco identado | 48 linhas | 25 linhas | 13,9 KB | **0** |
 
-(catálogo = linhas de `compare list <v>` a 80 colunas · corrida toda = `all` com ANSI
-removido, que é o que está em `captures/`)
+(catálogo = linhas de `compare list <v>` a 80 colunas · detalhe = `compare detail <v>` ·
+corrida toda = `all` com ANSI removido, que é o que está em `captures/` · números são
+determinísticos, conferidos rodando três vezes)
 
 **Rodada 1 — a D venceu**, sob um critério que o dev forneceu depois de ver as três
 primeiras: **impacto visual é requisito declarado do projeto** — o
@@ -241,8 +254,15 @@ A tinha exatamente um defeito medido, a tabela de três colunas, e ele sai sem d
 **Rodada 2 — E e F** são a D com os quatro ajustes que a validação visual do dev pediu:
 borda `ROUNDED` no lugar de `HEAVY`, respiro entre categorias, nome do artefato em cyan e
 identação sob o nome. Divergem só na `list`, porque o pedido "herdar `list` da B" e o
-elogio à identação da C são incompatíveis por aritmética de largura. Raciocínio completo
-no comentário de resolução do ticket.
+elogio à identação da C são incompatíveis por aritmética de largura.
+
+**Rodada 3 — a F fechou** com mais dois ajustes, ambos nas duas variantes (a `list` é a
+única coisa que E e F não compartilham): o `list --ai-framework` virou **lista empilhada
+com o tipo do artefato como prefixo**, adaptada da B, porque um AI Framework pode misturar
+skill, command, hook e MCP — e o `list` puro ganhou **cor no título de cada bloco**
+(`op.section`), que é o destaque que a borda grossa dava e perdeu.
+
+Raciocínio completo no comentário de resolução do ticket.
 
 ## O que os dados são
 

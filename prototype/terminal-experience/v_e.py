@@ -31,7 +31,19 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 from rich.tree import Tree
 
-from catalog import BUNDLES, COPY, FRAMEWORKS, MATT_POCOCK_SKILLS, SKILLS, VERSION, WRITTEN, err, human, out
+from catalog import (
+    BUNDLES,
+    COPY,
+    FRAMEWORKS,
+    MATT_POCOCK_CONTENTS,
+    MATT_POCOCK_SKILLS,
+    SKILLS,
+    VERSION,
+    WRITTEN,
+    err,
+    human,
+    out,
+)
 
 NAME = "Herdada · linha"
 
@@ -97,7 +109,7 @@ def list_all(lang: str) -> None:
             t.add_row("", "", "")  # the respiro between categories
         # Header note lands over the description column, so the group heading
         # never widens the name column and the grid stays aligned end to end.
-        t.add_row(f"[bold]{title}[/]", "", f"[op.dim]{note}[/]")
+        t.add_row(f"[op.section]{title}[/]", "", f"[op.dim]{note}[/]")
         for it in items:
             desc = it.desc_pt if lang == "pt" else it.desc_en
             t.add_row(f"[op.key]{it.name}[/]", f"[op.dim]{human(it.size)}[/]", f"[op.dim]{desc}[/]")
@@ -113,19 +125,29 @@ def list_all(lang: str) -> None:
 
 
 def list_one(lang: str) -> None:
+    """Stacked, one artifact per line, type as a prefix column — adapted from B.
+
+    This replaced a three-column grid of names that had to change its column
+    count with the terminal width, because three columns clipped
+    `setup-matt-pocock-skills` below ~72. A stacked list cannot clip at any
+    width, so that whole rule is gone.
+
+    The type prefix is the point: a framework is not necessarily one kind of
+    artifact (#11 measured hook files landing alongside skills), and the reader
+    needs to know whether a line is a skill, a command or a hook before deciding
+    what it does to their repo.
+    """
     c = COPY[lang]
     fw = FRAMEWORKS[0]
-    # Column count follows the terminal: three columns clip
-    # `setup-matt-pocock-skills` below ~72, and clipping a name the user has to
-    # type back is the one truncation that actually costs something.
-    cols = 3 if out.width >= 72 else 2
-    grid = Table.grid(padding=(0, 3))
-    for i in range(0, len(MATT_POCOCK_SKILLS), cols):
-        grid.add_row(*[f"[op.key]{s}[/]" for s in MATT_POCOCK_SKILLS[i : i + cols]])
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(style="op.dim", no_wrap=True)  # type
+    grid.add_column(no_wrap=True)                  # name
+    for kind, name in MATT_POCOCK_CONTENTS:
+        grid.add_row(kind, f"[op.key]{name}[/]")
     out.print(
         frame(
             grid,
-            title=f"[op.key]matt-pocock[/] [op.dim]— {len(MATT_POCOCK_SKILLS)} {c['skills_word']} · "
+            title=f"[op.key]matt-pocock[/] [op.dim]— {len(MATT_POCOCK_CONTENTS)} {c['skills_word']} · "
             f"{fw.files} {c['col_files']} · {human(fw.size)}[/]",
             subtitle=f"[op.dim]{fw.origin} · MIT · {c['frameworks_note']}[/]",
         )

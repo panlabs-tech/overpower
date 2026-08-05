@@ -93,8 +93,8 @@ matt-pocock
 
  4 · install (progress + summary) 
 
-⠋ installing matt-pocock ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 0/8⠙ installing matt-pocock ━━━╸━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/8⠹ installing matt-pocock ━━━━━━━╸━━━━━━━━━━━━━━━━━━━━━━━ 2/8⠸ installing matt-pocock ━━━━━━━━━━━╸━━━━━━━━━━━━━━━━━━━ 3/8⠴ installing matt-pocock ━━━━━━━━━━━━━━━╸━━━━━━━━━━━━━━━ 4/8⠦ installing matt-pocock ━━━━━━━━━━━━━━━━━━━╺━━━━━━━━━━━ 5/8⠧ installing matt-pocock ━━━━━━━━━━━━━━━━━━━━━━━╺━━━━━━━ 6/8⠇ installing matt-pocock ━━━━━━━━━━━━━━━━━━━━━━━━━━━╺━━━ 7/8  installing matt-pocock ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 8/8
-┏━ done  8 written · 1 symlink ━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+[?25l[2K⠋ installing matt-pocock ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 0/8[2K⠙ installing matt-pocock ━━━╸━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/8[2K⠹ installing matt-pocock ━━━━━━━╸━━━━━━━━━━━━━━━━━━━━━━━ 2/8[2K⠸ installing matt-pocock ━━━━━━━━━━━╸━━━━━━━━━━━━━━━━━━━ 3/8[2K⠴ installing matt-pocock ━━━━━━━━━━━━━━━╸━━━━━━━━━━━━━━━ 4/8[2K⠦ installing matt-pocock ━━━━━━━━━━━━━━━━━━━╺━━━━━━━━━━━ 5/8[2K⠧ installing matt-pocock ━━━━━━━━━━━━━━━━━━━━━━━╺━━━━━━━ 6/8[2K⠇ installing matt-pocock ━━━━━━━━━━━━━━━━━━━━━━━━━━━╺━━━ 7/8[2K  installing matt-pocock ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 8/8
+[?25h[1A[2K┏━ done  8 written · 1 symlink ━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃                                                          ┃
 ┃  ./.agents/skills                                        ┃
 ┃  ├── ask-matt/SKILL.md                                   ┃
@@ -139,4 +139,4 @@ matt-pocock
 │                                                          │
 ╰──────────────────────────────────────────────────────────╯
 
- PROTOTYPE  variant D — Impacto · lang=en · next: -V a
+ PROTOTYPE  variant D — Impacto · lang=en · next: -V e

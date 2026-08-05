@@ -5,79 +5,76 @@
  \___/ \_/ \___|_|  | .__/ \___/ \_/\_/ \___|_|
                     |_|
 
-  instala equipamento de agente curado · v0.1.0
+  installs curated agent equipment · v0.1.0
 
 
  1 · list 
 
-AI Frameworks  (instala inteiro)                            
+AI Frameworks  (installs whole)                             
                                                             
- nome          descricao · origem                   tamanho 
+ name          description · origin                    size 
  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 
- matt-pocock   As 22 skills promovidas:           192.2 KiB 
-               engenharia e produtividade.                  
+ matt-pocock   The 22 promoted skills:            192.2 KiB 
+               engineering and productivity.                
                mattpocock/skills                            
                                                             
-Skills do pool  (instala sozinha)                           
+Pool skills  (installs alone)                               
                                                             
-                               descricao ·                  
- nome                          origem               tamanho 
+                               description ·                
+ name                          origin                  size 
  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 
- panlabs-python-standards      Regua de forma     229.0 KiB 
-                               para backend                 
-                               Python:                      
-                               contratos, erro,             
-                               testes.                      
+ panlabs-python-standards      Shape ruler for    229.0 KiB 
+                               Python backends:             
+                               contracts,                   
+                               errors, tests.               
                                panlabs-tech                 
- prompt-engineering-patterns   Padroes de          79.2 KiB 
-                               prompt para                  
-                               producao:                    
-                               confiabilidade e             
-                               controle.                    
+ prompt-engineering-patterns   Production          79.2 KiB 
+                               prompt patterns:             
+                               reliability and              
+                               control.                     
                                curadoria                    
                                propria                      
- grilling                      Sabatina uma           948 B 
-                               decisao ate ela              
-                               ficar afiada.                
+ grilling                      Grills a               948 B 
+                               decision until               
+                               it gets sharp.               
                                mattpocock/skil…             
  tdd                           Red-green-refac…     6.8 KiB 
-                               com teste de                 
-                               integracao.                  
+                               with integration             
+                               tests.                       
                                mattpocock/skil…             
- research                      Investiga contra       893 B 
-                               fonte primaria e             
-                               grava o achado               
-                               no repo.                     
+ research                      Investigates           893 B 
+                               against primary              
+                               sources, writes              
+                               findings down.               
                                mattpocock/skil…             
- writing-great-skills          Vocabulario e       27.4 KiB 
-                               principios para              
-                               escrever skill               
-                               previsivel.                  
+ writing-great-skills          Vocabulary and      27.4 KiB 
+                               principles for               
+                               writing                      
+                               predictable                  
+                               skills.                      
                                mattpocock/skil…             
                                                             
-Bundles  (so lista artefatos do pool)                       
+Bundles  (lists pool artifacts only)                        
                                                             
- nome                    descricao · origem         tamanho 
+ name                    description · origin          size 
  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 
- api-python              Equipamento para         236.7 KiB 
-                         trabalhar numa API                 
-                         Python.  curadoria                 
-                         propria                            
- terraform-development   Equipamento para          80.1 KiB 
-                         trabalhar em                       
-                         infraestrutura.                    
+ api-python              Equipment for working    236.7 KiB 
+                         on a Python API.                   
+                         curadoria propria                  
+ terraform-development   Equipment for working     80.1 KiB 
+                         on infrastructure.                 
                          curadoria propria                  
                                                             
 ╭──────────────────────────────────────────────────────────╮
-│ para ver o conteudo: overpower list --ai-framework       │
+│ to see what is inside: overpower list --ai-framework     │
 │ matt-pocock                                              │
-│ para instalar:  overpower install --ai-framework         │
+│ to install:  overpower install --ai-framework            │
 │ matt-pocock                                              │
 ╰──────────────────────────────────────────────────────────╯
 
  2 · list --ai-framework matt-pocock 
 
-┏━━━━━━━ matt-pocock — 22 skills, 68 arq, 192.2 KiB ━━━━━━━┓
+┏━━━━━━ matt-pocock — 22 skills, 68 files, 192.2 KiB ━━━━━━┓
 ┃                                                          ┃
 ┃  ask-matt           caveman            code-review       ┃
 ┃  domain-modeling    frontend-design    grill-me          ┃
@@ -88,22 +85,22 @@ Bundles  (so lista artefatos do pool)
 ┃  wayfinder          writing-great-s…   verifying-skills  ┃
 ┃  skill-testing                                           ┃
 ┃                                                          ┃
-┗━━━━━━━ mattpocock/skills · MIT · instala inteiro ━━━━━━━━┛
+┗━━━━━━━━ mattpocock/skills · MIT · installs whole ━━━━━━━━┛
 
  3 · install (plan) 
 
-╭───────────────────────── plano ──────────────────────────╮
+╭────────────────────────── plan ──────────────────────────╮
 │                                                          │
 │  matt-pocock  (22 skills)                                │
-│  vai escrever 8 arquivos em ./.agents/                   │
+│  will write 8 files in ./.agents/                        │
 │  + symlink .claude/skills -> .agents/skills              │
 │                                                          │
 ╰──────────────────────────────────────────────────────────╯
 
  4 · install (progress + summary) 
 
-[?25l[2K⠋ instalando matt-pocock ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 0/8[2K⠙ instalando matt-pocock ━━━╸━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/8[2K⠹ instalando matt-pocock ━━━━━━━╸━━━━━━━━━━━━━━━━━━━━━━━ 2/8[2K⠸ instalando matt-pocock ━━━━━━━━━━━╸━━━━━━━━━━━━━━━━━━━ 3/8[2K⠴ instalando matt-pocock ━━━━━━━━━━━━━━━╸━━━━━━━━━━━━━━━ 4/8[2K⠦ instalando matt-pocock ━━━━━━━━━━━━━━━━━━━╺━━━━━━━━━━━ 5/8[2K⠧ instalando matt-pocock ━━━━━━━━━━━━━━━━━━━━━━━╺━━━━━━━ 6/8[2K⠇ instalando matt-pocock ━━━━━━━━━━━━━━━━━━━━━━━━━━━╺━━━ 7/8[2K  instalando matt-pocock ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 8/8
-[?25h[1A[2K╭───────────── pronto — 8 escritos, 1 symlink ─────────────╮
+[?25l[2K⠋ installing matt-pocock ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 0/8[2K⠙ installing matt-pocock ━━━╸━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/8[2K⠹ installing matt-pocock ━━━━━━━╸━━━━━━━━━━━━━━━━━━━━━━━ 2/8[2K⠸ installing matt-pocock ━━━━━━━━━━━╸━━━━━━━━━━━━━━━━━━━ 3/8[2K⠴ installing matt-pocock ━━━━━━━━━━━━━━━╸━━━━━━━━━━━━━━━ 4/8[2K⠦ installing matt-pocock ━━━━━━━━━━━━━━━━━━━╺━━━━━━━━━━━ 5/8[2K⠧ installing matt-pocock ━━━━━━━━━━━━━━━━━━━━━━━╺━━━━━━━ 6/8[2K⠇ installing matt-pocock ━━━━━━━━━━━━━━━━━━━━━━━━━━━╺━━━ 7/8[2K  installing matt-pocock ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 8/8
+[?25h[1A[2K╭────────────── done — 8 written, 1 symlink ───────────────╮
 │                                                          │
 │  ./.agents/skills                                        │
 │  ├── ask-matt/SKILL.md                                   │
@@ -118,36 +115,35 @@ Bundles  (so lista artefatos do pool)
 │  └── .claude/skills -> .agents/skills                    │
 │                                                          │
 ╰──────────────────────────────────────────────────────────╯
-proximo: git status  confira o que entrou antes de commitar.
+next: git status  check what landed before you commit.
 
  5 · collision  (exit 3) 
 
-┏━━━━━━━━━━━━━━━━━━━━━━━━ colisao ━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┏━━━━━━━━━━━━━━━━━━━━━━━ collision ━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃                                                          ┃
-┃  grilling chega por dois caminhos nesta linha:           ┃
-┃    pelo AI Framework matt-pocock  ->                     ┃
+┃  grilling arrives by two paths on this line:             ┃
+┃    from AI Framework matt-pocock  ->                     ┃
 ┃  .agents/skills/grilling/                                ┃
-┃    pela skill do pool grilling    ->                     ┃
+┃    from pool skill grilling       ->                     ┃
 ┃  .agents/skills/grilling/                                ┃
 ┃                                                          ┃
-┃  Nada foi escrito. Escolha um dos dois, ou repita com    ┃
+┃  Nothing was written. Pick one, or run again with        ┃
 ┃  --force                                                 ┃
-┃  para deixar a skill do pool vencer (o mais especifico   ┃
-┃  ganha).                                                 ┃
+┃  to let the pool skill win (most specific wins).         ┃
 ┃                                                          ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
  6 · symlink unavailable  (warning, exit 0) 
 
-╭────────────────── symlink indisponivel ──────────────────╮
+╭────────────────── symlink unavailable ───────────────────╮
 │                                                          │
-│  Nao consegui criar ~/.claude/skills como link.          │
+│  Could not create ~/.claude/skills as a link.            │
 │  OSError: [WinError 1314] required privilege is not      │
 │  held                                                    │
 │                                                          │
-│  Cai para copia real. Nada foi perdido, e o conteudo     │
-│  esta la.                                                │
+│  Fell back to a real copy. Nothing was lost, the         │
+│  content is there.                                       │
 │                                                          │
 ╰──────────────────────────────────────────────────────────╯
 
- PROTOTYPE  variant A — Painel · lang=pt · next: -V b
+ PROTOTYPE  variant A — Painel · lang=en · next: -V b

@@ -64,14 +64,28 @@ to see what is inside: overpower list --ai-framework matt-pocock
 
 ╭─ matt-pocock — 22 skills · 68 files · 192.2 KiB ─────────────────────────────╮
 │                                                                              │
-│  ask-matt                   caveman                code-review               │
-│  domain-modeling            frontend-design        grill-me                  │
-│  grill-with-docs            grilling               handoff                   │
-│  implement                  prototype              research                  │
-│  setup-matt-pocock-skills   tdd                    teach                     │
-│  to-spec                    to-tickets             triage                    │
-│  wayfinder                  writing-great-skills   verifying-skills          │
-│  skill-testing                                                               │
+│  skill  ask-matt                                                             │
+│  skill  caveman                                                              │
+│  skill  code-review                                                          │
+│  skill  domain-modeling                                                      │
+│  skill  frontend-design                                                      │
+│  skill  grill-me                                                             │
+│  skill  grill-with-docs                                                      │
+│  skill  grilling                                                             │
+│  skill  handoff                                                              │
+│  skill  implement                                                            │
+│  skill  prototype                                                            │
+│  skill  research                                                             │
+│  skill  setup-matt-pocock-skills                                             │
+│  skill  tdd                                                                  │
+│  skill  teach                                                                │
+│  skill  to-spec                                                              │
+│  skill  to-tickets                                                           │
+│  skill  triage                                                               │
+│  skill  wayfinder                                                            │
+│  skill  writing-great-skills                                                 │
+│  skill  verifying-skills                                                     │
+│  skill  skill-testing                                                        │
 │                                                                              │
 ╰─ mattpocock/skills · MIT · installs whole ───────────────────────────────────╯
 

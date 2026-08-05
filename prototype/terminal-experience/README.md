@@ -81,14 +81,18 @@ uv run op.py -w 60 compare list
 `--width`/`-w` força a largura no `rich` direto. **Não use `COLUMNS=60`** — a variável é
 do shell, que a redefine, e o resultado fica não-determinístico.
 
-**O que olhar**: reticências (`…`) e descrição espremida. Medido nas capturas:
+**O que olhar**: reticências (`…`) e descrição espremida. Contagem exata do comando
+acima — conte você mesmo, os números batem:
 
-| | truncagens a 60 colunas |
-| --- | --- |
-| A Painel | **7** |
-| B Linha | trunca a descrição em qualquer largura |
-| C Documento | 0 |
-| D Impacto | **0** |
+| | truncagens em `-w 60 compare list` | na corrida inteira (`-w 60 all`) |
+| --- | --- | --- |
+| A Painel | **5** | 7 |
+| B Linha | **9** | 9 |
+| C Documento | 0 | 0 |
+| D Impacto | **0** | **0** |
+
+(As duas colunas têm escopos diferentes: a primeira é só a tela do catálogo, a segunda
+inclui `list --ai-framework`, que tem uma grade de nomes de skill.)
 
 **Decisão que informa**: foi este passo que separou a A da D. As duas têm o mesmo
 impacto visual; só a D atravessa 60 colunas sem cortar nada.

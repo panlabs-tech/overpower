@@ -15,7 +15,9 @@ import time
 variant = sys.argv[1]
 keys = sys.argv[2] if len(sys.argv) > 2 else "\r\x1b[B\r\r"
 
-proto = "/tmp/claude-1000/-home-paninit-workspaces-panlabs-tech-overpower/edcf444e-9f27-4fe9-aa05-db4c7ec60cd5/scratchpad/proto"
+# Wherever this file lives — it was a hardcoded scratchpad path, which broke the
+# moment the runbook told anyone to run it from a worktree.
+proto = os.path.dirname(os.path.abspath(__file__))
 env = dict(os.environ, COLUMNS="80", LINES="40", TERM="xterm-256color")
 
 pid, fd = pty.fork()

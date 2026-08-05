@@ -41,15 +41,18 @@ import v_a
 import v_b
 import v_c
 import v_d
+import v_e
+import v_f
 from catalog import COPY, MATT_POCOCK_SKILLS, WRITTEN, err, out
 
-VARIANTS = {"a": v_a, "b": v_b, "c": v_c, "d": v_d}
+VARIANTS = {"a": v_a, "b": v_b, "c": v_c, "d": v_d, "e": v_e, "f": v_f}
 
 app = typer.Typer(add_completion=False, rich_markup_mode="rich", invoke_without_command=True)
 
-# Defaults are the decision this ticket landed on: variant D, English copy.
-# A, B and C stay runnable — they are the evidence for why D won.
-_state: dict[str, str] = {"variant": "d", "lang": "en"}
+# Default is F — D plus the four adjustments from the dev's validation pass.
+# A..D stay runnable as the evidence trail; E is F with the other reading of
+# "herdar list da variante B", and differs from F on exactly one screen.
+_state: dict[str, str] = {"variant": "f", "lang": "en"}
 
 
 def ui():
@@ -65,7 +68,7 @@ def footer() -> None:
     if not out.is_terminal:
         return
     v = _state["variant"]
-    nxt = {"a": "b", "b": "c", "c": "d", "d": "a"}[v]
+    nxt = {"a": "b", "b": "c", "c": "d", "d": "e", "e": "f", "f": "a"}[v]
     out.print()
     out.print(
         f"[reverse] PROTOTYPE [/] variant [bold]{v.upper()}[/] — {ui().NAME} · "
@@ -80,7 +83,7 @@ def footer() -> None:
 @app.callback()
 def main(
     ctx: typer.Context,
-    variant: str = typer.Option("d", "--variant", "-V", help="a | b | c | d"),
+    variant: str = typer.Option("f", "--variant", "-V", help="a | b | c | d | e | f"),
     lang_: str = typer.Option("en", "--lang", help="pt | en"),
     width: int = typer.Option(None, "--width", "-w", help="force terminal width, e.g. 60"),
 ) -> None:
@@ -212,12 +215,17 @@ SCREENS = {
 @app.command("compare")
 def compare(
     screen: str = typer.Argument("list", help=" | ".join(SCREENS)),
+    which: str = typer.Argument("ef", help="which variants, e.g. ef, abcd, abcdef"),
 ) -> None:
-    """The SAME screen in all four variants, back to back. This is the comparison."""
+    """The SAME screen in several variants, back to back. This is the comparison."""
     if screen not in SCREENS:
         raise typer.BadParameter(f"unknown screen. pick one of: {', '.join(SCREENS)}")
+    keys = [k for k in which.lower() if not k.isspace()]
+    unknown = [k for k in keys if k not in VARIANTS]
+    if unknown:
+        raise typer.BadParameter(f"unknown variant(s): {', '.join(unknown)}")
     draw = SCREENS[screen]
-    for key in ("a", "b", "c", "d"):
+    for key in keys:
         mod = VARIANTS[key]
         out.print()
         out.rule(f"[bold]{key.upper()}[/] — {mod.NAME}   [dim]{screen}[/]", style="dim")
@@ -225,7 +233,7 @@ def compare(
         # `banner` self-suppresses without a TTY; every other screen renders anywhere.
         draw(mod, lang())
     out.print()
-    out.rule("[dim]end — same screen, four treatments[/]", style="dim")
+    out.rule(f"[dim]end — same screen, {len(keys)} treatments[/]", style="dim")
 
 
 def _hdr(t: str) -> None:

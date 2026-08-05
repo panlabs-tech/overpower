@@ -1,0 +1,128 @@
+
+  _____   _____ _ __ _ __   _____      _____ _ __
+ / _ \ \ / / _ \ '__| '_ \ / _ \ \ /\ / / _ \ '__|
+| (_) \ V /  __/ |  | |_) | (_) \ V  V /  __/ |
+ \___/ \_/ \___|_|  | .__/ \___/ \_/\_/ \___|_|
+                    |_|
+
+  installs curated agent equipment   v0.1.0
+
+
+ 1 · list 
+
+┏━ AI Frameworks  installs whole ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃                                                                              ┃
+┃  matt-pocock                                                      192.2 KiB  ┃
+┃  The 22 promoted skills: engineering and productivity.                       ┃
+┃  mattpocock/skills · 68 arq                                                  ┃
+┃                                                                              ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+╭─ Pool skills  installs alone ────────────────────────────────────────────────╮
+│                                                                              │
+│  panlabs-python-standards                                         229.0 KiB  │
+│  Shape ruler for Python backends: contracts, errors, tests.                  │
+│  panlabs-tech · 8 arq                                                        │
+│                                                                              │
+│  prompt-engineering-patterns                                       79.2 KiB  │
+│  Production prompt patterns: reliability and control.                        │
+│  curadoria propria · 10 arq                                                  │
+│                                                                              │
+│  grilling                                                             948 B  │
+│  Grills a decision until it gets sharp.                                      │
+│  mattpocock/skills · 2 arq                                                   │
+│                                                                              │
+│  tdd                                                                6.8 KiB  │
+│  Red-green-refactor with integration tests.                                  │
+│  mattpocock/skills · 4 arq                                                   │
+│                                                                              │
+│  research                                                             893 B  │
+│  Investigates against primary sources, writes findings down.                 │
+│  mattpocock/skills · 2 arq                                                   │
+│                                                                              │
+│  writing-great-skills                                              27.4 KiB  │
+│  Vocabulary and principles for writing predictable skills.                   │
+│  mattpocock/skills · 3 arq                                                   │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Bundles  lists pool artifacts only ─────────────────────────────────────────╮
+│                                                                              │
+│  api-python                                                       236.7 KiB  │
+│  Equipment for working on a Python API.                                      │
+│  curadoria propria · 14 arq                                                  │
+│                                                                              │
+│  terraform-development                                             80.1 KiB  │
+│  Equipment for working on infrastructure.                                    │
+│  curadoria propria · 12 arq                                                  │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+to see what is inside: overpower list --ai-framework matt-pocock
+
+ 2 · list --ai-framework matt-pocock 
+
+┏━ matt-pocock — 22 skills · 68 arq · 192.2 KiB ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃                                                                              ┃
+┃  ask-matt                   caveman                code-review               ┃
+┃  domain-modeling            frontend-design        grill-me                  ┃
+┃  grill-with-docs            grilling               handoff                   ┃
+┃  implement                  prototype              research                  ┃
+┃  setup-matt-pocock-skills   tdd                    teach                     ┃
+┃  to-spec                    to-tickets             triage                    ┃
+┃  wayfinder                  writing-great-skills   verifying-skills          ┃
+┃  skill-testing                                                               ┃
+┃                                                                              ┃
+┗━━━━━━━━━━━━━━━━━━ mattpocock/skills · MIT · installs whole ━━━━━━━━━━━━━━━━━━┛
+
+ 3 · install (plan) 
+
+┏━ plan ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃                                                                              ┃
+┃  matt-pocock  22 skills                                                      ┃
+┃  will write 8 files in ./.agents/                                            ┃
+┃  + symlink .claude/skills -> .agents/skills                                  ┃
+┃                                                                              ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+ 4 · install (progress + summary) 
+
+⠋ installing matt-pocock ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 0/8⠙ installing matt-pocock ━━━━━━╺━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/8⠹ installing matt-pocock ━━━━━━━━━━━━╸━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2/8⠸ installing matt-pocock ━━━━━━━━━━━━━━━━━━━╺━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 3/8⠴ installing matt-pocock ━━━━━━━━━━━━━━━━━━━━━━━━━╸━━━━━━━━━━━━━━━━━━━━━━━━━ 4/8⠦ installing matt-pocock ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╸━━━━━━━━━━━━━━━━━━━ 5/8⠧ installing matt-pocock ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╺━━━━━━━━━━━━ 6/8⠇ installing matt-pocock ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╸━━━━━━ 7/8  installing matt-pocock ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 8/8
+┏━ done  8 written · 1 symlink ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃                                                                              ┃
+┃  ./.agents/skills                                                            ┃
+┃  ├── ask-matt/SKILL.md                                                       ┃
+┃  ├── code-review/SKILL.md                                                    ┃
+┃  ├── domain-modeling/SKILL.md                                                ┃
+┃  ├── grilling/SKILL.md                                                       ┃
+┃  ├── prototype/SKILL.md                                                      ┃
+┃  ├── tdd/SKILL.md                                                            ┃
+┃  ├── triage/SKILL.md                                                         ┃
+┃  ├── wayfinder/SKILL.md                                                      ┃
+┃  ├── ... +14                                                                 ┃
+┃  └── .claude/skills -> .agents/skills                                        ┃
+┃                                                                              ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ next: git status ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+ 5 · collision  (exit 3) 
+
+┏━ collision ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃                                                                              ┃
+┃  grilling arrives by two paths on this line:                                 ┃
+┃    from AI Framework matt-pocock  ->  .agents/skills/grilling/               ┃
+┃    from pool skill grilling       ->  .agents/skills/grilling/               ┃
+┃                                                                              ┃
+┃  Nothing was written. Pick one, or run again with --force                    ┃
+┃  to let the pool skill win (most specific wins).                             ┃
+┃                                                                              ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+ 6 · symlink unavailable  (warning, exit 0) 
+
+╭─ symlink unavailable ────────────────────────────────────────────────────────╮
+│                                                                              │
+│  Could not create ~/.claude/skills as a link.                                │
+│  OSError: [WinError 1314] required privilege is not held                     │
+│                                                                              │
+│  Fell back to a real copy. Nothing was lost, the content is there.           │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+ PROTOTYPE  variant D — Impacto · lang=en · next: -V a

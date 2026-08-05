@@ -9,24 +9,24 @@
 # ///
 """PROTOTYPE — overpower terminal experience. Ticket #12. THROWAWAY.
 
-Three variants of the same six screens, switchable with -V/--variant:
+Four variants of the same six screens, switchable with -V/--variant:
 
-    A  Painel      everything framed — rich maximalist
+    A  Painel      everything framed, catalog as a bordered table
     B  Linha       no boxes, one line per thing — cargo/uv shape
     C  Documento   rules and indentation as structure — no borders
+    D  Impacto     A's frames, but catalog entries as blocks so nothing truncates
 
 Second axis, the other open decision this ticket owns: --lang pt|en (product voice).
 
 Run it:
-    uv run op.py all                 # every screen, variant A, pt-BR
-    uv run op.py -V b all            # variant B
-    uv run op.py -V c --lang en all  # variant C in English
-    uv run op.py -V a install        # the interactive wizard (needs a TTY)
+    uv run op.py all                 # every screen, variant D, English — the decision
+    uv run op.py -V a all            # variant A
+    uv run op.py --lang pt all       # the pt-BR copy that lost
 
 Degradation checks the ticket asks for:
-    uv run op.py -V b all | cat      # under a pipe
-    NO_COLOR=1 uv run op.py -V a all
-    COLUMNS=60 uv run op.py -V c all
+    uv run op.py all | cat           # under a pipe
+    NO_COLOR=1 uv run op.py all
+    COLUMNS=60 uv run op.py all
 """
 
 from __future__ import annotations
@@ -40,15 +40,16 @@ import typer
 import v_a
 import v_b
 import v_c
+import v_d
 from catalog import COPY, MATT_POCOCK_SKILLS, WRITTEN, err, out
 
-VARIANTS = {"a": v_a, "b": v_b, "c": v_c}
+VARIANTS = {"a": v_a, "b": v_b, "c": v_c, "d": v_d}
 
 app = typer.Typer(add_completion=False, rich_markup_mode="rich", invoke_without_command=True)
 
-# Defaults are the decision this ticket landed on: variant C, English copy.
-# A and B stay runnable — they are the evidence for why C won.
-_state: dict[str, str] = {"variant": "c", "lang": "en"}
+# Defaults are the decision this ticket landed on: variant D, English copy.
+# A, B and C stay runnable — they are the evidence for why D won.
+_state: dict[str, str] = {"variant": "d", "lang": "en"}
 
 
 def ui():
@@ -64,7 +65,7 @@ def footer() -> None:
     if not out.is_terminal:
         return
     v = _state["variant"]
-    nxt = {"a": "b", "b": "c", "c": "a"}[v]
+    nxt = {"a": "b", "b": "c", "c": "d", "d": "a"}[v]
     out.print()
     out.print(
         f"[reverse] PROTOTYPE [/] variant [bold]{v.upper()}[/] — {ui().NAME} · "
@@ -79,7 +80,7 @@ def footer() -> None:
 @app.callback()
 def main(
     ctx: typer.Context,
-    variant: str = typer.Option("c", "--variant", "-V", help="a | b | c"),
+    variant: str = typer.Option("d", "--variant", "-V", help="a | b | c | d"),
     lang_: str = typer.Option("en", "--lang", help="pt | en"),
 ) -> None:
     _state["variant"] = variant.lower()

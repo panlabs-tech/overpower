@@ -20,10 +20,10 @@ classifiers = [
   "Topic :: Software Development :: Code Generators",
 ]
 
-# Zero dependencias e deliberado enquanto a 0.0.x existir: o teste do indice
-# corporativo tem que medir o `overpower` e nada mais. Com typer/rich na arvore,
-# uma falha no Artifactory seria ambigua entre o nosso pacote e o espelhamento
-# das transitivas. A stack de CLI decidida no #4 entra na v0.1.0.
+# Zero runtime dependencies is deliberate while the 0.0.x series exists: an
+# install failure has to measure `overpower` and nothing else. With typer/rich
+# in the tree, a failure would be ambiguous between our own package and the
+# mirroring of its transitives. The CLI stack decided in #4 lands in v0.1.0.
 dependencies = []
 
 [project.urls]
@@ -31,13 +31,13 @@ Repository = "https://github.com/panlabs-tech/overpower"
 Issues = "https://github.com/panlabs-tech/overpower/issues"
 
 [project.scripts]
-# pacote == comando == `overpower`. O `uvx <nome>` resolve pelo *comando* e
-# infere o pacote por igualdade de nome; divergir obriga `--from`.
-# Medido em https://github.com/panlabs-tech/overpower/issues/3
+# package == command == `overpower`. `uvx <name>` resolves by *command* and
+# infers the package by name equality; diverging forces `--from`.
+# Measured in https://github.com/panlabs-tech/overpower/issues/3
 overpower = "overpower.cli:main"
 
-# Nao ha `[tool.hatch.build...]` aqui, e a ausencia e decisao medida:
-# docs/adr/0004-build-nao-forca-inclusao-de-conteudo.md
-# Qualquer `force-include`, `artifacts`, `packages` ou `ignore-vcs` que apareca
-# neste arquivo e regressao ate prova em contrario, e a prova tem que vir do
-# build de CI a partir de clone limpo.
+# There is no `[tool.hatch.build...]` here, and the absence is a measured
+# decision: docs/adr/0004-build-nao-forca-inclusao-de-conteudo.md
+# Any `force-include`, `artifacts`, `packages` or `ignore-vcs` appearing in this
+# file is a regression until proven otherwise, and the proof has to come from a
+# CI build off a clean clone.

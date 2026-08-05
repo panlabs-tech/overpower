@@ -1,6 +1,6 @@
-"""overpower — instala AI Frameworks curados num repositorio ou na maquina.
+"""overpower — installs curated AI Frameworks into a repository or a machine.
 
-A serie 0.0.x nao e produto: existe para reservar o nome no PyPI e provar o
-pipeline de publicacao nos dois caminhos de instalacao do mapa. Ver
+The 0.0.x series is not the product. It exists to reserve the name on PyPI and
+to prove the publishing pipeline end to end. See
 https://github.com/panlabs-tech/overpower/issues/13
 """

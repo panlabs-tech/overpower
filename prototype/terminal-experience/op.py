@@ -82,9 +82,15 @@ def main(
     ctx: typer.Context,
     variant: str = typer.Option("d", "--variant", "-V", help="a | b | c | d"),
     lang_: str = typer.Option("en", "--lang", help="pt | en"),
+    width: int = typer.Option(None, "--width", "-w", help="force terminal width, e.g. 60"),
 ) -> None:
     _state["variant"] = variant.lower()
     _state["lang"] = lang_.lower()
+    if width:
+        # Public setter on rich's Console. More reliable than COLUMNS, which the
+        # shell owns and resets.
+        out.width = width
+        err.width = width
     if ctx.invoked_subcommand is None:
         ui().banner(lang())
         out.print(ctx.get_help())
@@ -190,6 +196,36 @@ def all_screens() -> None:
     _hdr("6 · symlink unavailable  (warning, exit 0)")
     ui().err_symlink(lang())
     footer()
+
+
+SCREENS = {
+    "list": lambda m, lg: m.list_all(lg),
+    "detail": lambda m, lg: m.list_one(lg),
+    "plan": lambda m, lg: m.plan(lg, "project"),
+    "summary": lambda m, lg: m.summary(lg, "project"),
+    "collision": lambda m, lg: m.err_collision(lg),
+    "symlink": lambda m, lg: m.err_symlink(lg),
+    "banner": lambda m, lg: m.banner(lg),
+}
+
+
+@app.command("compare")
+def compare(
+    screen: str = typer.Argument("list", help=" | ".join(SCREENS)),
+) -> None:
+    """The SAME screen in all four variants, back to back. This is the comparison."""
+    if screen not in SCREENS:
+        raise typer.BadParameter(f"unknown screen. pick one of: {', '.join(SCREENS)}")
+    draw = SCREENS[screen]
+    for key in ("a", "b", "c", "d"):
+        mod = VARIANTS[key]
+        out.print()
+        out.rule(f"[bold]{key.upper()}[/] — {mod.NAME}   [dim]{screen}[/]", style="dim")
+        out.print()
+        # `banner` self-suppresses without a TTY; every other screen renders anywhere.
+        draw(mod, lang())
+    out.print()
+    out.rule("[dim]end — same screen, four treatments[/]", style="dim")
 
 
 def _hdr(t: str) -> None:

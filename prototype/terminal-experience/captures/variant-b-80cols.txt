@@ -1,0 +1,81 @@
+overpower 0.1.0  1 framework · 6 skills · 2 bundles
+
+
+ 1 · list 
+
+fw  matt-pocock                  192.2 KiB  As 22 skills promovidas: engenharia…
+sk  panlabs-python-standards     229.0 KiB  Regua de forma para backend Python:…
+sk  prompt-engineering-patterns   79.2 KiB  Padroes de prompt para producao: co…
+sk  grilling                         948 B  Sabatina uma decisao ate ela ficar …
+sk  tdd                            6.8 KiB  Red-green-refactor com teste de int…
+sk  research                         893 B  Investiga contra fonte primaria e g…
+sk  writing-great-skills          27.4 KiB  Vocabulario e principios para escre…
+bd  api-python                   236.7 KiB  Equipamento para trabalhar numa API…
+bd  terraform-development         80.1 KiB  Equipamento para trabalhar em infra…
+
+para ver o conteudo: overpower list --ai-framework matt-pocock
+
+ 2 · list --ai-framework matt-pocock 
+
+matt-pocock  mattpocock/skills · MIT · 68 arq · 192.2 KiB · instala inteiro
+
+  skill  ask-matt
+  skill  caveman
+  skill  code-review
+  skill  domain-modeling
+  skill  frontend-design
+  skill  grill-me
+  skill  grill-with-docs
+  skill  grilling
+  skill  handoff
+  skill  implement
+  skill  prototype
+  skill  research
+  skill  setup-matt-pocock-skills
+  skill  tdd
+  skill  teach
+  skill  to-spec
+  skill  to-tickets
+  skill  triage
+  skill  wayfinder
+  skill  writing-great-skills
+  skill  verifying-skills
+  skill  skill-testing
+
+22 skills
+
+ 3 · install (plan) 
+
+plano  matt-pocock -> ./.agents/  8 arquivos + 1 symlink
+
+ 4 · install (progress + summary) 
+
+⠋ instalando   + .agents/skills/ask-matt/SKILL.md
+⠋ instalando⠙ instalando   + .agents/skills/code-review/SKILL.md
+⠙ instalando⠹ instalando   + .agents/skills/domain-modeling/SKILL.md
+⠹ instalando⠸ instalando   + .agents/skills/grilling/SKILL.md
+⠸ instalando⠴ instalando   + .agents/skills/prototype/SKILL.md
+⠴ instalando⠦ instalando   + .agents/skills/tdd/SKILL.md
+⠦ instalando⠧ instalando   + .agents/skills/triage/SKILL.md
+⠧ instalando⠇ instalando   + .agents/skills/wayfinder/SKILL.md
+⠇ instalando  instalando
+   + ... +14
+   + .claude/skills -> .agents/skills
+
+pronto  8 escritos, 1 symlink, ./.agents/skills
+proximo: git status — confira o que entrou antes de commitar.
+
+ 5 · collision  (exit 3) 
+
+colisao: grilling chega por dois caminhos nesta linha.
+  matt-pocock  -> .agents/skills/grilling/
+  grilling     -> .agents/skills/grilling/
+help: nada foi escrito. escolha um, ou use --force (o mais especifico vence).
+
+ 6 · symlink unavailable  (warning, exit 0) 
+
+symlink indisponivel: nao consegui criar ~/.claude/skills como link.
+  OSError: [WinError 1314] required privilege is not held
+help: cai para copia real. nada foi perdido.
+
+ PROTOTYPE  variant B — Linha · lang=pt · next: -V c

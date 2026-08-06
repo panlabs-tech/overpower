@@ -28,7 +28,8 @@ Termos que aparecem em issues, specs e código, e que significam algo específic
 ### Onde o conteúdo mora
 
 - **Pool**: o conjunto dos artefatos curados individualmente, organizado por tipo. É de onde saem tanto a instalação individual quanto os bundles.
-- **Catálogo**: o conjunto de artefatos, frameworks e bundles que o overpower conhece e sabe instalar. Curado, não aberto.
+- **Catálogo**: o conjunto de artefatos, frameworks e bundles que o overpower conhece e sabe instalar. Curado, não aberto — e **não é um registro**: o catálogo embutido *é* a árvore de `content/`, descoberta olhando. Ver a regra 8 e a [ADR 0006](../adr/0006-a-arvore-e-o-catalogo.md).
+- **Fonte remota** (`--from <url>`): um repositório que não é o do overpower, apontado pelo usuário na linha de comando. A URL é **raiz de busca**, não endereço — raiz do repo, subpasta ou a pasta do artefato dão o mesmo resultado. Qualquer URL funciona, sem cadastro, e o critério de curadoria **não se aplica**: ele governa o que entra no wheel, e `--from` é pedido explícito de quem instala. Com `--from`, **só** o remoto é consultado.
 - **Procedência**: de onde um conteúdo veio — a origem **e o modo de obtenção**, embutido no wheel ou remoto. É atributo do catálogo, nunca do alvo.
 - **Curadoria**: o ato de decidir o que entra no catálogo e — para artefatos — o que é recortado a ponto de virar átomo do pool.
 
@@ -46,7 +47,7 @@ Termos que aparecem em issues, specs e código, e que significam algo específic
 
 ## Regras do modelo
 
-Consequências do vocabulário acima. As seis primeiras foram decididas em [Modelo de domínio: AI Framework, perfil e artefato](https://github.com/panlabs-tech/overpower/issues/7); a sétima em [Integridade de referência cruzada entre artefatos do pool](https://github.com/panlabs-tech/overpower/issues/16).
+Consequências do vocabulário acima. As seis primeiras foram decididas em [Modelo de domínio: AI Framework, perfil e artefato](https://github.com/panlabs-tech/overpower/issues/7); a sétima em [Integridade de referência cruzada entre artefatos do pool](https://github.com/panlabs-tech/overpower/issues/16); a oitava em [Formato do catálogo](https://github.com/panlabs-tech/overpower/issues/10).
 
 1. **Framework instala-se inteiro.** Não existe instalação parcial de framework. Quem quer três skills instala três artefatos, ou um bundle — não um recorte de framework.
 2. **Framework não aninha e não entra em bundle.** Framework é escolha de **método**; bundle é escolha de **equipamento**. Um bundle pode *recomendar* um framework em prosa; nunca incluí-lo. Ver [ADR 0002](../adr/0002-bundle-nao-compoe-framework.md).
@@ -55,6 +56,7 @@ Consequências do vocabulário acima. As seis primeiras foram decididas em [Mode
 5. **Entradas de catálogo não têm eixo de versão.** A versão do overpower **é** a versão do catálogo embutido; conteúdo vindo do repositório remoto de assets é fresco e não reprodutível, por decisão. O modo de obtenção faz parte da identidade do resultado, e por isso `uvx overpower@latest` é requisito de correção, não estilo de README.
 6. **No alvo não aterrissa nada além do conteúdo da árvore dos artefatos.** "Framework instalado" não é entidade, é efeito: o repositório tem arquivos e não sabe de onde vieram — ver [ADR 0003](../adr/0003-sem-atribuicao-no-alvo.md).
 7. **Não existe dependência entre artefatos.** O conteúdo de um artefato pode mandar o agente invocar outro — medido, **8 das 25** skills promovidas do `mattpocock/skills` fazem isso, e a `wayfinder` sozinha nomeia quatro. O overpower **não declara, não valida, não avisa e não arrasta**: o comando é o contrato, e `install --skill wayfinder` escreve `wayfinder` e mais nada. Quem quer as outras pede as outras.
+8. **A árvore é o catálogo, e o que o overpower escreve só carrega o que a árvore não pode saber — caminho, nunca.** O `install` e o `list` descobrem os artefatos embutidos olhando `content/pool/<tipo>/<nome>/` e `content/frameworks/<nome>/`. Registrar caminho é duplicação (o sistema de arquivos já sabe) e produz deriva silenciosa — medido: skill nova no disco sem entrada no catálogo fica **invisível**, sem aviso. Escrever descrição não é duplicação, porque não existe em lugar nenhum. Sobra um arquivo, e nele só entram bundle (não tem árvore, por definição) e a descrição de AI Framework (não tem `SKILL.md`). **Destino também não é campo de entrada**: é função de (tipo, runtime, escopo), logo tabela em código. Ver [ADR 0006](../adr/0006-a-arvore-e-o-catalogo.md).
 
 ## Critério de curadoria
 
@@ -86,13 +88,15 @@ Posições travadas na cartografia do mapa. Não se renegociam sem reabrir o map
 
 Isso é escopo, não modelo. O que o modelo exige é que a v0.1.0 **não feche a porta** do enxerto. Três travas, todas vindas de medição em [Formatos de configuração de MCP por runtime](https://github.com/panlabs-tech/overpower/issues/17):
 
-1. **Destino não é diretório.** Cópia aterrissa numa pasta; enxerto aterrissa em **arquivo mais chave dentro dele**. O destino tem de ser um dado com duas formas já na v0.1.0, mesmo com só uma implementada. Modelar destino como caminho de pasta é a regressão.
+1. **Destino não é diretório.** Cópia aterrissa numa pasta; enxerto aterrissa em **arquivo mais chave dentro dele**. O destino tem de ser um dado com duas formas já na v0.1.0, mesmo com só uma implementada. Modelar destino como caminho de pasta é a regressão. *A forma dessa trava ficou resolvida em [Formato do catálogo](https://github.com/panlabs-tech/overpower/issues/10): destino é função de (tipo, runtime, escopo), logo **tabela em código**, e são os valores dela que carregam as duas formas. O teste de aceitação escreveu MCP e hook e nenhum dos dois precisou de campo de destino.*
 2. **Um artefato pode custar mais de uma escrita, e a segunda pode ser fora do repositório.** Medido: `.mcp.json` commitado sozinho não funciona — o Claude Code exige aprovação gravada em `.claude/settings.local.json`, e o Codex exige `trust_level = "trusted"` na máquina. Um fluxo que assuma *"um artefato, uma escrita, toda dentro do alvo"* obriga reescrita na v0.2.
 3. **`--dry-run` e `doctor` falam de escritas planejadas, não de arquivos a copiar.** Consequência da 2, com armadilha medida: sem `trust_level`, o `doctor` dá **falso positivo** — reporta instalado o que não está.
 
 As três se pagam com uma decisão de forma: **toda escrita no alvo passa por uma fronteira única**. A v0.1.0 implementa uma operação (copiar árvore); a v0.2 acrescenta outra (enxertar chave). Somar implementação, não reescrever fluxo.
 
 O trabalho de desenho do enxerto está preservado e **se reabre, não se refaz** — três tickets rotulados `v0.2` ([#20](https://github.com/panlabs-tech/overpower/issues/20), [#21](https://github.com/panlabs-tech/overpower/issues/21), [#22](https://github.com/panlabs-tech/overpower/issues/22)) e as pesquisas em `research/mcp-config-formats` e `research/hook-formats`.
+
+**Fonte remota: skill entra, bundle e AI Framework ficam.** `--from <url>` está **na v0.1.0** para `--skill`, por descoberta de `SKILL.md` em qualquer URL. Bundle e AI Framework por `--from` saíram em [Formato do catálogo](https://github.com/panlabs-tech/overpower/issues/10), e a razão é a mesma que separa as unidades: **skill é a única que existe no mercado**, enquanto as outras duas só existem em repositório que já conhece o overpower. Com elas sai o padrão de **repositório caseiro** — convenção e/ou manifesto `.overpower` —, preservado em [#26](https://github.com/panlabs-tech/overpower/issues/26). As duas seguem inteiras no modo **embutido**.
 
 ## Registro histórico
 

@@ -46,7 +46,7 @@ Termos que aparecem em issues, specs e código, e que significam algo específic
 
 ## Regras do modelo
 
-Consequências do vocabulário acima, decididas em [Modelo de domínio: AI Framework, perfil e artefato](https://github.com/panlabs-tech/overpower/issues/7).
+Consequências do vocabulário acima. As seis primeiras foram decididas em [Modelo de domínio: AI Framework, perfil e artefato](https://github.com/panlabs-tech/overpower/issues/7); a sétima em [Integridade de referência cruzada entre artefatos do pool](https://github.com/panlabs-tech/overpower/issues/16).
 
 1. **Framework instala-se inteiro.** Não existe instalação parcial de framework. Quem quer três skills instala três artefatos, ou um bundle — não um recorte de framework.
 2. **Framework não aninha e não entra em bundle.** Framework é escolha de **método**; bundle é escolha de **equipamento**. Um bundle pode *recomendar* um framework em prosa; nunca incluí-lo. Ver [ADR 0002](../adr/0002-bundle-nao-compoe-framework.md).
@@ -54,6 +54,7 @@ Consequências do vocabulário acima, decididas em [Modelo de domínio: AI Frame
 4. **O contrato de um artefato de enxerto é lógico, não literal.** Descreve transporte, comando ou URL, e **slots** de segredo — nunca valores — e o overpower **renderiza** para o formato de cada runtime.
 5. **Entradas de catálogo não têm eixo de versão.** A versão do overpower **é** a versão do catálogo embutido; conteúdo vindo do repositório remoto de assets é fresco e não reprodutível, por decisão. O modo de obtenção faz parte da identidade do resultado, e por isso `uvx overpower@latest` é requisito de correção, não estilo de README.
 6. **No alvo não aterrissa nada além do conteúdo da árvore dos artefatos.** "Framework instalado" não é entidade, é efeito: o repositório tem arquivos e não sabe de onde vieram — ver [ADR 0003](../adr/0003-sem-atribuicao-no-alvo.md).
+7. **Não existe dependência entre artefatos.** O conteúdo de um artefato pode mandar o agente invocar outro — medido, **8 das 25** skills promovidas do `mattpocock/skills` fazem isso, e a `wayfinder` sozinha nomeia quatro. O overpower **não declara, não valida, não avisa e não arrasta**: o comando é o contrato, e `install --skill wayfinder` escreve `wayfinder` e mais nada. Quem quer as outras pede as outras.
 
 ## Critério de curadoria
 
@@ -65,7 +66,7 @@ O que pode entrar no catálogo, decidido em [Critério de elegibilidade e o conj
 
 **O critério mora no julgamento do curador, não em campo do catálogo.** O catálogo só contém o que já passou — um campo que registrasse "passou" seria constante.
 
-**Para artefato de pool a curadoria é livre**, com duas cláusulas: o mesmo portão legal, e o átomo funciona com o que aterrissou. **O veto de framework não propaga para o átomo**: origem é propriedade do corpo, não do átomo, e pela regra 6 o alvo não carrega atribuição nenhuma.
+**Para artefato de pool a curadoria é livre**, com duas cláusulas: o mesmo portão legal, e o átomo funciona **sem ferramental que o overpower não pode garantir no alvo** — runtime e binário de terceiro, a mesma leitura do portão 2. **A segunda cláusula não fala de artefato irmão**: pela regra 7 não existe dependência entre artefatos, então um átomo cujo texto manda invocar outro entra no pool assim mesmo, e chega sozinho se for pedido sozinho. **O veto de framework não propaga para o átomo**: origem é propriedade do corpo, não do átomo, e pela regra 6 o alvo não carrega atribuição nenhuma.
 
 **Escrever dentro de arquivo do usuário não reprova ninguém** — enxerto é classe legítima deste modelo. O que reprovou o `open-gsd/gsd-core` foi runtime: o conteúdo aterrissado exige Node ≥22, e os hooks embutem o caminho absoluto do binário da máquina que instalou.
 

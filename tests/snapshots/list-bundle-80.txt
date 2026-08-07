@@ -1,6 +1,6 @@
 ╭─ Bundle  lists pool artifacts only ──────────────────────────────────────────╮
 │                                                                              │
-│  api-python                                            235.6 KiB · 12 files  │
+│  api-python                              2 artifacts · 235.6 KiB · 12 files  │
 │    Equipment for working on a Python API.                                    │
 │                                                                              │
 │    skill  tdd                                                                │

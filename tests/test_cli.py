@@ -142,11 +142,20 @@ def test_the_list_command_shows_the_three_blocks(capsys: pytest.CaptureFixture[s
 def test_the_framework_screen_lists_what_is_inside_it(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """A framework installs whole, so *whole* has to be readable before accepting."""
-    code, output = output_of(capsys, ["list", "--ai-framework", "matt-pocock"])
+    """A framework installs whole, so *whole* has to be readable before accepting.
+
+    Both names are read off the catalog rather than typed in: the promoted set is
+    re-read from upstream at every curation refresh — it has already gone from 22
+    to 25 — and a test that names one of its members turns a curation move into a
+    red build.
+    """
+    # given
+    framework = load_catalog(content_root(), catalog_file()).frameworks[0]
+
+    code, output = output_of(capsys, ["list", "--ai-framework", framework.name])
 
     assert code == 0
-    assert "ask-matt" in output
+    assert framework.artifacts[0].name in output
     assert "Pool skills" not in output
 
 
@@ -171,7 +180,6 @@ def test_the_skill_screen_shows_one_pool_skill_and_not_the_catalog(
     depending on the machine, with escape sequences, so asserting it here would
     be asserting the capture.
     """
-    # given
     described = load_catalog(content_root(), catalog_file()).pool[0]
 
     code, output = output_of(capsys, ["list", "--skill", described.name])
@@ -207,6 +215,28 @@ def test_two_selectors_on_one_line_exit_two(capsys: pytest.CaptureFixture[str]) 
     assert code == 2
     assert "--skill" in output
     assert "--bundle" in output
+
+
+def test_two_selectors_are_refused_before_the_catalog_is_read(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The defect is in the line, so the answer cannot depend on the tree.
+
+    With the order the other way round a broken content tree would answer **1** —
+    *could not run* — to a question whose real answer is **2**, and the two codes
+    exist precisely so a pipeline can tell *"alert the team"* from *"fix the
+    line"*.
+    """
+
+    def explode(*_: object, **__: object) -> object:
+        message = "unknown artifact type directory: /content/pool/sklls"
+        raise OverpowerError(message)
+
+    monkeypatch.setattr(cli, "load_catalog", explode)
+
+    code, _ = output_of(capsys, ["list", "--skill", "grilling", "--bundle", "api-python"])
+
+    assert code == 2
 
 
 # --------------------------------------------------------------------------- #

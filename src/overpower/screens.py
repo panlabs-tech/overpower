@@ -256,7 +256,9 @@ def _entry(
     head = Table.grid(padding=(0, 1), expand=True)
     head.add_column(ratio=1)
     head.add_column(justify="right", no_wrap=True)
-    head.add_row(Text(name, style="op.key"), Text(_weight(size, files), style="op.dim"))
+    head.add_row(
+        Text(name, style="op.key"), Text(_weight(size, files, len(contents)), style="op.dim")
+    )
     body: list[RenderableType] = [
         head,
         # `Padding`, and never a spaced string: a wrapped line has to keep the
@@ -285,8 +287,22 @@ def _contents(artifacts: Sequence[Artifact]) -> RenderableType:
     return stacked
 
 
-def _weight(size: int, files: int) -> str:
-    return f"{human(size)} · {files} file{'' if files == 1 else 's'}"
+def _weight(size: int, files: int, artifacts: int = 0) -> str:
+    """What an item costs, in the order someone reads it: how many, then how big.
+
+    The count of artifacts leads on a detail screen and is absent on the catalog
+    screen, and that is what the screen is *for*: a framework installs whole, so
+    the number that says how much *whole* is has to be readable without counting
+    the rows. It is `artifacts` and not `skills` because a framework may mix
+    skill, command, hook and MCP, and the head line cannot claim a type the
+    stacked list below it may contradict.
+    """
+    counted = f"{artifacts} {_plural('artifact', artifacts)} · " if artifacts else ""
+    return f"{counted}{human(size)} · {files} {_plural('file', files)}"
+
+
+def _plural(word: str, count: int) -> str:
+    return word if count == 1 else f"{word}s"
 
 
 def _spaced(renderables: Iterable[RenderableType]) -> list[RenderableType]:

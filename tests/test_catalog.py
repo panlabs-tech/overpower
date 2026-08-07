@@ -19,16 +19,19 @@ import pytest
 
 from overpower.discovery import (
     ArtifactType,
+    Catalog,
     UnknownArtifactTypeError,
+    UnknownNameError,
     discover_frameworks,
     discover_pool,
     load_catalog,
 )
-from overpower.errors import OverpowerError
+from overpower.errors import BadInvocationError, OverpowerError
 from overpower.packaged import catalog_file, content_root
 from overpower.written import read_written_catalog
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 LONG_DESCRIPTION = "a" * 517
@@ -285,6 +288,52 @@ def test_a_bundle_naming_an_artifact_the_pool_does_not_have_names_both(tmp_path:
 
     assert "api-python" in str(raised.value)
     assert "ghost" in str(raised.value)
+
+
+# --------------------------------------------------------------------------- #
+# asking the catalog for one item by name
+# --------------------------------------------------------------------------- #
+
+
+def test_the_catalog_finds_each_of_the_three_units_by_name(tmp_path: Path) -> None:
+    content = write_content(tmp_path)
+
+    catalog = load_catalog(content, write_catalog_file(tmp_path, WRITTEN))
+
+    assert catalog.framework("matt-pocock").artifacts[0].name == "grilling"
+    assert catalog.artifact("panlabs-python-standards").description == LONG_DESCRIPTION
+    assert catalog.bundle("api-python").artifacts[0].name == "panlabs-python-standards"
+
+
+@pytest.mark.parametrize(
+    ("lookup", "listed"),
+    [
+        pytest.param(Catalog.framework, "matt-pocock", id="ai-framework"),
+        pytest.param(Catalog.artifact, "panlabs-python-standards", id="pool-artifact"),
+        pytest.param(Catalog.bundle, "api-python", id="bundle"),
+    ],
+)
+def test_a_name_the_catalog_does_not_have_carries_the_whole_closed_list(
+    tmp_path: Path, lookup: Callable[[Catalog, str], object], listed: str
+) -> None:
+    """Exit 2 lives on this class, and the list is shown because it is finite."""
+    # given
+    catalog = load_catalog(write_content(tmp_path), write_catalog_file(tmp_path, WRITTEN))
+
+    with pytest.raises(UnknownNameError) as raised:
+        lookup(catalog, "typo")
+
+    assert "typo" in str(raised.value)
+    assert listed in str(raised.value)
+    assert isinstance(raised.value, BadInvocationError)
+
+
+def test_a_name_asked_of_an_empty_catalog_says_there_is_none_at_all() -> None:
+    """An empty list has no members to show, so the message says that instead."""
+    with pytest.raises(UnknownNameError) as raised:
+        Catalog(frameworks=(), pool=(), bundles=()).framework("matt-pocock")
+
+    assert "no AI Framework at all" in str(raised.value)
 
 
 def test_a_skill_added_to_the_tree_appears_without_touching_the_written_file(

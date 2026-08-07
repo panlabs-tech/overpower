@@ -47,16 +47,11 @@ from tests.support.screens import WIDTHS, console, render
 from tests.support.snapshots import assert_matches_snapshot
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from rich.console import RenderableType
 
 WIDTH_CASES = [pytest.param(width, id=f"{width}cols") for width in WIDTHS]
-
-UNITS = ("framework", "bundle", "skill")
-"""The three detail screens, named the way the flag that opens them is."""
-
-DETAIL_CASES = [
-    pytest.param(unit, width, id=f"{unit}-{width}cols") for unit in UNITS for width in WIDTHS
-]
 
 BANNER_COLUMNS = 50
 BANNER_ROWS = 5
@@ -112,13 +107,37 @@ def artifact(
     )
 
 
-def detail_screen(catalog: Catalog, unit: str) -> RenderableType:
-    """The detail screen of the first item of `unit` in `catalog`."""
-    if unit == "framework":
-        return framework_screen(catalog.frameworks[0])
-    if unit == "bundle":
-        return bundle_screen(catalog.bundles[0])
-    return artifact_screen(catalog.pool[0])
+def framework_case(catalog: Catalog) -> tuple[RenderableType, str]:
+    """One detail screen and the description it has to show whole."""
+    framework = catalog.frameworks[0]
+    return framework_screen(framework), framework.description
+
+
+def bundle_case(catalog: Catalog) -> tuple[RenderableType, str]:
+    bundle = catalog.bundles[0]
+    return bundle_screen(bundle), bundle.description
+
+
+def skill_case(catalog: Catalog) -> tuple[RenderableType, str]:
+    skill = catalog.pool[0]
+    return artifact_screen(skill), skill.description
+
+
+DETAIL_CASES = [
+    pytest.param(case, width, id=f"{unit}-{width}cols")
+    for unit, case in (
+        ("framework", framework_case),
+        ("bundle", bundle_case),
+        ("skill", skill_case),
+    )
+    for width in WIDTHS
+]
+"""The three detail screens, as callables rather than as names of a cascade.
+
+Each one is `(Catalog) -> (screen, description)`, so a property that has to hold
+across all three is written once and reads the same for each — and adding a
+fourth unit is adding a function, not a branch in a dispatcher.
+"""
 
 
 LONG = (
@@ -176,9 +195,12 @@ def recorded_framework() -> Framework:
     Three types on purpose: the prefix column is driven by the data and not by
     the assumption that a framework is a bag of skills — #11 measured hook files
     landing alongside skills upstream, and rule 1 makes a framework install
-    *whole*, so what "whole" means has to be readable before it is accepted. The
-    widest name of the promoted set is here too, because a stacked list has to
-    clip at no width at all.
+    *whole*, so what "whole" means has to be readable before it is accepted.
+
+    The names are of three different lengths so the recording shows the type
+    column padded to its widest member. Whether the *shipped* names still fit is
+    a different question and a different test — the width one, which runs against
+    `shipped()` precisely so no fixture can answer it by choosing short names.
     """
     return Framework(
         name="matt-pocock",
@@ -324,23 +346,34 @@ def test_a_bundle_says_what_it_names() -> None:
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize(("unit", "width"), DETAIL_CASES)
-def test_no_detail_screen_has_a_line_wider_than_the_terminal(unit: str, width: int) -> None:
+@pytest.mark.parametrize(("case", "width"), DETAIL_CASES)
+def test_no_detail_screen_has_a_line_wider_than_the_terminal(
+    case: Callable[[Catalog], tuple[RenderableType, str]], width: int
+) -> None:
     """A narrow terminal is where the frame has the least room to be wrong."""
-    rendered = render(detail_screen(shipped(), unit), width)
+    screen, _ = case(shipped())
+
+    rendered = render(screen, width)
 
     assert [line for line in rendered.splitlines() if len(line) > width] == []
 
 
-@pytest.mark.parametrize("width", WIDTH_CASES)
-def test_the_skill_screen_shows_the_whole_description(width: int) -> None:
-    """The extreme case: 517 characters, the maximum measured, uncut at 60 too."""
-    # given
-    skill = shipped().pool[0]
+@pytest.mark.parametrize(("case", "width"), DETAIL_CASES)
+def test_no_detail_screen_truncates_the_description_it_shows(
+    case: Callable[[Catalog], tuple[RenderableType, str]], width: int
+) -> None:
+    """All three re-wrap inside the frame instead of cutting, at 80 and at 60.
 
-    rendered = render(artifact_screen(skill), width)
+    The pool artifact is the extreme case — 517 characters, the maximum measured
+    across the promoted skills — but the property is not its alone: a framework
+    and a bundle carry a written description on the same screen, and a narrow
+    terminal is exactly when a reader most needs the whole of it.
+    """
+    screen, description = case(shipped())
 
-    assert " ".join(skill.description.split()) in unwrapped(rendered)
+    rendered = render(screen, width)
+
+    assert " ".join(description.split()) in unwrapped(rendered)
     assert "…" not in rendered
 
 
@@ -351,8 +384,8 @@ def test_the_framework_screen_prefixes_every_artifact_with_its_type(width: int) 
 
     rendered = render(framework_screen(framework), width)
 
-    for inside in framework.artifacts:
-        assert f"{inside.type} {inside.name}" in rows(rendered)
+    stacked = [f"{inside.type} {inside.name}" for inside in framework.artifacts]
+    assert [row for row in rows(rendered) if row in stacked] == stacked
 
 
 @pytest.mark.parametrize("width", WIDTH_CASES)
@@ -362,8 +395,8 @@ def test_the_bundle_screen_names_exactly_what_the_manifest_names(width: int) -> 
 
     rendered = render(bundle_screen(bundle), width)
 
-    named = [row for row in rows(rendered) if row.startswith("skill ")]
-    assert named == [f"{inside.type} {inside.name}" for inside in bundle.artifacts]
+    stacked = [f"{inside.type} {inside.name}" for inside in bundle.artifacts]
+    assert [row for row in rows(rendered) if row in stacked] == stacked
 
 
 @pytest.mark.parametrize("width", WIDTH_CASES)

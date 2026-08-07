@@ -180,6 +180,15 @@ def list_catalog(
     ] = None,
 ) -> None:
     """Show the catalog, or the content of one item of it."""
+    given = (("--ai-framework", ai_framework), ("--skill", skill), ("--bundle", bundle))
+    selected = [flag for flag, name in given if name is not None]
+    if len(selected) > 1:
+        # Before the catalog is read at all: the defect is in the *line*, so the
+        # answer cannot depend on the tree being well formed. Reading first would
+        # let a broken tree answer 1 — *could not run* — to a question whose real
+        # answer is 2, and the two codes exist to be told apart.
+        raise TooManySelectorsError(selected)
+
     catalog = load_catalog(content_root(), catalog_file())
     # Resolved before the banner: a name outside the catalog exits 2, and a
     # banner already on screen would be the product answering before it knew.
@@ -192,11 +201,6 @@ def _listed(
     catalog: Catalog, *, ai_framework: str | None, skill: str | None, bundle: str | None
 ) -> RenderableType:
     """The screen the flags asked for: the whole catalog, or one item of it."""
-    given = (("--ai-framework", ai_framework), ("--skill", skill), ("--bundle", bundle))
-    selected = [flag for flag, name in given if name is not None]
-    if len(selected) > 1:
-        raise TooManySelectorsError(selected)
-
     if ai_framework is not None:
         return framework_screen(catalog.framework(ai_framework))
     if skill is not None:

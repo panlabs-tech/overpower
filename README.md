@@ -8,9 +8,9 @@ uvx overpower@latest
 ```
 
 > **The `0.0.x` series is not the product.** It exists to reserve the name on
-> PyPI and to prove the publishing pipeline end to end. It installs nothing: it
-> prints the version that arrived, the interpreter that ran it and the payload
-> that crossed. The first usable version is `v0.1.0`.
+> PyPI and to prove the publishing pipeline end to end, and what is published
+> today installs nothing. `list` shows the embedded catalog; `install` and
+> `doctor` are being built. The first usable version is `v0.1.0`.
 
 ## Always `@latest`
 

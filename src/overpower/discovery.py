@@ -193,7 +193,7 @@ def load_catalog(content_root: Path, catalog_file: Path) -> Catalog:
         Bundle(
             name=bundle.name,
             description=bundle.description,
-            artifacts=tuple(_named(bundle.name, item, by_name) for item in bundle.items),
+            artifacts=tuple(_from_pool(bundle.name, item, by_name) for item in bundle.items),
         )
         for bundle in written.bundles
     )
@@ -205,18 +205,8 @@ def load_catalog(content_root: Path, catalog_file: Path) -> Catalog:
 
 
 def discover_pool(pool_root: Path) -> tuple[Artifact, ...]:
-    """Every artifact under `<pool>/<type>/<name>/`, sorted by name.
-
-    Sorted because `iterdir` returns the filesystem's order, and a screen — plus
-    a plan, and a snapshot of both — needs one of ours, identical on the nine
-    cells of the matrix.
-    """
-    artifacts = [
-        artifact
-        for type_dir, artifact_type in _type_dirs(pool_root)
-        for artifact in _artifacts_in(type_dir, artifact_type)
-    ]
-    return tuple(sorted(artifacts, key=lambda artifact: artifact.name))
+    """Every artifact under `<pool>/<type>/<name>/`, sorted by name."""
+    return _artifacts_under(pool_root)
 
 
 def discover_frameworks(
@@ -224,36 +214,53 @@ def discover_frameworks(
 ) -> tuple[Framework, ...]:
     """Every framework under `<frameworks>/<name>/`, with its written description.
 
-    The type level repeats inside a framework, with the same closed set, and it
-    is not ornament: a framework may mix skill, command and agent, and the
-    written file has no artifact entry — so the tree is the only possible source
-    of an artifact's type.
+    The description is the one thing a framework cannot say for itself — it has
+    no `SKILL.md` — so it is the one thing written down. Everything else about
+    it, including the *type* of each artifact inside it, comes from the tree:
+    a framework may mix skill, command and agent, and the written file has no
+    artifact entry at all.
     """
     frameworks: list[Framework] = []
     for directory in _directories(frameworks_root):
         name = directory.name
         if name not in descriptions:
             raise MissingFrameworkDescriptionError(name)
-        artifacts = [
-            artifact
-            for type_dir, artifact_type in _type_dirs(directory)
-            for artifact in _artifacts_in(type_dir, artifact_type)
-        ]
         frameworks.append(
             Framework(
                 name=name,
                 path=directory,
                 description=descriptions[name],
-                artifacts=tuple(sorted(artifacts, key=lambda artifact: artifact.name)),
+                artifacts=_artifacts_under(directory),
             )
         )
     return tuple(sorted(frameworks, key=lambda framework: framework.name))
 
 
-def _named(bundle: str, item: str, pool: Mapping[str, Artifact]) -> Artifact:
+def _from_pool(bundle: str, item: str, pool: Mapping[str, Artifact]) -> Artifact:
+    """The artifact a bundle points at, or the error that names both."""
     if item not in pool:
         raise UnknownBundleItemError(bundle, item)
     return pool[item]
+
+
+def _artifacts_under(root: Path) -> tuple[Artifact, ...]:
+    """Every artifact of every type below `root`, sorted by name.
+
+    The pool and a framework are walked by the same function because the level
+    below them is the same level — `<type>/<name>/` — and that is rule 8 rather
+    than a coincidence: the type folder repeats inside a framework, with the
+    same closed set of names.
+
+    Sorted because `iterdir` returns the filesystem's order, and a screen — plus
+    a plan, and a snapshot of both — needs one of ours, identical on the nine
+    cells of the matrix.
+    """
+    artifacts = [
+        artifact
+        for type_dir, artifact_type in _type_dirs(root)
+        for artifact in _artifacts_in(type_dir, artifact_type)
+    ]
+    return tuple(sorted(artifacts, key=lambda artifact: artifact.name))
 
 
 def _type_dirs(root: Path) -> Iterable[tuple[Path, ArtifactType]]:

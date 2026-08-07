@@ -272,6 +272,7 @@ def test_a_bundle_weighs_the_pool_artifacts_it_names(tmp_path: Path) -> None:
 
 
 def test_a_bundle_naming_an_artifact_the_pool_does_not_have_names_both(tmp_path: Path) -> None:
+    # given
     content = write_content(tmp_path)
     written = write_catalog_file(
         tmp_path,

@@ -16,6 +16,7 @@ is also the closest thing to what the user actually runs.
 
 from __future__ import annotations
 
+import io
 import os
 import subprocess
 import sys
@@ -23,9 +24,11 @@ from importlib import metadata
 from typing import TYPE_CHECKING
 
 import pytest
+from rich.console import Console
 
 from overpower import cli
 from overpower.errors import OverpowerError
+from overpower.screens import THEME
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -90,6 +93,30 @@ def test_an_unknown_flag_exits_two(capsys: pytest.CaptureFixture[str]) -> None:
     assert code == 2
 
 
+@pytest.mark.parametrize(
+    ("terminal", "expected"),
+    [pytest.param(True, True, id="tty"), pytest.param(False, False, id="pipe")],
+)
+def test_the_banner_follows_the_terminal_and_nothing_else(
+    monkeypatch: pytest.MonkeyPatch, *, terminal: bool, expected: bool
+) -> None:
+    """The gate is `isatty()`, asserted in both directions rather than one.
+
+    The child process below proves the pipe half against the real binary; this
+    one proves the other half, which no pipe can show.
+    """
+    sink = io.StringIO()
+    monkeypatch.setattr(
+        cli,
+        "_out",
+        Console(file=sink, theme=THEME, width=80, force_terminal=terminal, highlight=False),
+    )
+
+    assert cli.main(["list"]) == 0
+
+    assert ("_____" in sink.getvalue()) is expected
+
+
 def test_the_list_command_shows_the_three_blocks(capsys: pytest.CaptureFixture[str]) -> None:
     code, output = output_of(capsys, ["list"])
 
@@ -136,6 +163,44 @@ def test_a_named_failure_exits_one_and_says_what_it_found(
     assert code == 1
     assert "/content/pool/sklls" in output
     assert "RuntimeError" not in output
+
+
+def test_a_path_with_brackets_reaches_the_panel_whole(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The message names the wrong path, so the path cannot be re-read as markup.
+
+    Measured: as markup, `/tmp/[wip]/pool/sklls` renders `/tmp//pool/sklls` —
+    the segment that names the defect is the segment that disappears.
+    """
+
+    def explode(*_: object, **__: object) -> object:
+        message = "unknown artifact type directory: /tmp/[wip]/pool/sklls"
+        raise OverpowerError(message)
+
+    monkeypatch.setattr(cli, "load_catalog", explode)
+
+    code, output = output_of(capsys, ["list"])
+
+    assert code == 1
+    assert "[wip]" in output
+
+
+def test_a_message_that_looks_like_a_closing_tag_does_not_escape_the_handler(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Measured: `[/2024]` raises `MarkupError` *from inside* the handler."""
+
+    def explode(*_: object, **__: object) -> object:
+        message = "no description in the frontmatter of /tmp/c/[/2024]/SKILL.md"
+        raise OverpowerError(message)
+
+    monkeypatch.setattr(cli, "load_catalog", explode)
+
+    code, output = output_of(capsys, ["list"])
+
+    assert code == 1
+    assert "[/2024]" in output
 
 
 def test_an_interrupt_exits_one(

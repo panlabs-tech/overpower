@@ -13,7 +13,9 @@ that bypassed them would be an output path no snapshot can see.
 Two positions of #36 change what the prototype drew, and both are subtractions:
 
 - **the `list` does not show origin.** The `NOTICE` of the wheel is curation
-  text the program never reads, and rule 6 keeps attribution out of the target;
+  text the program never reads — it travels in the package metadata under
+  PEP 639, which is exactly what keeps it off every screen and out of the
+  target (ADR 0003);
 - with the origin gone, its line held only the file count, so the count joins the
   size on the head line — *name, size and file count*, and the description whole
   underneath.
@@ -131,14 +133,22 @@ def catalog_screen(catalog: Catalog) -> RenderableType:
     return Group(*_spaced(blocks))
 
 
-def error_panel(title: str, body: RenderableType, style: str = "op.err") -> Panel:
-    """A failure as a panel, which is the whole reason the top handler exists."""
+def error_panel(body: Text) -> Panel:
+    """A failure as a panel, which is the whole reason the top handler exists.
+
+    The body is a `Text` and the type is the guard, not a preference. An error
+    message carries paths and exception text, both of which routinely contain
+    `[`: measured, a path of `/tmp/[wip]/pool/sklls` printed as markup renders
+    `/tmp//pool/sklls` — the wrong path silently loses the segment that names it
+    — and `/tmp/[/2024]/SKILL.md` raises `MarkupError` *out of* the handler,
+    which is the traceback the handler exists to prevent.
+    """
     return Panel(
         body,
-        title=f"[{style}]{title}[/]",
+        title="[op.err]error[/]",
         title_align="left",
         box=box.ROUNDED,
-        border_style=style,
+        border_style="op.err",
         padding=(1, 2),
     )
 

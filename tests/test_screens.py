@@ -8,10 +8,19 @@ meaning are asserted structurally here, where an aesthetic tweak cannot move
 them, and the bytes are recorded per screen, at 80 and 60 columns, without
 colour.
 
-The catalog under test is the one that ships, and that is the point of the
-truncation case: the pool skill of v0.1.0 was picked for having the **517
-character** description that is the maximum measured across the promoted skills
-(https://github.com/panlabs-tech/overpower/issues/45).
+**The catalog under test is the one that ships**, and that is the ticket's own
+instruction: the truncation property is to be asserted *"com a descrição de 517
+caracteres do pool como caso"*, and the pool skill of v0.1.0 was picked for
+having exactly that description — the maximum measured across the promoted
+skills (https://github.com/panlabs-tech/overpower/issues/45).
+
+The consequence is deliberate and worth naming, because it will surprise
+somebody: a **curation refresh moves the recorded screens**, since the sizes and
+the file counts on them are the real ones. That is the snapshot doing its job —
+the screen did change — and it is the opposite of the case doctrine §8 forbids,
+which is asserting the *repository's content* instead of the code. Here the
+subject is the screen; what is on it is data. The discovery tests next door
+build their trees in `tmp_path` for exactly that reason.
 """
 
 from __future__ import annotations

@@ -41,12 +41,15 @@ if TYPE_CHECKING:
 PROGRAM = "overpower"
 
 ABORTED = 130
-"""What click exits on `Abort` since 8.2 — the shell's `128 + SIGINT`.
+"""What Ctrl-C costs before it reaches here — the shell's `128 + SIGINT`.
 
-Measured on click 8.4.2. The model of the map puts Ctrl-C under **1**, *could not
-run*, so the number is translated once, here, rather than leaking a fifth code
-into a table that declares four. No command of ours exits 130 for any other
-reason, so the translation cannot swallow a real answer.
+Read in `typer/core.py` of typer 0.27.1 and measured: typer's own `main`
+overrides click's and turns `KeyboardInterrupt` into `Exit(130)`, where click
+alone would have raised `Abort` and exited **1**. The model of the map puts
+Ctrl-C under **1**, *could not run*, so the number is translated once, here,
+rather than leaking a fifth code into a table that declares four. No command of
+ours exits 130 for any other reason, so the translation cannot swallow a real
+answer.
 """
 
 _out = Console(theme=THEME, highlight=False)
@@ -130,9 +133,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         app(args=None if argv is None else list(argv), prog_name=PROGRAM)
     except SystemExit as stopped:
-        # Click's own exits: `--help` and `--version` at 0, a usage error at 2,
-        # and Ctrl-C — which click turns into `Abort` before it reaches here — at
-        # 1. The code is click's answer, never re-derived.
+        # The framework's own exits: `--help` and `--version` at 0, a usage error
+        # at 2, and Ctrl-C at 130, which `_code` translates. The number is read
+        # off the exception and never re-derived here.
         return _code(stopped.code)
     except OverpowerError as failure:
         return _failed(str(failure))
@@ -153,14 +156,23 @@ def _print_banner() -> None:
 
 
 def _failed(message: str, *, unexpected: bool = False) -> int:
-    body: Text | str = message
+    """The panel, and the last place a message is still a message.
+
+    `Text`, never markup: the message carries paths and exception text, and both
+    routinely contain `[`. Measured, as markup a path of `/tmp/[wip]/pool/sklls`
+    renders `/tmp//pool/sklls` — the *wrong path*, which is the one thing the
+    message exists to name — and `/tmp/[/2024]/SKILL.md` raises `MarkupError`
+    from inside the handler, which is how a traceback escapes the one function
+    written to stop it.
+    """
+    body = Text(message)
     if unexpected:
         body = Text.assemble(
-            message,
+            body,
             "\n\n",
             ("This is a bug in the overpower, not in what you typed.", "op.dim"),
         )
-    _err.print(error_panel("error", body))
+    _err.print(error_panel(body))
     return ExitCode.CANNOT_RUN
 
 
@@ -172,8 +184,7 @@ def _code(code: int | str | None) -> int:
         return ExitCode.CANNOT_RUN
     if isinstance(code, int):
         return code
-    _err.print(code)
-    return ExitCode.CANNOT_RUN
+    return _failed(code)
 
 
 def _version() -> str:

@@ -34,6 +34,7 @@ be a second place for the truncation rule to be forgotten.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from rich import box
@@ -46,10 +47,12 @@ from rich.theme import Theme
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
+    from pathlib import Path
 
-    from rich.console import RenderableType
+    from rich.console import Console, ConsoleOptions, RenderableType, RenderResult
 
-    from overpower.discovery import Artifact, Bundle, Catalog, Framework
+    from overpower.discovery import Artifact, ArtifactType, Bundle, Catalog, Framework
+    from overpower.planning import Landing, Plan, Selection
 
 THEME = Theme(
     {
@@ -88,6 +91,14 @@ TAGLINE = "installs curated agent equipment"
 
 _KIB = 1024
 _MIB = 1024 * 1024
+
+_READERS_SHOWN = 3
+"""How many runtimes a plan line names before it counts the rest.
+
+Three and a `(+N)`, which is the shape the prototype settled on: enough to
+recognise the place, short enough that the line still fits at 60 columns next to
+the path it belongs to.
+"""
 
 
 def banner(version: str, width: int) -> RenderableType:
@@ -198,6 +209,37 @@ def artifact_screen(artifact: Artifact) -> RenderableType:
     )
 
 
+def plan_screen(plan: Plan) -> RenderableType:
+    """Everything the plan will write, before a single byte of it is written.
+
+    It draws a `Landing` as what a `Landing` is — a path and everyone who reads
+    it — and the argument for that shape lives on the type, in
+    `overpower.planning`, so it is stated once.
+    """
+    return _PlanScreen(plan)
+
+
+@dataclass(frozen=True)
+class _PlanScreen:
+    """The plan panel, assembled at render time because one glyph depends on the encoding.
+
+    Measured: `←` cannot be encoded in cp1252, which is what a pipe on Windows
+    takes, and rich writes text straight to the file — so a hard-coded arrow
+    raises `UnicodeEncodeError` out of the middle of the screen, on the three
+    Windows cells only. `ascii_only` is the same switch rich itself uses to swap
+    the box characters for ASCII, and it is read off the console that is about
+    to draw rather than off the platform, so a UTF-8 pipe on Windows keeps the
+    arrow and a cp1252 one does not.
+    """
+
+    plan: Plan
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        """Draw the panel with the arrow this console can carry."""
+        del console
+        yield _plan_panel(self.plan, "<-" if options.ascii_only else "←")
+
+
 def error_panel(body: Text) -> Panel:
     """A failure as a panel, which is the whole reason the top handler exists.
 
@@ -225,6 +267,77 @@ def human(size: int) -> str:
     if size < _MIB:
         return f"{size / _KIB:.1f} KiB"
     return f"{size / _MIB:.2f} MiB"
+
+
+def _plan_panel(plan: Plan, arrow: str) -> Panel:
+    """One block, and inside it one group per thing that was asked for."""
+    return Panel(
+        Group(*_spaced([_planned(selection, plan.root, arrow) for selection in plan.selections])),
+        title="[op.section]plan[/]",
+        title_align="left",
+        box=box.ROUNDED,
+        border_style="op.dim",
+        padding=(1, 2),
+    )
+
+
+def _planned(selection: Selection, root: Path, arrow: str) -> RenderableType:
+    """What one selection brings, and every place it lands."""
+    places = Table.grid(padding=(0, 1), expand=True)
+    # `fold`, never the default `ellipsis`: a truncated path is the one thing
+    # this screen may not do, and a narrow terminal is where it would happen.
+    places.add_column(ratio=1, overflow="fold")
+    places.add_column(justify="right", no_wrap=True)
+    for landing in selection.landings:
+        places.add_row(
+            Text.assemble(
+                _shown(root, landing),
+                "  ",
+                (arrow, "op.dim"),
+                " ",
+                (_readers(landing.readers), "op.dim"),
+            ),
+            Text(f"{landing.files} {_plural('file', landing.files)}", style="op.dim"),
+        )
+    return Group(
+        Text.assemble((selection.name, "op.key"), "  ", (_carries(selection.artifacts), "op.dim")),
+        Padding(places, (0, 0, 0, 2)),
+    )
+
+
+def _shown(root: Path, landing: Landing) -> str:
+    """The place, as the plan names it: relative to the target, with `/` separators.
+
+    `/` on every platform, deliberately. The runtime table spells its paths that
+    way, `git status` prints them that way on Windows too, and a screen whose
+    separator changes with the platform cannot be recorded once for the nine
+    cells of the matrix.
+
+    A place *outside* the target is shown whole, because it is not a detail the
+    reader can reconstruct — that is the second write of a graft, which lands
+    outside the repository.
+    """
+    inside = landing.place.is_relative_to(root)
+    shown = landing.place.relative_to(root).as_posix() if inside else landing.place.as_posix()
+    return f"{shown}/" if landing.folder else shown
+
+
+def _readers(keys: Sequence[str]) -> str:
+    """`cursor, codex, github-copilot (+16)` — who reads the place, and how many more."""
+    rest = len(keys) - _READERS_SHOWN
+    shown = ", ".join(keys[:_READERS_SHOWN])
+    return f"{shown} (+{rest})" if rest > 0 else shown
+
+
+def _carries(artifacts: Sequence[ArtifactType]) -> str:
+    """`22 skills`, or `4 artifacts` when a selection mixes types.
+
+    A framework may mix skill, command and agent — the type comes from the tree
+    (rule 8) — so the noun is data and not a constant.
+    """
+    kinds = set(artifacts)
+    noun = str(next(iter(kinds))) if len(kinds) == 1 else "artifact"
+    return f"{len(artifacts)} {_plural(noun, len(artifacts))}"
 
 
 def _block(title: str, note: str, entries: Sequence[RenderableType]) -> Panel:

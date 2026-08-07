@@ -45,7 +45,7 @@ class BadInvocationError(OverpowerError):
 
     What belongs here is what the caller can fix by typing something else: a
     name outside a closed list, two selectors where the command answers about
-    one. What does *not* belong here is *"ran, and the answer is no"* — that is
-    code `3`, and the defect there is on our side of the question, not on
-    theirs.
+    one, a required selector that was not given at all. What does *not* belong
+    here is *"ran, and the answer is no"* — that is code `3`, and the defect
+    there is on our side of the question, not on theirs.
     """

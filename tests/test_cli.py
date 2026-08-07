@@ -31,9 +31,13 @@ from overpower.discovery import load_catalog
 from overpower.errors import OverpowerError
 from overpower.packaged import catalog_file, content_root
 from overpower.screens import THEME
+from tests.support import project
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from pathlib import Path
+
+    CaptureFixture = pytest.CaptureFixture[str]
 
 RUN = "import sys; from overpower.cli import main; sys.exit(main())"
 """The console script, one line: `project.scripts` is `overpower.cli:main`."""
@@ -378,3 +382,97 @@ def test_the_list_screen_survives_a_pipe_whole() -> None:
     assert result.returncode == 0
     assert b"AI Frameworks" in result.stdout
     assert b"panlabs-python-standards" in result.stdout
+
+
+# --------------------------------------------------------------------------- #
+# the install surface: the confirmation, and the two flags that steer past it
+# --------------------------------------------------------------------------- #
+
+
+def test_the_confirmation_is_asked_in_a_terminal_and_declining_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """Confirmation before any byte, and a decline is *could not run*, like Ctrl-C.
+
+    Only the seam is stubbed. What it stands in for is a `questionary` prompt,
+    and the ruler excludes a Stub from contract testing by name: it supplies
+    indirect input, it does not emulate the library.
+    """
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    root = project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    monkeypatch.setattr(cli, "_confirmed", lambda: False)
+
+    code, _ = project.run(capsys, "install", "--skill", "alpha", "--runtime", "claude-code")
+
+    assert code == 1
+    assert list(root.iterdir()) == []
+
+
+def test_yes_skips_the_confirmation_and_nothing_else(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """Choosing between the repository and `~/` is not a yes-or-no question."""
+    # given
+    asked: list[str] = []
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    root = project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    monkeypatch.setattr(cli, "_confirmed", lambda: bool(asked.append("asked")))
+
+    code, _ = project.run(
+        capsys, "install", "--skill", "alpha", "--runtime", "claude-code", "--yes"
+    )
+
+    assert code == 0
+    assert asked == []
+    assert (root / project.CLAUDE / "alpha" / "SKILL.md").is_file()
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [pytest.param((), id="without --yes"), pytest.param(("--yes",), id="with --yes")],
+)
+def test_without_a_terminal_the_command_runs_and_yes_is_a_no_op(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: CaptureFixture,
+    extra: tuple[str, ...],
+) -> None:
+    """v0.1.0 removes nothing: it stands next to `pip`, not next to `apt-get`.
+
+    The same line therefore runs identically in a terminal and in CI.
+    """
+    # given
+    asked: list[str] = []
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    root = project.target(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli, "_confirmed", lambda: bool(asked.append("asked")))
+
+    code, _ = project.run(capsys, "install", "--skill", "alpha", "--runtime", "claude-code", *extra)
+
+    assert code == 0
+    assert asked == []
+    assert (root / project.CLAUDE / "alpha" / "SKILL.md").is_file()
+
+
+def test_the_dry_run_mirrors_the_exit_code_of_the_real_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The whole reason `--dry-run` works as a CI gate: the number has to agree.
+
+    Asserted on a refusal and not only on a clean plan, because a dry run that
+    answered 0 where the real run answers 2 would pass a pipeline that is about
+    to fail.
+    """
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    root = project.target(tmp_path, monkeypatch)
+    selectors = ("install", "--skill", "alpha", "--runtime", "cursr")
+
+    dry_code, _ = project.run(capsys, *selectors, "--dry-run")
+    real_code, _ = project.run(capsys, *selectors)
+
+    assert dry_code == real_code == 2
+    assert list(root.iterdir()) == []

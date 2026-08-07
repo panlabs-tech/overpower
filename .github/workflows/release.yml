@@ -7,7 +7,14 @@ name: Publish release to PyPI
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["v*"] # the manual path, preserved
+  # The automatic path. `tag.yml` cannot reach the line above: a tag created with
+  # `GITHUB_TOKEN` fires no workflow at all, and `workflow_dispatch` is the
+  # documented exception. The event does not participate in the trusted-publisher
+  # match — owner, repository, workflow filename and environment do — so this
+  # line costs nothing and buys the whole automatic release.
+  # https://github.com/panlabs-tech/overpower/issues/24
+  workflow_dispatch:
 
 jobs:
   publish:

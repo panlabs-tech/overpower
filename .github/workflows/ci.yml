@@ -1,0 +1,169 @@
+# The gate on every pull request. Six checks, all blocking, in three jobs —
+# decided in https://github.com/panlabs-tech/overpower/issues/24.
+#
+# There is deliberately NO `on: pull_request` trigger, and the absence is the
+# decision. A check run is attached to the *SHA*, not to the event, so the run
+# that fires on the push to the feature branch already satisfies the required
+# status check of the pull request. Adding the trigger would instead create runs
+# in `approval-required` state whenever the PR was opened with `GITHUB_TOKEN`,
+# and clearing that needs a PAT or an App token — a credential back in the repo,
+# which is the property the release path exists to celebrate not having.
+name: CI
+
+on:
+  push:
+    # `branches` and not the bare `push`: without the filter this also fires on
+    # the tags the release path creates, duplicating the release run.
+    branches: ["**"]
+
+env:
+  # Pinned to the same uv the release workflow uses. One version of the
+  # resolver, one lockfile reading, no local-versus-CI divergence.
+  UV_VERSION: "0.12.1"
+
+jobs:
+  # Five of the six checks have no sensitivity to OS or Python version. Running
+  # them across the matrix would pay 9x a fixed ~10 s of job overhead for the
+  # same answer: measured, the whole battery is ~2 s of actual work.
+  static:
+    name: static
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      # `--locked` fails instead of silently re-resolving: the lockfile is the
+      # single source of tool versions, and it is what makes `uv run ruff` here
+      # and `uv run ruff` in the lefthook hook the same ruff.
+      - name: Install the locked environment
+        run: uv sync --locked --all-groups
+
+      - name: ruff format
+        run: uv run ruff format --check .
+
+      - name: ruff check
+        run: uv run ruff check .
+
+      - name: pyright
+        run: uv run --group typecheck pyright
+
+      # P1 — everything under content/ is really tracked by git.
+      # https://github.com/panlabs-tech/overpower/issues/11
+      #
+      # The `test -d` guard is not defensive noise: measured, with the directory
+      # absent the command exits 0 with empty output and puts its warning on
+      # stderr only. It would pass by vacuity — exactly the failure class it
+      # exists to catch.
+      - name: P1 — no ignored file hiding inside content/
+        run: |
+          if [ ! -d src/overpower/content ]; then
+            echo "::notice::src/overpower/content/ does not exist yet; P1 has no subject"
+            exit 0
+          fi
+          hidden="$(git ls-files --others --ignored --exclude-standard -- src/overpower/content/)"
+          if [ -n "$hidden" ]; then
+            echo "::error::files under content/ are ignored by git and will not reach the wheel:"
+            echo "$hidden"
+            exit 1
+          fi
+          echo "P1 ok: nothing under content/ is hidden from git"
+
+      # P2 — what git tracks under content/ is what the wheel carries.
+      # It costs one `uv build` (measured at 0.54 s) and it runs here rather
+      # than only at release: the tag is born from the merge, so a release-only
+      # P2 would find the divergence *after* main already had it.
+      - name: P2 — the wheel carries exactly what git tracks
+        run: |
+          uv build --no-sources
+          python3 - <<'PY'
+          import glob
+          import subprocess
+          import sys
+          import zipfile
+
+          prefix = "src/overpower/"
+          tracked = {
+              path[len(prefix):]
+              for path in subprocess.run(
+                  ["git", "ls-files", "src/overpower/content"],
+                  capture_output=True, text=True, check=True,
+              ).stdout.split()
+          }
+          wheel = sorted(glob.glob("dist/*.whl"))[-1]
+          inside = {
+              name[len("overpower/"):]
+              for name in zipfile.ZipFile(wheel).namelist()
+              if name.startswith("overpower/content/")
+          }
+
+          missing = sorted(tracked - inside)
+          extra = sorted(inside - tracked)
+          for name in missing:
+              print(f"::error::tracked but absent from the wheel: {name}")
+          for name in extra:
+              print(f"::error::in the wheel but not tracked by git: {name}")
+          if missing or extra:
+              sys.exit(1)
+          print(f"P2 ok: {len(tracked)} tracked path(s) under content/, all present in {wheel}")
+          PY
+
+  # Only pytest varies with OS and Python version, and it varies for a reason:
+  # what the suite exercises is the filesystem, which is precisely what differs
+  # across the nine cells. The floor is not arbitrary either — `os.path.isjunction`
+  # does not exist in 3.11 and does in 3.12+, and it is the predicate #19 fixed
+  # as the correct one for removing a junction.
+  test:
+    name: test (${{ matrix.os }}, py${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.12", "3.13", "3.14"]
+    env:
+      UV_PYTHON: ${{ matrix.python }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      # Without `--all-groups`: pyright drags a Node runtime, and the matrix has
+      # no use for it.
+      - name: Install the locked environment
+        run: uv sync --locked
+
+      # `windows-latest` proves the path *with* symlink privilege and not
+      # without it — the runner image enables Developer Mode and runs as an
+      # administrator (#19). The unprivileged branch stays observable only on
+      # the dev machine, and that absence is declared, not covered.
+      - name: pytest
+        run: uv run pytest
+
+  # The one name the ruleset requires. It exists for mechanics, not elegance: a
+  # required check is remembered *by name*, and a matrix cell's name carries the
+  # matrix values — so without this job, changing the matrix would leave the
+  # ruleset waiting on a check that no longer reports, and every pull request
+  # would hang on "Expected — waiting for status to be reported", forever.
+  #
+  # `if: always()` plus the explicit assertion below, and not the empty job the
+  # decision sketched: a job skipped because a dependency failed reports as
+  # *skipped*, and GitHub treats a skipped required check as successful. An
+  # empty `needs: [static, test]` job would therefore go green exactly when the
+  # gate had something to say.
+  gate:
+    name: gate
+    needs: [static, test]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every gate reported success
+        env:
+          STATIC: ${{ needs.static.result }}
+          TEST: ${{ needs.test.result }}
+        run: |
+          echo "static=$STATIC test=$TEST"
+          [ "$STATIC" = "success" ] || { echo "::error::static did not succeed"; exit 1; }
+          [ "$TEST" = "success" ] || { echo "::error::test did not succeed"; exit 1; }

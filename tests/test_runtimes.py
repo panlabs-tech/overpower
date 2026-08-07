@@ -8,8 +8,9 @@ project paths" from prose into something that breaks when a refresh changes it.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import sys
 from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -26,7 +27,30 @@ from overpower.runtimes import (
     runtimes_in,
 )
 
-HOME = Path("/home/dev")
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+# A POSIX-looking literal is NOT an absolute path on Windows:
+# `WindowsPath("/home/dev").is_absolute()` is False, because it carries no
+# drive. That is real product behaviour and not a quirk to route around —
+# `_override` ignores a non-absolute override on purpose — so the fixtures get
+# anchored per platform instead, and the assertions stay about the *table*
+# rather than about the path syntax of whichever runner ran them.
+#
+# The switch is `sys.platform` and never an environment variable: a variable can
+# go missing from the workflow and leave the suite green while asserting
+# nothing. Found by the first run of the 3x3 matrix, in the exact cell the test
+# doctrine predicted it would be found in.
+_ANCHOR = "C:/" if sys.platform == "win32" else "/"
+
+
+def absolute(*parts: str) -> Path:
+    """An absolute path on the platform running the test."""
+    return Path(_ANCHOR, *parts)
+
+
+HOME = absolute("home", "dev")
+REPO = absolute("srv", "repo")
 
 
 def environment(
@@ -85,11 +109,7 @@ def test_distinct_global_paths_under_a_default_environment() -> None:
 
 def test_agents_skills_is_the_most_shared_global_path() -> None:
     env = environment()
-    sharing = [
-        r.key
-        for r in RUNTIMES
-        if resolve_global_dir(r, env) == HOME / ".agents" / "skills"
-    ]
+    sharing = [r.key for r in RUNTIMES if resolve_global_dir(r, env) == HOME / ".agents" / "skills"]
     assert sorted(sharing) == ["cline", "dexto", "kimi-code-cli", "loaf", "warp", "zed"]
 
 
@@ -128,22 +148,16 @@ def test_every_runtime_offered_in_a_scope_has_somewhere_to_land() -> None:
     than over the two known keys — is what keeps it true after a refresh.
     """
     env = environment()
-    assert all(
-        resolve_global_dir(r, env) is not None for r in runtimes_in(Scope.GLOBAL)
-    )
-    root = Path("/srv/repo")
-    assert all(
-        resolve_project_dir(r, root).is_absolute() for r in runtimes_in(Scope.PROJECT)
-    )
+    assert all(resolve_global_dir(r, env) is not None for r in runtimes_in(Scope.GLOBAL))
+    root = REPO
+    assert all(resolve_project_dir(r, root).is_absolute() for r in runtimes_in(Scope.PROJECT))
 
 
 # --- evidence --------------------------------------------------------------
 
 
 def test_only_four_project_paths_were_verified_in_primary_source() -> None:
-    measured = sorted(
-        r.key for r in RUNTIMES if r.project_dir.evidence is Evidence.MEASURED
-    )
+    measured = sorted(r.key for r in RUNTIMES if r.project_dir.evidence is Evidence.MEASURED)
     assert measured == ["claude-code", "codex", "cursor", "github-copilot"]
 
 
@@ -158,9 +172,7 @@ def test_only_one_global_path_was_verified_in_primary_source() -> None:
 
 def test_vs_code_has_no_row_although_the_map_measured_it() -> None:
     """Recorded as a test because it is the one gap a reader would assume away."""
-    assert not [
-        r for r in RUNTIMES if "code" in r.key and "vs" in r.display_name.lower()
-    ]
+    assert not [r for r in RUNTIMES if "code" in r.key and "vs" in r.display_name.lower()]
     assert "vscode" not in RUNTIMES_BY_KEY
 
 
@@ -168,10 +180,8 @@ def test_vs_code_has_no_row_although_the_map_measured_it() -> None:
 
 
 def test_project_path_is_joined_under_the_given_root() -> None:
-    root = Path("/srv/repo")
-    assert (
-        resolve_project_dir(runtime("claude-code"), root) == root / ".claude" / "skills"
-    )
+    root = REPO
+    assert resolve_project_dir(runtime("claude-code"), root) == root / ".claude" / "skills"
 
 
 @pytest.mark.parametrize("row", RUNTIMES, ids=[r.key for r in RUNTIMES])
@@ -185,7 +195,7 @@ def test_project_path_never_leaves_a_separator_inside_one_component(
     `factory/skills`, and on Windows a junction API that only accepts `str`
     would then be handed the wrong string.
     """
-    resolved = resolve_project_dir(row, Path("/srv/repo"))
+    resolved = resolve_project_dir(row, REPO)
     expected = len(PurePosixPath(row.project_dir.relative).parts)
     assert resolved.parts[-expected:] == PurePosixPath(row.project_dir.relative).parts
     assert all("/" not in part and "\\" not in part for part in resolved.parts[1:])
@@ -193,7 +203,7 @@ def test_project_path_never_leaves_a_separator_inside_one_component(
 
 @pytest.mark.parametrize("row", RUNTIMES, ids=[r.key for r in RUNTIMES])
 def test_project_path_is_relative_to_the_root(row: Runtime) -> None:
-    root = Path("/srv/repo")
+    root = REPO
     assert resolve_project_dir(row, root).is_relative_to(root)
 
 
@@ -201,10 +211,7 @@ def test_project_path_is_relative_to_the_root(row: Runtime) -> None:
 
 
 def test_home_anchored_path_hangs_off_the_home() -> None:
-    assert (
-        resolve_global_dir(runtime("cursor"), environment())
-        == HOME / ".cursor" / "skills"
-    )
+    assert resolve_global_dir(runtime("cursor"), environment()) == HOME / ".cursor" / "skills"
 
 
 def test_runtime_without_global_destination_resolves_to_none() -> None:
@@ -217,16 +224,13 @@ def test_xdg_config_home_defaults_to_dot_config() -> None:
 
 
 def test_xdg_config_home_is_honoured_when_absolute() -> None:
-    env = environment({"XDG_CONFIG_HOME": "/etc/xdg"})
-    assert resolve_global_dir(runtime("devin"), env) == Path("/etc/xdg/devin/skills")
+    env = environment({"XDG_CONFIG_HOME": str(absolute("etc", "xdg"))})
+    assert resolve_global_dir(runtime("devin"), env) == absolute("etc", "xdg", "devin", "skills")
 
 
 def test_blank_override_falls_back_instead_of_naming_a_directory_of_spaces() -> None:
     env = environment({"XDG_CONFIG_HOME": "   "})
-    assert (
-        resolve_global_dir(runtime("devin"), env)
-        == HOME / ".config" / "devin" / "skills"
-    )
+    assert resolve_global_dir(runtime("devin"), env) == HOME / ".config" / "devin" / "skills"
 
 
 def test_relative_override_is_ignored_so_a_global_install_stays_global() -> None:
@@ -234,24 +238,22 @@ def test_relative_override_is_ignored_so_a_global_install_stays_global() -> None
     env = environment({"XDG_CONFIG_HOME": ".config"})
     resolved = resolve_global_dir(runtime("devin"), env)
     assert resolved == HOME / ".config" / "devin" / "skills"
-    assert resolved is not None and resolved.is_absolute()
+    assert resolved is not None
+    assert resolved.is_absolute()
 
 
 def test_tool_specific_override_wins_over_its_home_fallback() -> None:
-    env = environment({"CODEX_HOME": "/opt/codex"})
-    assert resolve_global_dir(runtime("codex"), env) == Path("/opt/codex/skills")
+    env = environment({"CODEX_HOME": str(absolute("opt", "codex"))})
+    assert resolve_global_dir(runtime("codex"), env) == absolute("opt", "codex", "skills")
 
 
 def test_tool_specific_override_falls_back_to_the_home() -> None:
-    assert (
-        resolve_global_dir(runtime("codex"), environment())
-        == HOME / ".codex" / "skills"
-    )
+    assert resolve_global_dir(runtime("codex"), environment()) == HOME / ".codex" / "skills"
 
 
 def test_claude_config_dir_is_the_override_for_claude_code() -> None:
-    env = environment({"CLAUDE_CONFIG_DIR": "/opt/claude"})
-    assert resolve_global_dir(runtime("claude-code"), env) == Path("/opt/claude/skills")
+    env = environment({"CLAUDE_CONFIG_DIR": str(absolute("opt", "claude"))})
+    assert resolve_global_dir(runtime("claude-code"), env) == absolute("opt", "claude", "skills")
 
 
 def test_openclaw_prefers_a_legacy_directory_that_exists() -> None:
@@ -265,10 +267,7 @@ def test_openclaw_prefers_the_current_name_when_both_exist() -> None:
 
 
 def test_openclaw_falls_back_to_the_current_name_when_nothing_exists() -> None:
-    assert (
-        resolve_global_dir(runtime("openclaw"), environment())
-        == HOME / ".openclaw" / "skills"
-    )
+    assert resolve_global_dir(runtime("openclaw"), environment()) == HOME / ".openclaw" / "skills"
 
 
 def test_only_openclaw_consults_the_filesystem() -> None:

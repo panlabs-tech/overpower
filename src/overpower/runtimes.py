@@ -23,12 +23,14 @@ and a relative one is ignored.
 from __future__ import annotations
 
 import os
-from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
-from typing import assert_never
+from typing import TYPE_CHECKING, assert_never
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
 
 UPSTREAM_REPOSITORY = "https://github.com/vercel-labs/skills"
 """Origin of the table. MIT, `LICENSE` at the root of the repository."""
@@ -193,7 +195,7 @@ def resolve_global_dir(runtime: Runtime, environment: Environment) -> Path | Non
 
 
 def _join(base: Path, relative: str) -> Path:
-    """Append an upstream `/`-separated path to `base` as a platform path.
+    r"""Append an upstream `/`-separated path to `base` as a platform path.
 
     The separator matters on Windows, where the transcribed `.factory/skills`
     has to become `.factory\\skills` before it reaches an API that only accepts
@@ -297,19 +299,15 @@ def _config(relative: str) -> GlobalSkillsDir:
 
 def _env(variable: str, fallback: str) -> GlobalSkillsDir:
     """`$<variable>/skills`, else `~/<fallback>/skills`."""
-    return GlobalSkillsDir(
-        EnvironmentAnchor(variable, fallback), "skills", Evidence.UNVERIFIED
-    )
+    return GlobalSkillsDir(EnvironmentAnchor(variable, fallback), "skills", Evidence.UNVERIFIED)
 
 
 def _first_present(candidates: tuple[str, ...], fallback: str) -> GlobalSkillsDir:
     """`~/<first present candidate>/skills`, else `~/<fallback>/skills`."""
-    return GlobalSkillsDir(
-        FirstPresentAnchor(candidates, fallback), "skills", Evidence.UNVERIFIED
-    )
+    return GlobalSkillsDir(FirstPresentAnchor(candidates, fallback), "skills", Evidence.UNVERIFIED)
 
 
-def _runtime(
+def _runtime(  # noqa: PLR0913 — six parameters because a table row has six columns
     key: str,
     display_name: str,
     project_relative: str,
@@ -324,9 +322,7 @@ def _runtime(
     is readable in one place and the 76 rows stay a mechanical mirror of
     upstream.
     """
-    project_evidence = (
-        Evidence.MEASURED if key in _MEASURED_PROJECT_DIRS else Evidence.UNVERIFIED
-    )
+    project_evidence = Evidence.MEASURED if key in _MEASURED_PROJECT_DIRS else Evidence.UNVERIFIED
     if global_dir is not None and key in _MEASURED_GLOBAL_DIRS:
         global_dir = replace(global_dir, evidence=Evidence.MEASURED)
     return Runtime(
@@ -341,9 +337,7 @@ def _runtime(
 
 RUNTIMES: tuple[Runtime, ...] = (
     # Upstream declaration order, which is the order the selection screen shows.
-    _runtime(
-        "aider-desk", "AiderDesk", ".aider-desk/skills", _home(".aider-desk/skills")
-    ),
+    _runtime("aider-desk", "AiderDesk", ".aider-desk/skills", _home(".aider-desk/skills")),
     _runtime("amp", "Amp", ".agents/skills", _config("agents/skills")),
     _runtime(
         "antigravity",
@@ -387,9 +381,7 @@ RUNTIMES: tuple[Runtime, ...] = (
     ),
     _runtime("codebuddy", "CodeBuddy", ".codebuddy/skills", _home(".codebuddy/skills")),
     _runtime("codemaker", "Codemaker", ".codemaker/skills", _home(".codemaker/skills")),
-    _runtime(
-        "codestudio", "Code Studio", ".codestudio/skills", _home(".codestudio/skills")
-    ),
+    _runtime("codestudio", "Code Studio", ".codestudio/skills", _home(".codestudio/skills")),
     _runtime("codex", "Codex", ".agents/skills", _env("CODEX_HOME", ".codex")),
     _runtime(
         "command-code",
@@ -398,16 +390,12 @@ RUNTIMES: tuple[Runtime, ...] = (
         _home(".commandcode/skills"),
     ),
     _runtime("continue", "Continue", ".continue/skills", _home(".continue/skills")),
-    _runtime(
-        "cortex", "Cortex Code", ".cortex/skills", _home(".snowflake/cortex/skills")
-    ),
+    _runtime("cortex", "Cortex Code", ".cortex/skills", _home(".snowflake/cortex/skills")),
     # Upstream hardcodes `~/.config` here and for `kimchi`, bypassing the
     # `xdg-basedir` it uses for the six `_config` rows. Transcribed as written.
     _runtime("crush", "Crush", ".crush/skills", _home(".config/crush/skills")),
     _runtime("cursor", "Cursor", ".agents/skills", _home(".cursor/skills")),
-    _runtime(
-        "deepagents", "Deep Agents", ".agents/skills", _home(".deepagents/agent/skills")
-    ),
+    _runtime("deepagents", "Deep Agents", ".agents/skills", _home(".deepagents/agent/skills")),
     _runtime("devin", "Devin for Terminal", ".devin/skills", _config("devin/skills")),
     _runtime(
         "dexto",
@@ -427,14 +415,10 @@ RUNTIMES: tuple[Runtime, ...] = (
     ),
     _runtime("forgecode", "ForgeCode", ".forge/skills", _home(".forge/skills")),
     _runtime("gemini-cli", "Gemini CLI", ".agents/skills", _home(".gemini/skills")),
-    _runtime(
-        "github-copilot", "GitHub Copilot", ".agents/skills", _home(".copilot/skills")
-    ),
+    _runtime("github-copilot", "GitHub Copilot", ".agents/skills", _home(".copilot/skills")),
     _runtime("goose", "Goose", ".goose/skills", _config("goose/skills")),
     _runtime("grok", "Grok Build", ".grok/skills", _env("GROK_HOME", ".grok")),
-    _runtime(
-        "hermes-agent", "Hermes Agent", ".hermes/skills", _env("HERMES_HOME", ".hermes")
-    ),
+    _runtime("hermes-agent", "Hermes Agent", ".hermes/skills", _env("HERMES_HOME", ".hermes")),
     _runtime(
         "inference-sh",
         "inference.sh",
@@ -445,12 +429,8 @@ RUNTIMES: tuple[Runtime, ...] = (
     _runtime("junie", "Junie", ".junie/skills", _home(".junie/skills")),
     _runtime("iflow-cli", "iFlow CLI", ".iflow/skills", _home(".iflow/skills")),
     _runtime("kilo", "Kilo Code", ".kilocode/skills", _home(".kilocode/skills")),
-    _runtime(
-        "kimchi", "Kimchi", ".kimchi/skills", _home(".config/kimchi/harness/skills")
-    ),
-    _runtime(
-        "kimi-code-cli", "Kimi Code CLI", ".agents/skills", _home(".agents/skills")
-    ),
+    _runtime("kimchi", "Kimchi", ".kimchi/skills", _home(".config/kimchi/harness/skills")),
+    _runtime("kimi-code-cli", "Kimi Code CLI", ".agents/skills", _home(".agents/skills")),
     _runtime("kiro-cli", "Kiro CLI", ".kiro/skills", _home(".kiro/skills")),
     _runtime("kode", "Kode", ".kode/skills", _home(".kode/skills")),
     _runtime("lingma", "Lingma", ".lingma/skills", _home(".lingma/skills")),
@@ -462,12 +442,8 @@ RUNTIMES: tuple[Runtime, ...] = (
         in_universal_prompt=False,
     ),
     _runtime("mcpjam", "MCPJam", ".mcpjam/skills", _home(".mcpjam/skills")),
-    _runtime(
-        "minimax-code", "MiniMax Code", ".minimax/skills", _home(".minimax/skills")
-    ),
-    _runtime(
-        "mistral-vibe", "Mistral Vibe", ".vibe/skills", _env("VIBE_HOME", ".vibe")
-    ),
+    _runtime("minimax-code", "MiniMax Code", ".minimax/skills", _home(".minimax/skills")),
+    _runtime("mistral-vibe", "Mistral Vibe", ".vibe/skills", _env("VIBE_HOME", ".vibe")),
     _runtime("moxby", "Moxby", ".moxby/skills", _home(".moxby/skills")),
     _runtime("mux", "Mux", ".mux/skills", _home(".mux/skills")),
     _runtime("opencode", "OpenCode", ".agents/skills", _config("opencode/skills")),
@@ -498,9 +474,7 @@ RUNTIMES: tuple[Runtime, ...] = (
     _runtime("trae", "Trae", ".trae/skills", _home(".trae/skills")),
     _runtime("trae-cn", "Trae CN", ".trae/skills", _home(".trae-cn/skills")),
     _runtime("warp", "Warp", ".agents/skills", _home(".agents/skills")),
-    _runtime(
-        "windsurf", "Windsurf", ".windsurf/skills", _home(".codeium/windsurf/skills")
-    ),
+    _runtime("windsurf", "Windsurf", ".windsurf/skills", _home(".codeium/windsurf/skills")),
     _runtime("zed", "Zed", ".agents/skills", _home(".agents/skills")),
     _runtime("zcode", "ZCode", ".zcode/skills", _home(".zcode/skills")),
     _runtime("zencoder", "Zencoder", ".zencoder/skills", _home(".zencoder/skills")),
@@ -548,8 +522,6 @@ def runtimes_in(scope: Scope) -> tuple[Runtime, ...]:
         case Scope.PROJECT:
             return RUNTIMES
         case Scope.GLOBAL:
-            return tuple(
-                runtime for runtime in RUNTIMES if runtime.global_dir is not None
-            )
+            return tuple(runtime for runtime in RUNTIMES if runtime.global_dir is not None)
         case _ as unreachable:
             assert_never(unreachable)

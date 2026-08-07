@@ -30,7 +30,7 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
-from overpower.errors import OverpowerError
+from overpower.errors import BadInvocationError, OverpowerError
 from overpower.written import read_written_catalog
 
 if TYPE_CHECKING:
@@ -133,11 +133,28 @@ class Catalog:
 
     They are not levels of one hierarchy: an AI Framework, a pool artifact and a
     bundle are chosen independently.
+
+    The three lookups return the item or raise, and never `None`. A closed list
+    has no third answer: either the name is on it, or the invocation is wrong —
+    and a `None` here would let a caller carry the miss forwards silently, which
+    is the class of defect this product exists not to commit.
     """
 
     frameworks: tuple[Framework, ...]
     pool: tuple[Artifact, ...]
     bundles: tuple[Bundle, ...]
+
+    def framework(self, name: str) -> Framework:
+        """The AI Framework by that name, or the error carrying the closed list."""
+        return _named("AI Framework", name, {item.name: item for item in self.frameworks})
+
+    def artifact(self, name: str) -> Artifact:
+        """The pool artifact by that name, or the error carrying the closed list."""
+        return _named("pool artifact", name, {item.name: item for item in self.pool})
+
+    def bundle(self, name: str) -> Bundle:
+        """The bundle by that name, or the error carrying the closed list."""
+        return _named("bundle", name, {item.name: item for item in self.bundles})
 
 
 class UnknownArtifactTypeError(OverpowerError):
@@ -181,6 +198,25 @@ class UnknownBundleItemError(OverpowerError):
         self.bundle = bundle
         self.item = item
         super().__init__(f"the bundle `{bundle}` names `{item}`, which is not in the pool")
+
+
+class UnknownNameError(BadInvocationError):
+    """A name asked of the catalog that the catalog does not have.
+
+    Exit **2**, and the whole closed list travels in the message. There is no
+    `--dir` escape hatch in v0.1.0, so the answer to *"what may I type here"* is
+    finite and can simply be shown — which is what turns a typo into one
+    correction instead of a trip to the catalog screen.
+    """
+
+    def __init__(self, unit: str, name: str, known: Iterable[str]) -> None:
+        """Name the unit, the name that missed, and everything that would hit."""
+        self.unit = unit
+        self.name = name
+        self.known = tuple(known)
+        listed = ", ".join(self.known)
+        has = f"the catalog has: {listed}" if self.known else f"the catalog has no {unit} at all"
+        super().__init__(f"no {unit} named `{name}` ({has})")
 
 
 def load_catalog(content_root: Path, catalog_file: Path) -> Catalog:
@@ -234,6 +270,13 @@ def discover_frameworks(
             )
         )
     return tuple(sorted(frameworks, key=lambda framework: framework.name))
+
+
+def _named[NamedT](unit: str, name: str, by_name: Mapping[str, NamedT]) -> NamedT:
+    """One item of a closed list, by name, or the error that shows the list."""
+    if name not in by_name:
+        raise UnknownNameError(unit, name, by_name)
+    return by_name[name]
 
 
 def _from_pool(bundle: str, item: str, pool: Mapping[str, Artifact]) -> Artifact:

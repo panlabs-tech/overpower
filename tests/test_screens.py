@@ -28,16 +28,35 @@ screens a change had licence to move, and a screen that also moves when the
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from overpower.discovery import Artifact, ArtifactType, Bundle, Catalog, Framework, load_catalog
 from overpower.packaged import catalog_file, content_root
-from overpower.screens import BANNER, banner, catalog_screen, human
+from overpower.screens import (
+    BANNER,
+    artifact_screen,
+    banner,
+    bundle_screen,
+    catalog_screen,
+    framework_screen,
+    human,
+)
 from tests.support.screens import WIDTHS, console, render
 from tests.support.snapshots import assert_matches_snapshot
 
+if TYPE_CHECKING:
+    from rich.console import RenderableType
+
 WIDTH_CASES = [pytest.param(width, id=f"{width}cols") for width in WIDTHS]
+
+UNITS = ("framework", "bundle", "skill")
+"""The three detail screens, named the way the flag that opens them is."""
+
+DETAIL_CASES = [
+    pytest.param(unit, width, id=f"{unit}-{width}cols") for unit in UNITS for width in WIDTHS
+]
 
 BANNER_COLUMNS = 50
 BANNER_ROWS = 5
@@ -66,15 +85,40 @@ def unwrapped(rendered: str) -> str:
     return " ".join(" ".join(line.split()) for line in lines if line)
 
 
-def artifact(name: str, description: str, files: int = 1, size: int = 1024) -> Artifact:
+def rows(rendered: str) -> list[str]:
+    """The screen as rows, with the frame off and every run of spaces collapsed.
+
+    A stacked line reads `skill grilling` here whatever the type column happens
+    to be padded to, so the assertion is *the type is the prefix of that line*
+    rather than *the type appears somewhere on the screen*.
+    """
+    return [" ".join(line.strip().strip("│").split()) for line in rendered.splitlines()]
+
+
+def artifact(
+    name: str,
+    description: str,
+    files: int = 1,
+    size: int = 1024,
+    artifact_type: ArtifactType = ArtifactType.SKILL,
+) -> Artifact:
     return Artifact(
-        type=ArtifactType.SKILL,
+        type=artifact_type,
         name=name,
         path=Path(name),
         description=description,
         files=files,
         size=size,
     )
+
+
+def detail_screen(catalog: Catalog, unit: str) -> RenderableType:
+    """The detail screen of the first item of `unit` in `catalog`."""
+    if unit == "framework":
+        return framework_screen(catalog.frameworks[0])
+    if unit == "bundle":
+        return bundle_screen(catalog.bundles[0])
+    return artifact_screen(catalog.pool[0])
 
 
 LONG = (
@@ -90,6 +134,11 @@ LONG = (
 bytes are ours, so no curation refresh can move a recorded screen."""
 
 
+def ruler() -> Artifact:
+    """The pool artifact whose description is the wrapping case at both widths."""
+    return artifact("panlabs-python-standards", LONG, files=8, size=234_458)
+
+
 def recorded() -> Catalog:
     """The catalog the screens are recorded against: fixed, and ours.
 
@@ -97,7 +146,6 @@ def recorded() -> Catalog:
     file count — `948 B · 1 file`, `229.0 KiB · 8 files`, `2.00 MiB · 3 files` —
     which are exactly the formatting paths an edit could break silently.
     """
-    ruler = artifact("panlabs-python-standards", LONG, files=8, size=234_458)
     return Catalog(
         frameworks=(
             Framework(
@@ -110,15 +158,51 @@ def recorded() -> Catalog:
         pool=(
             artifact("grilling", "Grills a decision until it gets sharp.", files=1, size=948),
             artifact("heavy-reference", "A reference big enough to read in MiB.", 3, 2_097_152),
-            ruler,
+            ruler(),
         ),
         bundles=(
             Bundle(
                 name="api-python",
                 description="Equipment for working on a Python API.",
-                artifacts=(ruler,),
+                artifacts=(ruler(),),
             ),
         ),
+    )
+
+
+def recorded_framework() -> Framework:
+    """The framework the detail screen is recorded against, and it mixes types.
+
+    Three types on purpose: the prefix column is driven by the data and not by
+    the assumption that a framework is a bag of skills — #11 measured hook files
+    landing alongside skills upstream, and rule 1 makes a framework install
+    *whole*, so what "whole" means has to be readable before it is accepted. The
+    widest name of the promoted set is here too, because a stacked list has to
+    clip at no width at all.
+    """
+    return Framework(
+        name="matt-pocock",
+        path=Path("matt-pocock"),
+        description="Agent skills for real engineering: specs, tickets, TDD, review.",
+        artifacts=(
+            artifact("code-reviewer", "Reviews a diff.", 1, 2_048, ArtifactType.AGENT),
+            artifact("grilling", "Grills a decision.", 2, 948, ArtifactType.SKILL),
+            artifact("setup-matt-pocock-skills", "Wires the repo.", 1, 6_144, ArtifactType.COMMAND),
+        ),
+    )
+
+
+def recorded_bundle() -> Bundle:
+    """The bundle the detail screen is recorded against.
+
+    Its artifacts are **not** sorted: a bundle is a manifest, so the order on
+    screen is the order the curator wrote, and `tdd` before the ruler is what
+    proves the screen did not quietly sort them.
+    """
+    return Bundle(
+        name="api-python",
+        description="Equipment for working on a Python API.",
+        artifacts=(artifact("tdd", "Red-green-refactor.", files=4, size=6_800), ruler()),
     )
 
 
@@ -233,6 +317,76 @@ def test_a_bundle_says_what_it_names() -> None:
 
     assert "api-python" in joined
     assert "Equipment." in joined
+
+
+# --------------------------------------------------------------------------- #
+# the three detail screens: what is inside one item
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(("unit", "width"), DETAIL_CASES)
+def test_no_detail_screen_has_a_line_wider_than_the_terminal(unit: str, width: int) -> None:
+    """A narrow terminal is where the frame has the least room to be wrong."""
+    rendered = render(detail_screen(shipped(), unit), width)
+
+    assert [line for line in rendered.splitlines() if len(line) > width] == []
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_skill_screen_shows_the_whole_description(width: int) -> None:
+    """The extreme case: 517 characters, the maximum measured, uncut at 60 too."""
+    # given
+    skill = shipped().pool[0]
+
+    rendered = render(artifact_screen(skill), width)
+
+    assert " ".join(skill.description.split()) in unwrapped(rendered)
+    assert "…" not in rendered
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_framework_screen_prefixes_every_artifact_with_its_type(width: int) -> None:
+    """Data-driven, because an AI Framework may mix skill, command and agent."""
+    framework = recorded_framework()
+
+    rendered = render(framework_screen(framework), width)
+
+    for inside in framework.artifacts:
+        assert f"{inside.type} {inside.name}" in rows(rendered)
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_bundle_screen_names_exactly_what_the_manifest_names(width: int) -> None:
+    """A bundle is a manifest: the list is the content, in the written order."""
+    bundle = recorded_bundle()
+
+    rendered = render(bundle_screen(bundle), width)
+
+    named = [row for row in rows(rendered) if row.startswith("skill ")]
+    assert named == [f"{inside.type} {inside.name}" for inside in bundle.artifacts]
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_framework_screen_matches_its_snapshot(
+    request: pytest.FixtureRequest, width: int
+) -> None:
+    rendered = render(framework_screen(recorded_framework()), width)
+
+    assert_matches_snapshot(request, f"list-framework-{width}", rendered)
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_bundle_screen_matches_its_snapshot(request: pytest.FixtureRequest, width: int) -> None:
+    rendered = render(bundle_screen(recorded_bundle()), width)
+
+    assert_matches_snapshot(request, f"list-bundle-{width}", rendered)
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_skill_screen_matches_its_snapshot(request: pytest.FixtureRequest, width: int) -> None:
+    rendered = render(artifact_screen(ruler()), width)
+
+    assert_matches_snapshot(request, f"list-skill-{width}", rendered)
 
 
 def test_a_framework_says_what_it_weighs() -> None:

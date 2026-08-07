@@ -23,6 +23,13 @@ Two positions of #36 change what the prototype drew, and both are subtractions:
 **Everything that comes off disk is rendered as `Text`, never as markup.** A
 description is data: it is read from a `SKILL.md` this repository does not own,
 so a `[bold]` inside it has to arrive on screen as those seven characters.
+
+The catalog screen and the three detail screens are **one function apart**, and
+that is deliberate: `_entry` draws an item the same way wherever it appears, and
+a detail screen is that entry plus what the item carries. The block heading is
+what says which of the four screens is on: `AI Frameworks` against `AI
+Framework`, `Bundles` against `Bundle`. A second layout for the same item would
+be a second place for the truncation rule to be forgotten.
 """
 
 from __future__ import annotations
@@ -42,7 +49,7 @@ if TYPE_CHECKING:
 
     from rich.console import RenderableType
 
-    from overpower.discovery import Catalog
+    from overpower.discovery import Artifact, Bundle, Catalog, Framework
 
 THEME = Theme(
     {
@@ -133,6 +140,64 @@ def catalog_screen(catalog: Catalog) -> RenderableType:
     return Group(*_spaced(blocks))
 
 
+def framework_screen(framework: Framework) -> RenderableType:
+    """One AI Framework: what it weighs, what it says, and what is inside it.
+
+    The artifacts are **stacked, with the type of each one as its prefix**, and
+    the type is read off the tree rather than assumed: an AI Framework may mix
+    skill, command, hook and MCP. A framework installs *whole* (rule 1), so
+    whoever is about to accept one has to be able to read what *"whole"* means
+    before accepting it — which is also why the list is stacked instead of
+    columnar. A grid of names has to change its column count with the terminal
+    width to stop clipping the longest name; a stacked list clips at no width.
+    """
+    return _block(
+        "AI Framework",
+        "installs whole",
+        [
+            _entry(
+                framework.name,
+                framework.size,
+                framework.files,
+                framework.description,
+                framework.artifacts,
+            )
+        ],
+    )
+
+
+def bundle_screen(bundle: Bundle) -> RenderableType:
+    """One bundle: the pool artifacts its manifest names, and nothing else.
+
+    In the order the manifest wrote them, never sorted — a bundle is a curated
+    composition, and the order is part of what was curated.
+    """
+    return _block(
+        "Bundle",
+        "lists pool artifacts only",
+        [_entry(bundle.name, bundle.size, bundle.files, bundle.description, bundle.artifacts)],
+    )
+
+
+def artifact_screen(artifact: Artifact) -> RenderableType:
+    """One pool artifact: its description **whole**, which is the whole screen.
+
+    It is the extreme case of the rule the catalog screen already obeys — the
+    maximum measured across the promoted skills is 517 characters — and the
+    reason it is a screen of its own is that a description read in halves is a
+    description someone has to go and look up elsewhere.
+
+    The heading is driven by the artifact's own type, because the pool is not a
+    pool of skills by definition: `--skill` is the only selector v0.1.0 ships,
+    and the day a command lands in the tree this screen already says so.
+    """
+    return _block(
+        f"Pool {artifact.type}",
+        "installs alone",
+        [_entry(artifact.name, artifact.size, artifact.files, artifact.description)],
+    )
+
+
 def error_panel(body: Text) -> Panel:
     """A failure as a panel, which is the whole reason the top handler exists.
 
@@ -174,19 +239,50 @@ def _block(title: str, note: str, entries: Sequence[RenderableType]) -> Panel:
     )
 
 
-def _entry(name: str, size: int, files: int, description: str) -> RenderableType:
-    """Name and weight on the head line, the whole description indented under it."""
+def _entry(
+    name: str,
+    size: int,
+    files: int,
+    description: str,
+    contents: Sequence[Artifact] = (),
+) -> RenderableType:
+    """Name and weight on the head line, the whole description indented under it.
+
+    `contents` is what turns the same entry into a detail screen: the artifacts
+    the item carries, stacked under the description with a blank line between.
+    An item that carries none — a pool artifact — renders exactly as it does on
+    the catalog screen, which is the point of it being one function.
+    """
     head = Table.grid(padding=(0, 1), expand=True)
     head.add_column(ratio=1)
     head.add_column(justify="right", no_wrap=True)
     head.add_row(Text(name, style="op.key"), Text(_weight(size, files), style="op.dim"))
-    return Group(
+    body: list[RenderableType] = [
         head,
         # `Padding`, and never a spaced string: a wrapped line has to keep the
         # indent, otherwise a narrow terminal dumps the continuation at column 0
         # — and the continuation is where a 517-character description lives.
         Padding(Text(description, style="op.dim"), (0, 0, 0, 2)),
-    )
+    ]
+    if contents:
+        body.append(Padding(_contents(contents), (1, 0, 0, 2)))
+    return Group(*body)
+
+
+def _contents(artifacts: Sequence[Artifact]) -> RenderableType:
+    """The artifacts an item carries, one per line, type first.
+
+    The type column is dim and the name is cyan, so a line reads as *what kind*
+    then *which one* without either rank being carried by colour alone. Neither
+    column is `no_wrap`: a name longer than the terminal has to wrap, because a
+    clipped name is a name that cannot be typed back into `install`.
+    """
+    stacked = Table.grid(padding=(0, 2))
+    stacked.add_column()
+    stacked.add_column()
+    for artifact in artifacts:
+        stacked.add_row(Text(artifact.type, style="op.dim"), Text(artifact.name, style="op.key"))
+    return stacked
 
 
 def _weight(size: int, files: int) -> str:

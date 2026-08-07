@@ -20,8 +20,10 @@ from overpower.runtimes import (
     Environment,
     Evidence,
     Runtime,
+    Scope,
     resolve_global_dir,
     resolve_project_dir,
+    runtimes_in,
 )
 
 HOME = Path("/home/dev")
@@ -89,6 +91,50 @@ def test_agents_skills_is_the_most_shared_global_path() -> None:
         if resolve_global_dir(r, env) == HOME / ".agents" / "skills"
     ]
     assert sorted(sharing) == ["cline", "dexto", "kimi-code-cli", "loaf", "warp", "zed"]
+
+
+# --- the set `--runtime` accepts, which is a function of the scope ----------
+#
+# ADR 0009. The last test in this block is the one that carries the guarantee;
+# the counts above it are what makes a refresh that changes the table break
+# here instead of on a user's machine.
+
+
+def test_project_scope_accepts_every_runtime() -> None:
+    assert runtimes_in(Scope.PROJECT) == RUNTIMES
+
+
+def test_global_scope_accepts_seventy_four_of_the_seventy_six() -> None:
+    assert len(runtimes_in(Scope.GLOBAL)) == 74
+
+
+def test_global_scope_drops_exactly_the_two_without_a_destination() -> None:
+    offered = {r.key for r in runtimes_in(Scope.GLOBAL)}
+    assert {r.key for r in RUNTIMES} - offered == {"eve", "promptscript"}
+
+
+def test_global_scope_preserves_upstream_declaration_order() -> None:
+    dropped = {"eve", "promptscript"}
+    assert [r.key for r in runtimes_in(Scope.GLOBAL)] == [
+        r.key for r in RUNTIMES if r.key not in dropped
+    ]
+
+
+def test_every_runtime_offered_in_a_scope_has_somewhere_to_land() -> None:
+    """The guarantee the rule buys: nothing reaches the screen with no destination.
+
+    A runtime offered but unwritable is the failure ADR 0008 measured in the
+    `npx skills` screen. Asserting it over the *whole* offered set — rather
+    than over the two known keys — is what keeps it true after a refresh.
+    """
+    env = environment()
+    assert all(
+        resolve_global_dir(r, env) is not None for r in runtimes_in(Scope.GLOBAL)
+    )
+    root = Path("/srv/repo")
+    assert all(
+        resolve_project_dir(r, root).is_absolute() for r in runtimes_in(Scope.PROJECT)
+    )
 
 
 # --- evidence --------------------------------------------------------------

@@ -66,6 +66,18 @@ class Evidence(StrEnum):
     UNVERIFIED = "unverified"
 
 
+class Scope(StrEnum):
+    """Where an install writes: inside the target repository, or on the machine.
+
+    Scope is not only the root a path hangs off — it also decides *which
+    runtimes exist at all*, because two rows have no global destination. See
+    `runtimes_in` and ADR 0009.
+    """
+
+    PROJECT = "project"
+    GLOBAL = "global"
+
+
 @dataclass(frozen=True)
 class HomeAnchor:
     """The user's home directory."""
@@ -517,3 +529,27 @@ RUNTIMES_BY_KEY: Mapping[str, Runtime] = MappingProxyType(
     {runtime.key: runtime for runtime in RUNTIMES}
 )
 """The table indexed by key, for `--runtime <key>` lookup."""
+
+
+def runtimes_in(scope: Scope) -> tuple[Runtime, ...]:
+    """The runtimes `--runtime` accepts in `scope`, in upstream declaration order.
+
+    The set is a function of the scope, and that is not a formality: `eve` and
+    `promptscript` declare no global destination, so a global install has 74
+    rows to offer and refuses the other two instead of inventing a path for
+    them — ADR 0009. In project scope every row has a destination, so the
+    answer is the whole table and the rule is inert.
+
+    One implementation, so that the screen and the validator cannot disagree.
+    A wizard that offers what the next step refuses is exactly the failure ADR
+    0008 was written against, one layer earlier.
+    """
+    match scope:
+        case Scope.PROJECT:
+            return RUNTIMES
+        case Scope.GLOBAL:
+            return tuple(
+                runtime for runtime in RUNTIMES if runtime.global_dir is not None
+            )
+        case _ as unreachable:
+            assert_never(unreachable)

@@ -21,9 +21,12 @@ indentation and re-wrapping — 80 and 60 are the two the doctrine names.
 
 from __future__ import annotations
 
+import io
 from typing import TYPE_CHECKING
 
 from rich.console import Console
+
+from overpower.screens import THEME
 
 if TYPE_CHECKING:
     from rich.console import RenderableType
@@ -38,14 +41,26 @@ def console(width: int) -> Console:
     `force_terminal` is what makes the renderable take the terminal branch —
     without it rich detects the pytest capture as a pipe and the screen under
     test would not be the screen a user sees.
+
+    The sink is an explicit `StringIO` and the reason is the Windows cells of the
+    matrix: rich swaps the box characters for ASCII when the *file* it writes to
+    cannot encode UTF-8 (`ConsoleOptions.ascii_only`), so a console that inherits
+    whatever `sys.stdout` happens to be would record a different frame on a
+    different platform. A `StringIO` has no encoding, and rich then assumes
+    UTF-8.
+
+    The theme is the product's, because a screen is written in the product's
+    style names — a console without it cannot resolve `op.key` at all.
     """
     return Console(
+        file=io.StringIO(),
         record=True,
         width=width,
         force_terminal=True,
         no_color=True,
         highlight=False,
         soft_wrap=False,
+        theme=THEME,
     )
 
 

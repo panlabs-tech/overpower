@@ -1,0 +1,28 @@
+╭─ AI Frameworks  installs whole ──────────────────────────────────────────────╮
+│                                                                              │
+│  matt-pocock                                           199.4 KiB · 74 files  │
+│    Matt Pocock's agent skills for real engineering: grilling, spec and       │
+│    ticket flows, TDD, code review, domain modelling and more.                │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+╭─ Pool skills  installs alone ────────────────────────────────────────────────╮
+│                                                                              │
+│  panlabs-python-standards                               229.0 KiB · 8 files  │
+│    Padrão de referência para backend Python — contratos e ports, composição  │
+│    e forma do código, topologia e kernel, modelo de erro, doutrina de        │
+│    testes e a régua de máquina. Use ao criar um serviço Python do zero, ao   │
+│    revisar um existente, ou ao decidir qualquer uma destas perguntas — que   │
+│    forma tem um use-case, onde o arquivo mora, o que o erro devolve, o que   │
+│    é fake e o que é real, que config trava a regra. Cada posição carrega a   │
+│    condição em que vale, a garantia que compra, o dissenso vencido e o       │
+│    gatilho que a reabre.                                                     │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+╭─ Bundles  lists pool artifacts only ─────────────────────────────────────────╮
+│                                                                              │
+│  api-python                                             229.0 KiB · 8 files  │
+│    Equipment for working on a Python API.                                    │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

@@ -14,10 +14,14 @@ description = "Installs curated AI Frameworks into a repository or a machine"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
-# NOTICE carries the attribution the vendored runtime path table owes upstream.
-# PEP 639 puts both files in `dist-info/licenses/`, which is why attribution
-# travels with the package and never lands in the user's repository (ADR 0003).
-license-files = ["LICENSE", "NOTICE"]
+# NOTICE carries the attribution the transcribed runtime path table and the two
+# vendored content trees owe upstream; `licenses/` carries the upstream LICENSE
+# files themselves, verbatim, because each of them lives at the root of its
+# repository and therefore outside the vendored slice. PEP 639 puts all of them
+# in `dist-info/licenses/`, which is why attribution travels with the package and
+# never lands in the user's repository (ADR 0003). This is metadata, not build
+# configuration: the four forbidden keys of ADR 0004 stay absent.
+license-files = ["LICENSE", "NOTICE", "licenses/*"]
 authors = [{ name = "Thiago Panini" }]
 keywords = ["ai", "agent", "skills", "claude", "cursor", "codex"]
 classifiers = [

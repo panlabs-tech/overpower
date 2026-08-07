@@ -60,7 +60,9 @@ Todos bloqueantes: portão que não bloqueia é documentação. O `gate` existe 
 
 **O `gate` não pode ser o job vazio que o [#24](https://github.com/panlabs-tech/overpower/issues/24) desenhou**, e isso apareceu ao implementá-lo. Job que é pulado porque a dependência falhou reporta como **skipped**, e o GitHub trata required check skipped como sucesso: o job ficaria verde exatamente quando tivesse algo a dizer. Daí o `if: always()` mais a leitura explícita de `needs.<job>.result`. Observado nas duas rodadas do [#33](https://github.com/panlabs-tech/overpower/pull/33) — vermelho quando o Windows quebrou, verde depois.
 
-Três armadilhas medidas, que quem mexer nos portões precisa conhecer: **P1 passa por vacuidade** se `src/overpower/content/` não existir (sai `exit=0` com saída vazia), então ele vem guardado por `test -d`; **`pytest` sem nenhum teste sai 5**, o que sob ruleset é deadlock de merge e não feiura; e a do `gate` acima. As duas primeiras eram previstas, a terceira não.
+Três armadilhas medidas, que quem mexer nos portões precisa conhecer: **P1 passa por vacuidade** se `src/overpower/content/` não existir (sai `exit=0` com saída vazia); **`pytest` sem nenhum teste sai 5**, o que sob ruleset é deadlock de merge e não feiura; e a do `gate` acima. As duas primeiras eram previstas, a terceira não.
+
+> **Estado em 2026-08-07: a raiz de conteúdo existe** ([#45](https://github.com/panlabs-tech/overpower/issues/45)), e com ela a guarda do P1 inverteu de sentido. Enquanto não havia conteúdo, `test -d` transformava a vacuidade num aviso e num `exit 0`; agora que a árvore é rastreada, sujeito vazio é **regressão**, e os dois P1 — o da CI e o do `lefthook` — falham em vez de passar. O P2 também deixou de comparar dois conjuntos vazios: são **82 caminhos** dos dois lados.
 
 **A matriz 3×3 pagou na primeira rodada.** `WindowsPath("/home/dev").is_absolute()` é `False` — falta letra de unidade —, e 79 dos 257 testes falhavam só nas três células Windows. O produto estava certo e os fixtures é que eram POSIX-only. É exatamente a classe que a [doutrina de teste](testing.md) previu que passaria verde numa célula só.
 

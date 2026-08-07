@@ -1,9 +1,18 @@
 overpower
 Copyright (c) 2026 Thiago Panini
 
-This product includes material transcribed from third-party sources. Each entry
-below records the origin, its SPDX identifier, the copyright holder, and the
-exact reference the material was taken at.
+This product includes material taken from third-party sources — some of it
+transcribed into the overpower's own source, some of it vendored whole as a tree
+under `src/overpower/content/`. Each entry below records the origin, its SPDX
+identifier, the copyright holder, and the exact reference the material was taken
+at.
+
+This file travels in the distribution and never in the target: PEP 639 puts it
+in `dist-info/licenses/` alongside the upstream license files, which is what
+makes ADR 0003 — no attribution written into the user's repository — a fact of
+the layout rather than a rule the code has to remember. A `copytree` of a whole
+framework lands the tree and zero LICENSE, because there is no LICENSE inside
+the tree to land.
 
 --------------------------------------------------------------------------------
 
@@ -47,5 +56,55 @@ The upstream license, reproduced in full as MIT requires:
     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
     SOFTWARE.
 
-MIT on MIT keeps the package metadata honest: `License-Expression: MIT` remains
-true, and no composite SPDX expression is required.
+--------------------------------------------------------------------------------
+
+mattpocock/skills — the `matt-pocock` AI Framework
+
+    Origin:      https://github.com/mattpocock/skills
+    Reference:   v1.2.3 (commit 6acc160e4e0cd062dbbbd7a1b26ae92855edf07e)
+    SPDX:        MIT
+    Holder:      Matt Pocock
+    License:     licenses/mattpocock-skills.LICENSE
+    Vendored in: src/overpower/content/frameworks/matt-pocock/
+
+The 25 skill trees under `content/frameworks/matt-pocock/skills/` are vendored
+byte-identical from the upstream repository at the reference above. The set is
+the `skills` array of `.claude-plugin/plugin.json` read at that reference — the
+array, never the `version` field next to it, which has been measured standing
+still while the array moved. The curation slice excludes `deprecated/`,
+`in-progress/` and `misc/`, which the upstream's own ADR declares unshipped, and
+it flattens `skills/<category>/<name>/` to `<name>/` because that is the shape
+the target discovers (ADR 0005: the transformation happens at curation).
+
+The upstream `LICENSE` lives at the root of its repository and therefore outside
+the vendored slice. It travels here instead, reproduced verbatim as MIT
+requires.
+
+--------------------------------------------------------------------------------
+
+panlabs-tech/skills — the `panlabs-python-standards` pool skill
+
+    Origin:      https://github.com/panlabs-tech/skills
+    Reference:   commit ea02881eea04c6a80e57030a960fe15f8faf5d58
+    SPDX:        MIT
+    Holder:      panlabs.tech
+    License:     licenses/panlabs-tech-skills.LICENSE
+    Vendored in: src/overpower/content/pool/skills/panlabs-python-standards/
+
+Pinned by commit and not by tag, because that repository has no tag yet. The
+rule stays tag-first — a tag is what a compliance reader can check against an
+upstream release — and this is the local exception it always allowed.
+
+Curating a panlabs artifact into the pool does not tie the overpower to the
+`panlabs-tech` org: axiom 3 speaks of a *binding*, and pool curation is free.
+This one is a deliberate seed — the smallest content that proves the pool
+mechanism — and its description is 517 characters, the widest measured, so the
+"whole description, never truncated" property is exercised from day one.
+
+--------------------------------------------------------------------------------
+
+MIT on MIT on MIT keeps the package metadata honest: `License-Expression: MIT`
+remains true, and no composite SPDX expression is required. The day a non-MIT
+origin enters, that field has to become a composite expression — otherwise the
+metadata lies to exactly the reader who decides whether the package clears a
+corporate allow-list by license.

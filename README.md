@@ -116,5 +116,6 @@ where the argument is. The map is
 ## Licence
 
 MIT. Attribution owed to vendored upstreams travels in [`NOTICE`](NOTICE), which
-PEP 639 places in `dist-info/licenses/` — inside the wheel, never in your
-repository.
+names each origin and the reference it was taken at, and in [`licenses/`](licenses/),
+which carries their licence files verbatim. PEP 639 places both in
+`dist-info/licenses/` — inside the wheel, never in your repository.

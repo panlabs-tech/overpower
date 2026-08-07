@@ -1,0 +1,80 @@
+# The local shortcut, not the gate.
+#
+# The gate is the ruleset on `main`, which has no `--no-verify`. What this file
+# does is catch the cheap error cheaply — measured, the whole hook is ~2.6 s,
+# and the CI job it pre-empts costs ~10 s of fixed overhead before doing any
+# work. Decided in https://github.com/panlabs-tech/overpower/issues/24.
+#
+# WHY LEFTHOOK AND NOT PRE-COMMIT. They do not compete on the axis that decides.
+# `pre-commit` is an environment *manager*: it pins each tool in its own `rev:`,
+# and that `rev:` is a second local source of tool versions — the exact thing
+# rule 41 of the org standard forbids, since a second local path has already
+# produced a false green. `lefthook` is an *executor*: it manages nothing, and
+# `uv run ruff` below takes its ruff from `uv.lock`, which is the same ruff the
+# CI installs with `uv sync --locked`. Measured, `pre-commit` also loses on
+# first run (16.03 s against 0.02 s) and on scope (ruff only, against ruff plus
+# gitleaks over the staged set).
+#
+# The split between here and CI: **local carries what is instant and offline;
+# CI carries what costs time or needs a build.** So `pyright`, `pytest` and P2
+# run only there.
+#
+# The tools themselves are equipment of the machine, not of the repository —
+# `lefthook`, `gitleaks` and whatever serves `npx` are provisioned globally.
+# Arm the hooks once per clone with `lefthook install`; worktrees inherit,
+# because a worktree shares `.git/hooks` with the clone that owns it.
+
+pre-commit:
+  parallel: true
+  commands:
+    # `--check` and not the rewrite: a hook that reformats mid-commit leaves the
+    # index different from what the author read, and what they reviewed is not
+    # what lands.
+    format:
+      glob: "*.py"
+      run: uv run ruff format --check {staged_files}
+
+    lint:
+      glob: "*.py"
+      run: uv run ruff check {staged_files}
+
+    # P1, the cheap half of the content gate: nothing under `content/` may be
+    # hidden from git. https://github.com/panlabs-tech/overpower/issues/11
+    #
+    # The `test -d` guard is required, not defensive: measured, with the
+    # directory absent the command exits 0 with empty output, so it would pass
+    # by vacuity — the very failure class it exists to catch.
+    content-tracked:
+      run: |
+        test -d src/overpower/content || exit 0
+        hidden="$(git ls-files --others --ignored --exclude-standard -- src/overpower/content/)"
+        test -z "$hidden" || { echo "ignored by git, will not reach the wheel:"; echo "$hidden"; exit 1; }
+
+    # The staged set is the last moment where blocking a secret is still cheap:
+    # after the commit it is already in local history, and removing it is a
+    # rewrite rather than a fix. The reason it is here at all changed with the
+    # repository going public — a secret in a public repository is indexed
+    # before there is time to rotate it. Costs 0.52 s.
+    #
+    # The binary directly, not the wrapper action: that one now requires a paid
+    # licence in an organisation repository.
+    gitleaks:
+      run: gitleaks git --staged --no-banner --redact
+
+commit-msg:
+  commands:
+    # Conventional Commits with a lower-case subject. Registered dissent: this
+    # costs 1.9 s of the ~2.6 s of the whole local hook and buys no downstream
+    # automation, because `towncrier` builds the changelog from fragments and
+    # never from commit messages. It stays because 10 of the 10 commits on
+    # `main` already conform, so the 1.9 s only guards an error the dev is not
+    # making — and because message format is an anatomy invariant of the org.
+    #
+    # Via `npx` because this repository has no Node surface and is not gaining
+    # one to host a hook.
+    commitlint:
+      run: >-
+        npx --yes
+        --package @commitlint/cli@20.1.0
+        --package @commitlint/config-conventional@20.0.0
+        commitlint --edit {1}

@@ -27,14 +27,30 @@ import platform
 import sys
 from importlib import metadata, resources
 
+from rich.console import Console
+
 _PAYLOAD = ("_payload", "probe.bin")
+
+# Every byte the product writes leaves through a `rich.Console`, and never
+# through `print` — `T201` is enabled precisely to keep that true. The reason is
+# testability rather than looks: the snapshot doctrine records
+# `Console(record=True).export_text()`, so an output path that bypasses the
+# console is an output path no snapshot can see.
+# https://github.com/panlabs-tech/overpower/issues/30
+#
+# `soft_wrap=True` is not cosmetic either. Measured at 60 columns without it,
+# rich hard-wraps the interpreter path mid-word (`…/bin/py` + `thon3`), and that
+# path is the whole point of the line: it is what reveals whether uv had to
+# *download* a Python, from `releases.astral.sh` and not from the package index.
+# A report is not a screen; it hands the terminal the exact string.
+_console = Console(markup=False, highlight=False, soft_wrap=True)
 
 
 def _version() -> str:
     try:
         return metadata.version("overpower")
     except metadata.PackageNotFoundError:
-        return "desinstalado (rodando do fonte)"
+        return "uninstalled (running from source)"
 
 
 def _payload() -> str:
@@ -44,15 +60,16 @@ def _payload() -> str:
     for part in _PAYLOAD:
         node = node / part
     if not node.is_file():
-        return "ausente (build sem probe)"
+        return "absent (built without a probe)"
     data = node.read_bytes()
     return f"{len(data)} bytes · sha256 {hashlib.sha256(data).hexdigest()[:16]}"
 
 
 def main() -> int:
+    """Print the four facts only a real execution can answer, and exit 0."""
     impl = platform.python_implementation()
-    print(f"overpower {_version()}")
-    print(f"python    {impl} {platform.python_version()} · {sys.platform}")
-    print(f"exe       {sys.executable}")
-    print(f"payload   {_payload()}")
+    _console.print(f"overpower {_version()}")
+    _console.print(f"python    {impl} {platform.python_version()} · {sys.platform}")
+    _console.print(f"exe       {sys.executable}")
+    _console.print(f"payload   {_payload()}")
     return 0

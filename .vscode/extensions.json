@@ -1,0 +1,16 @@
+{
+  // The extensions `settings.json` next door assumes. Recorded that portability
+  // also costs an install: `EditorConfig.EditorConfig` is what makes
+  // `.editorconfig` do anything at all in VS Code, and it is not installed by
+  // default.
+  "recommendations": [
+    "charliermarsh.ruff",
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    "EditorConfig.EditorConfig",
+    "tamasfe.even-better-toml"
+  ],
+  // Measured on the dev machine: `ms-python.pylint` was installed and running,
+  // which is the linter this repository's toolchain never chose.
+  "unwantedRecommendations": ["ms-python.pylint"]
+}

@@ -4,8 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "overpower"
+# Moved only by `uv version --bump`, and moving it is what publishes: the tagger
+# workflow tags the merge and dispatches the release. A literal, never derived
+# from the VCS — measured in #2, `hatch-vcs` under `git clone --depth 1` (the
+# default of `actions/checkout`) fails to find the tag, warns, *succeeds*, and
+# publishes an invented version.
 version = "0.0.1"
-description = "Instala AI Frameworks curados num repositorio ou na maquina"
+description = "Installs curated AI Frameworks into a repository or a machine"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
@@ -23,17 +28,17 @@ classifiers = [
   "Topic :: Software Development :: Code Generators",
 ]
 
-# Zero runtime dependencies is deliberate while the 0.0.x series exists: an
-# install failure has to measure `overpower` and nothing else. With typer/rich
-# in the tree, a failure would be ambiguous between our own package and the
-# mirroring of its transitives. The CLI stack decided in #4 lands in v0.1.0.
-dependencies = []
-
-# The rest of the tooling — ruff, pyright, pytest ini — belongs to
-# https://github.com/panlabs-tech/overpower/issues/14. Only the runner the
-# runtime table needs to be testable is declared here.
-[dependency-groups]
-dev = ["pytest>=9"]
+# The CLI stack, fixed in https://github.com/panlabs-tech/overpower/issues/4.
+# Measured cost of the three of them under `uvx`: +0.55 s cold, +0.04 s warm.
+dependencies = [
+  "typer>=0.27",
+  "rich>=15",
+  "questionary>=2.1",
+  # A direct pin, not an inherited one. `questionary` only asks for
+  # `>=2.0,<4.0`, and before 3.0.53 (2026-07-26) the no-TTY case on macOS leaks
+  # a raw `OSError` that `except EOFError` does not catch.
+  "prompt-toolkit>=3.0.53",
+]
 
 [project.urls]
 Repository = "https://github.com/panlabs-tech/overpower"
@@ -50,3 +55,177 @@ overpower = "overpower.cli:main"
 # Any `force-include`, `artifacts`, `packages` or `ignore-vcs` appearing in this
 # file is a regression until proven otherwise, and the proof has to come from a
 # CI build off a clean clone.
+
+# --------------------------------------------------------------------------- #
+# Project management — https://github.com/panlabs-tech/overpower/issues/2
+# --------------------------------------------------------------------------- #
+
+[tool.uv]
+# `uv version` (used by the release gate and by the tagger) and dynamic
+# versioning are mutually exclusive, so the floor is declared rather than
+# inferred.
+required-version = ">=0.11"
+
+[dependency-groups]
+# `pyright` drags a Node runtime with it, so it lives in its own group and the
+# `test` matrix never pays for it. There is no task runner and there will not be
+# one: the four commands in README.md are the whole loop.
+dev = ["pytest>=9", "pytest-randomly", "ruff", "towncrier"]
+typecheck = ["pyright"]
+
+# Deliberately absent, and each absence is a decision of
+# https://github.com/panlabs-tech/overpower/issues/30:
+#   pytest-cov  — coverage is an ephemeral diagnostic, never a gate. The command
+#                 lives in README.md and installs the plugin with `--with`.
+#   syrupy      — the snapshot comparator is ~15 lines in tests/support.
+#   freezegun   — the product never reads a clock.
+
+# --------------------------------------------------------------------------- #
+# Lint and format — https://github.com/panlabs-tech/overpower/issues/2
+# --------------------------------------------------------------------------- #
+
+[tool.ruff]
+# 100 and not the default 88, decided in
+# https://github.com/panlabs-tech/overpower/issues/24 against a real specimen of
+# the org (90 files, 20740 lines, strictly annotated): 88 rewraps 2.71% of the
+# lines, 98 rewraps 0.25%, 100 rewraps none. 98 and 100 tie on measurement, and
+# 100 wins the tie-break on explanation cost.
+line-length = 100
+src = ["src"]
+# Markdown is out, and it is not a taste call. Since 0.16 `ruff format` rewrites
+# Python blocks *inside* `.md`, and `docs/` here is a decision archive whose
+# blocks are quotations from closed tickets — reformatting them edits the
+# record. It also removes a local×CI divergence: the lefthook hook is scoped to
+# `*.py`, so a markdown-only reformat would pass locally and fail in CI, which
+# is the false-green that rule 41 of the org standard exists to forbid.
+extend-exclude = ["*.md"]
+# `target-version` is deliberately NOT declared: ruff infers it from
+# `requires-python`, and writing it here creates a second source for the floor.
+
+[tool.ruff.lint]
+# `extend-select`, never `select`. Measured on ruff 0.16.1: `select` with these
+# families enables 253 rules, `extend-select` with the same families enables
+# 495, and writing no config at all enables 413 — so a `select` list reads like
+# tightening while being 160 rules *looser* than silence.
+extend-select = [
+  "E", "W", "F", "I", "N", "UP", "B", "SIM", "RUF",
+  "PTH", "ANN", "TC", "S", "PT", "D",
+  "EM", "TRY", "RSE", "RET",
+  "T20", "ARG", "SLF", "TID", "INP",
+  "C4", "C90", "PERF", "FURB", "PIE", "PL",
+  "DTZ", "LOG", "G", "A", "ERA", "FBT",
+]
+ignore = [
+  "D203",    # incompatible with D211, which the google convention picks
+  "D213",    # incompatible with D212, which the google convention picks
+  "FBT002",  # a boolean *default* is fine; FBT001/FBT003 still guard the call
+  "TRY003",  # long messages outside the exception class; EM handles the real trap
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+# The JSON tripwire, and it has to exist *before* the first `json.load` is
+# written or it buys nothing. Measured in #2: pyright strict has a blind spot
+# here — explicit `Any` is not `Unknown`, so `return data["name"]` inside a
+# `-> str` function passes the type checker. Confining decoding to one module
+# that returns `object` is what makes all three checkers see the bug, and
+# `TID251` is what makes the confinement enforced rather than remembered.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"json.load" = { msg = "use overpower.jsonio.load_json, which returns object" }
+"json.loads" = { msg = "use overpower.jsonio.loads_json, which returns object" }
+
+[tool.ruff.lint.per-file-ignores]
+# The sanctioned module. It does not exist yet — it is born with the first
+# catalog read — and the exemption is written now so the tripwire above cannot
+# be defused by deleting it later.
+"src/overpower/jsonio.py" = ["TID251"]
+# Tests assert with `assert` (S101), reach into privates on purpose (SLF001),
+# compare against literals (PLR2004) and do not document themselves (D, ANN).
+# INP001 is here because `--import-mode=importlib` makes the implicit-namespace
+# complaint false: the tests package has an `__init__.py` and is imported by
+# path, not by `sys.path` insertion.
+"tests/**" = ["S101", "D", "ANN", "SLF001", "PLR2004", "INP001"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+# --------------------------------------------------------------------------- #
+# Typing — https://github.com/panlabs-tech/overpower/issues/2
+# --------------------------------------------------------------------------- #
+
+[tool.pyright]
+include = ["src", "tests"]
+typeCheckingMode = "strict"
+# The FLOOR, not the dev version: the checker has to see what the oldest
+# supported interpreter sees.
+pythonVersion = "3.12"
+venvPath = "."
+venv = ".venv"
+
+# --------------------------------------------------------------------------- #
+# Tests — https://github.com/panlabs-tech/overpower/issues/2 and /issues/30
+# --------------------------------------------------------------------------- #
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+# `--import-mode=importlib` is the other half of the `src/` layout: it keeps
+# `sys.path` untouched, so a test cannot import the source tree through the back
+# door when the installed package is broken.
+addopts = "-ra --import-mode=importlib"
+# pytest 9's single switch. It subsumes `--strict-markers` and `--strict-config`
+# and adds two the prior art does not have: `strict_xfail` (an xfail that passes
+# fails) and `strict_parametrization_ids` (duplicate ids are a collection error).
+strict = true
+filterwarnings = ["error"]
+# A closed inventory with exactly one member. Under `strict`, an undeclared
+# marker is a collection error rather than a warning that nobody reads.
+markers = ["network: talks to GitHub; a curation step, never a gate"]
+required_plugins = ["pytest-randomly"]
+
+# --------------------------------------------------------------------------- #
+# CHANGELOG — https://github.com/panlabs-tech/overpower/issues/2
+# --------------------------------------------------------------------------- #
+
+# The six Keep a Changelog sections replace towncrier's defaults (`feature`,
+# `bugfix`, `doc`, `removal`, `misc`): the output format is the decision, so the
+# vocabulary has to be the reader's. The issue link comes free from the fragment
+# filename, which turns the CHANGELOG into a navigable index of the map.
+[tool.towncrier]
+name = "overpower"
+directory = "changelog.d"
+filename = "CHANGELOG.md"
+start_string = "<!-- towncrier release notes start -->\n"
+title_format = "## [{version}] - {project_date}"
+issue_format = "[#{issue}](https://github.com/panlabs-tech/overpower/issues/{issue})"
+
+[[tool.towncrier.type]]
+directory = "added"
+name = "Added"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "changed"
+name = "Changed"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "deprecated"
+name = "Deprecated"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "removed"
+name = "Removed"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "fixed"
+name = "Fixed"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "security"
+name = "Security"
+showcontent = true

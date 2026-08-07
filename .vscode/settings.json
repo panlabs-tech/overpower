@@ -1,0 +1,27 @@
+{
+  // Which tool runs — the one thing `.editorconfig` has no vocabulary for, and
+  // the problem actually measured: a machine with `ms-python.pylint` installed
+  // and no ruff extension lints this repository with a linter its toolchain
+  // never chose. https://github.com/panlabs-tech/overpower/issues/24
+  //
+  // No rule is redefined here. The ruff extension reads `pyproject.toml`, so
+  // `line-length`, the rule set and the per-file ignores keep exactly one home.
+  // This file is inert in another editor, so being wrong costs nothing — and it
+  // covers more than VS Code, since Cursor and Windsurf are forks that read it.
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.languageServer": "Default",
+
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll.ruff": "explicit",
+      "source.organizeImports.ruff": "explicit"
+    }
+  },
+
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true
+}

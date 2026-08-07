@@ -1,0 +1,29 @@
+# Whitespace where no tool decides it.
+#
+# The whole vocabulary of this format is whitespace, so it cannot do the job
+# `.vscode/` does — there is no key for "which linter runs". The two files solve
+# disjoint problems and neither becomes a second source of truth.
+#
+# `max_line_length` is deliberately absent: writing it would put the 100 of
+# `pyproject.toml` in two files, which is the literal failure that rule 41 of
+# the org standard names. Python style has exactly one owner, and it is ruff.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.py]
+indent_size = 4
+
+# Markdown gives trailing whitespace a meaning — two spaces are a hard break.
+[*.md]
+trim_trailing_whitespace = false
+
+[Makefile]
+indent_style = tab

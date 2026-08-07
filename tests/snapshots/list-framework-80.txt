@@ -1,0 +1,10 @@
+╭─ AI Framework  installs whole ───────────────────────────────────────────────╮
+│                                                                              │
+│  matt-pocock                                3 artifacts · 8.9 KiB · 4 files  │
+│    Agent skills for real engineering: specs, tickets, TDD, review.           │
+│                                                                              │
+│    agent    code-reviewer                                                    │
+│    skill    grilling                                                         │
+│    command  setup-matt-pocock-skills                                         │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

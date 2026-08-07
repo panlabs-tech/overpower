@@ -1,0 +1,15 @@
+╭─ Pool skill  installs alone ─────────────────────────────╮
+│                                                          │
+│  panlabs-python-standards           229.0 KiB · 8 files  │
+│    A description long enough to wrap at both recorded    │
+│    widths, written out in full because the property      │
+│    under test is that it arrives whole: the maximum      │
+│    measured across the promoted skills is 517            │
+│    characters, cutting at the first sentence leaves      │
+│    most of them above one line, and a catalog whose      │
+│    descriptions are cut is a catalog that has to be      │
+│    looked up somewhere else. It also carries an em dash  │
+│    — and a colon, so the parser and the renderer are     │
+│    both exercised on something other than plain words.   │
+│                                                          │
+╰──────────────────────────────────────────────────────────╯

@@ -27,7 +27,9 @@ import pytest
 from rich.console import Console
 
 from overpower import cli
+from overpower.discovery import load_catalog
 from overpower.errors import OverpowerError
+from overpower.packaged import catalog_file, content_root
 from overpower.screens import THEME
 
 if TYPE_CHECKING:
@@ -130,6 +132,111 @@ def test_the_list_command_shows_the_three_blocks(capsys: pytest.CaptureFixture[s
     assert "AI Frameworks" in output
     assert "Pool skills" in output
     assert "Bundles" in output
+
+
+# --------------------------------------------------------------------------- #
+# the content of one item
+# --------------------------------------------------------------------------- #
+
+
+def test_the_framework_screen_lists_what_is_inside_it(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A framework installs whole, so *whole* has to be readable before accepting.
+
+    Both names are read off the catalog rather than typed in: the promoted set is
+    re-read from upstream at every curation refresh — it has already gone from 22
+    to 25 — and a test that names one of its members turns a curation move into a
+    red build.
+    """
+    # given
+    framework = load_catalog(content_root(), catalog_file()).frameworks[0]
+
+    code, output = output_of(capsys, ["list", "--ai-framework", framework.name])
+
+    assert code == 0
+    assert framework.artifacts[0].name in output
+    assert "Pool skills" not in output
+
+
+def test_the_bundle_screen_names_the_pool_artifacts_of_the_manifest(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    code, output = output_of(capsys, ["list", "--bundle", "api-python"])
+
+    assert code == 0
+    assert "panlabs-python-standards" in output
+    assert "AI Frameworks" not in output
+
+
+def test_the_skill_screen_shows_one_pool_skill_and_not_the_catalog(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The wiring, here; that the description arrives *whole* is a screen property.
+
+    It is asserted next door in `test_screens.py`, at 80 and at 60 columns, over
+    the rendered screen — the only place the frame and the re-wrapping can be
+    undone. Through `capsys` the same text arrives interleaved with borders and,
+    depending on the machine, with escape sequences, so asserting it here would
+    be asserting the capture.
+    """
+    described = load_catalog(content_root(), catalog_file()).pool[0]
+
+    code, output = output_of(capsys, ["list", "--skill", described.name])
+
+    assert code == 0
+    assert described.name in output
+    assert "AI Frameworks" not in output
+    assert "Bundles" not in output
+
+
+@pytest.mark.parametrize(
+    ("argv", "listed"),
+    [
+        pytest.param(["list", "--ai-framework", "matt-pocok"], "matt-pocock", id="ai-framework"),
+        pytest.param(["list", "--skill", "grillin"], "panlabs-python-standards", id="skill"),
+        pytest.param(["list", "--bundle", "api-pythn"], "api-python", id="bundle"),
+    ],
+)
+def test_a_name_outside_the_catalog_exits_two_naming_the_closed_list(
+    capsys: pytest.CaptureFixture[str], argv: list[str], listed: str
+) -> None:
+    """The list is closed, so a name that is not on it is the caller's defect."""
+    code, output = output_of(capsys, argv)
+
+    assert code == 2
+    assert listed in output
+
+
+def test_two_selectors_on_one_line_exit_two(capsys: pytest.CaptureFixture[str]) -> None:
+    """`list` answers about one item, so two selectors have no single answer."""
+    code, output = output_of(capsys, ["list", "--skill", "grilling", "--bundle", "api-python"])
+
+    assert code == 2
+    assert "--skill" in output
+    assert "--bundle" in output
+
+
+def test_two_selectors_are_refused_before_the_catalog_is_read(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The defect is in the line, so the answer cannot depend on the tree.
+
+    With the order the other way round a broken content tree would answer **1** —
+    *could not run* — to a question whose real answer is **2**, and the two codes
+    exist precisely so a pipeline can tell *"alert the team"* from *"fix the
+    line"*.
+    """
+
+    def explode(*_: object, **__: object) -> object:
+        message = "unknown artifact type directory: /content/pool/sklls"
+        raise OverpowerError(message)
+
+    monkeypatch.setattr(cli, "load_catalog", explode)
+
+    code, _ = output_of(capsys, ["list", "--skill", "grilling", "--bundle", "api-python"])
+
+    assert code == 2
 
 
 # --------------------------------------------------------------------------- #
@@ -237,7 +344,11 @@ def test_the_exit_codes_are_the_four_the_model_declares() -> None:
 
 @pytest.mark.parametrize(
     "argv",
-    [pytest.param([], id="bare"), pytest.param(["list"], id="list")],
+    [
+        pytest.param([], id="bare"),
+        pytest.param(["list"], id="list"),
+        pytest.param(["list", "--ai-framework", "matt-pocock"], id="list-framework"),
+    ],
 )
 def test_piped_output_carries_no_ansi(argv: list[str]) -> None:
     """Measured in #12: the three piped captures carry zero `ESC` bytes."""

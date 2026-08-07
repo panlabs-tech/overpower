@@ -17,7 +17,14 @@ error panel, and this module is where that conversion lives — which is also wh
 `pretty_exceptions_enable` is off: that feature is the defect, not the cure.
 
 The code table is born whole even though v0.1.0 only exercises part of it, and
-the axis between **2** and **3** is *whose defect it is*.
+the axis between **2** and **3** is *whose defect it is*. The `except` order in
+`main` is where that axis is decided, and it is the only place: a
+`BadInvocationError` is caught before its base class and answers **2**.
+
+`list` is where the selectors first appear — `--ai-framework` with no short flag
+because `-f` belongs to `--force`, plus `--skill`/`-s` and `--bundle`/`-b`. Here
+each takes **one** name, because `list` answers about one item; the accumulating
+form that `install` needs is a different question and arrives with it.
 """
 
 from __future__ import annotations
@@ -31,12 +38,24 @@ from rich.console import Console
 from rich.text import Text
 
 from overpower.discovery import load_catalog
-from overpower.errors import OverpowerError
+from overpower.errors import BadInvocationError, OverpowerError
 from overpower.packaged import catalog_file, content_root
-from overpower.screens import THEME, banner, catalog_screen, error_panel
+from overpower.screens import (
+    THEME,
+    artifact_screen,
+    banner,
+    bundle_screen,
+    catalog_screen,
+    error_panel,
+    framework_screen,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+    from rich.console import RenderableType
+
+    from overpower.discovery import Catalog
 
 PROGRAM = "overpower"
 
@@ -76,6 +95,26 @@ class ExitCode(IntEnum):
     CANNOT_RUN = 1
     BAD_INVOCATION = 2
     REFUSED = 3
+
+
+class TooManySelectorsError(BadInvocationError):
+    """More than one selector on a `list` line, which has no single answer.
+
+    `list` bare is the whole catalog and `list --<unit> <name>` is the content of
+    **one** item; two selectors would be a question with two answers. Answering
+    one of them silently is the class of defect this product exists not to commit
+    — the screen says one thing and the result is another — so the command
+    refuses and names every flag it was given.
+
+    It lives here and not in the discovery because it is not about the catalog:
+    the names may both be perfectly good, and it is the *line* that is wrong.
+    """
+
+    def __init__(self, flags: Sequence[str]) -> None:
+        """Name every flag that was given, so the line can be cut in one edit."""
+        self.flags = tuple(flags)
+        given = " and ".join(self.flags)
+        super().__init__(f"`list` shows one item at a time, and got {given}")
 
 
 app = typer.Typer(
@@ -118,10 +157,57 @@ def root(
 
 
 @app.command("list")
-def list_catalog() -> None:
-    """Show the catalog: AI Frameworks, pool skills and bundles."""
+def list_catalog(
+    *,
+    ai_framework: Annotated[
+        str | None,
+        typer.Option(
+            "--ai-framework",
+            metavar="NAME",
+            # No short flag, and the reason is `--force`: `-f` is spoken for by
+            # the mode flag of `install`, and a selector that means `--force` on
+            # one line and `--ai-framework` on another is worse than typing it.
+            help="Show the artifacts inside one AI Framework.",
+        ),
+    ] = None,
+    skill: Annotated[
+        str | None,
+        typer.Option("--skill", "-s", metavar="NAME", help="Show one pool skill, whole."),
+    ] = None,
+    bundle: Annotated[
+        str | None,
+        typer.Option("--bundle", "-b", metavar="NAME", help="Show what one bundle names."),
+    ] = None,
+) -> None:
+    """Show the catalog, or the content of one item of it."""
+    given = (("--ai-framework", ai_framework), ("--skill", skill), ("--bundle", bundle))
+    selected = [flag for flag, name in given if name is not None]
+    if len(selected) > 1:
+        # Before the catalog is read at all: the defect is in the *line*, so the
+        # answer cannot depend on the tree being well formed. Reading first would
+        # let a broken tree answer 1 — *could not run* — to a question whose real
+        # answer is 2, and the two codes exist to be told apart.
+        raise TooManySelectorsError(selected)
+
+    catalog = load_catalog(content_root(), catalog_file())
+    # Resolved before the banner: a name outside the catalog exits 2, and a
+    # banner already on screen would be the product answering before it knew.
+    screen = _listed(catalog, ai_framework=ai_framework, skill=skill, bundle=bundle)
     _print_banner()
-    _out.print(catalog_screen(load_catalog(content_root(), catalog_file())))
+    _out.print(screen)
+
+
+def _listed(
+    catalog: Catalog, *, ai_framework: str | None, skill: str | None, bundle: str | None
+) -> RenderableType:
+    """The screen the flags asked for: the whole catalog, or one item of it."""
+    if ai_framework is not None:
+        return framework_screen(catalog.framework(ai_framework))
+    if skill is not None:
+        return artifact_screen(catalog.artifact(skill))
+    if bundle is not None:
+        return bundle_screen(catalog.bundle(bundle))
+    return catalog_screen(catalog)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -137,6 +223,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         # at 2, and Ctrl-C at 130, which `_code` translates. The number is read
         # off the exception and never re-derived here.
         return _code(stopped.code)
+    except BadInvocationError as wrong:
+        # Before the base class on purpose: this `except` order *is* the axis
+        # between 1 and 2, and it is the only place the two are told apart.
+        return _failed(str(wrong), ExitCode.BAD_INVOCATION)
     except OverpowerError as failure:
         return _failed(str(failure))
     except Exception as bug:  # noqa: BLE001 — the top handler catches everything by design
@@ -155,7 +245,7 @@ def _print_banner() -> None:
     _out.print(banner(_version(), _out.width))
 
 
-def _failed(message: str, *, unexpected: bool = False) -> int:
+def _failed(message: str, code: ExitCode = ExitCode.CANNOT_RUN, *, unexpected: bool = False) -> int:
     """The panel, and the last place a message is still a message.
 
     `Text`, never markup: the message carries paths and exception text, and both
@@ -173,7 +263,7 @@ def _failed(message: str, *, unexpected: bool = False) -> int:
             ("This is a bug in the overpower, not in what you typed.", "op.dim"),
         )
     _err.print(error_panel(body))
-    return ExitCode.CANNOT_RUN
+    return code
 
 
 def _code(code: int | str | None) -> int:

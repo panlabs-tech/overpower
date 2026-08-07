@@ -32,3 +32,20 @@ class OverpowerError(Exception):
     it as attributes, so a caller can assert on the value rather than on the
     prose.
     """
+
+
+class BadInvocationError(OverpowerError):
+    """The named half of code `2`: the defect is in what was typed.
+
+    It is a subclass rather than a sibling because the *rendering* of the two is
+    identical — a panel carrying a message someone can act on — and only the
+    number differs. That keeps every handler that already catches
+    `OverpowerError` correct, and puts the whole of the 1-versus-2 axis in one
+    `except` order at the top of the CLI.
+
+    What belongs here is what the caller can fix by typing something else: a
+    name outside a closed list, two selectors where the command answers about
+    one. What does *not* belong here is *"ran, and the answer is no"* — that is
+    code `3`, and the defect there is on our side of the question, not on
+    theirs.
+    """

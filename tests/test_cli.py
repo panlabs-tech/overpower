@@ -41,15 +41,21 @@ FORCED_COLOUR = ("FORCE_COLOR", "PY_COLORS", "CLICOLOR_FORCE", "GITHUB_ACTIONS",
 terminal. Scrubbed in the child so the pipe is the only thing left to answer."""
 
 
-def piped(*argv: str) -> subprocess.CompletedProcess[str]:
-    """Run the command the way a user pipes it: a real child, a real pipe."""
+def piped(*argv: str) -> subprocess.CompletedProcess[bytes]:
+    """Run the command the way a user pipes it: a real child, a real pipe.
+
+    The output is read as **bytes**, and that is the assertion's own unit — the
+    criterion is *zero `ESC` bytes*. It is also the only way to read it at all on
+    Windows: measured on the matrix, a pipe there takes the locale encoding, so
+    the child writes cp1252 and rich swaps the box characters for ASCII
+    (`ConsoleOptions.ascii_only`). The screen degrades and stays ANSI-free, which
+    is the property; decoding it as UTF-8 is what breaks.
+    """
     environment = {key: value for key, value in os.environ.items() if key not in FORCED_COLOUR}
     environment["COLUMNS"] = "80"
     return subprocess.run(  # noqa: S603 — the argv is this interpreter and literals
         [sys.executable, "-c", RUN, *argv],
         capture_output=True,
-        text=True,
-        encoding="utf-8",
         env=environment,
         check=False,
     )
@@ -238,20 +244,26 @@ def test_piped_output_carries_no_ansi(argv: list[str]) -> None:
     result = piped(*argv)
 
     assert result.returncode == 0
-    assert "\x1b" not in result.stdout
-    assert "\x1b" not in result.stderr
+    assert b"\x1b" not in result.stdout
+    assert b"\x1b" not in result.stderr
 
 
 def test_the_banner_is_suppressed_without_a_tty() -> None:
     result = piped()
 
     assert result.returncode == 0
-    assert "_____" not in result.stdout
+    assert b"_____" not in result.stdout
 
 
 def test_the_list_screen_survives_a_pipe_whole() -> None:
-    """A screen conducted to a file has to stay readable on the other end."""
+    """A screen conducted to a file has to stay readable on the other end.
+
+    Only the ASCII of it is asserted, because the encoding of the rest is the
+    pipe's to choose — the truncation property lives next door in
+    `test_screens.py`, at both widths, where it is not an encoding question.
+    """
     result = piped("list")
 
-    assert "AI Frameworks" in result.stdout
-    assert "…" not in result.stdout
+    assert result.returncode == 0
+    assert b"AI Frameworks" in result.stdout
+    assert b"panlabs-python-standards" in result.stdout

@@ -8,19 +8,21 @@ meaning are asserted structurally here, where an aesthetic tweak cannot move
 them, and the bytes are recorded per screen, at 80 and 60 columns, without
 colour.
 
-**The catalog under test is the one that ships**, and that is the ticket's own
-instruction: the truncation property is to be asserted *"com a descrição de 517
-caracteres do pool como caso"*, and the pool skill of v0.1.0 was picked for
-having exactly that description — the maximum measured across the promoted
-skills (https://github.com/panlabs-tech/overpower/issues/45).
+**The structural half runs against the catalog that ships**, and that is the
+ticket's own instruction: the truncation property is to be asserted *"com a
+descrição de 517 caracteres do pool como caso"*, and the pool skill of v0.1.0 was
+picked for having exactly that description — the maximum measured across the
+promoted skills (https://github.com/panlabs-tech/overpower/issues/45).
 
-The consequence is deliberate and worth naming, because it will surprise
-somebody: a **curation refresh moves the recorded screens**, since the sizes and
-the file counts on them are the real ones. That is the snapshot doing its job —
-the screen did change — and it is the opposite of the case doctrine §8 forbids,
-which is asserting the *repository's content* instead of the code. Here the
-subject is the screen; what is on it is data. The discovery tests next door
-build their trees in `tmp_path` for exactly that reason.
+**The recorded half runs against a fixture**, and that is not a shortcut — it is
+what makes a snapshot assertable at all. Measured on the Windows cells of the
+matrix: a screen built from the shipped tree carries the *byte sizes of the
+checkout*, and git rewrites line endings on checkout, so the same commit renders
+`199.4 KiB` on Linux and something else on Windows. A recording that cannot be
+identical on the nine cells is not a recording. The second reason is the one #12
+bought snapshots for: at one file per screen the reviewer sees exactly which
+screens a change had licence to move, and a screen that also moves when the
+*content* moves gives that signal away.
 """
 
 from __future__ import annotations
@@ -64,14 +66,59 @@ def unwrapped(rendered: str) -> str:
     return " ".join(" ".join(line.split()) for line in lines if line)
 
 
-def artifact(name: str, description: str) -> Artifact:
+def artifact(name: str, description: str, files: int = 1, size: int = 1024) -> Artifact:
     return Artifact(
         type=ArtifactType.SKILL,
         name=name,
         path=Path(name),
         description=description,
-        files=1,
-        size=1024,
+        files=files,
+        size=size,
+    )
+
+
+LONG = (
+    "A description long enough to wrap at both recorded widths, written out in "
+    "full because the property under test is that it arrives whole: the maximum "
+    "measured across the promoted skills is 517 characters, cutting at the first "
+    "sentence leaves most of them above one line, and a catalog whose "
+    "descriptions are cut is a catalog that has to be looked up somewhere else. "
+    "It also carries an em dash — and a colon, so the parser and the renderer "
+    "are both exercised on something other than plain words."
+)
+"""The wrapping case of the recorded screen. Its shape is the shipped one; its
+bytes are ours, so no curation refresh can move a recorded screen."""
+
+
+def recorded() -> Catalog:
+    """The catalog the screens are recorded against: fixed, and ours.
+
+    The numbers exercise the three units of `human` and both spellings of the
+    file count — `948 B · 1 file`, `229.0 KiB · 8 files`, `2.00 MiB · 3 files` —
+    which are exactly the formatting paths an edit could break silently.
+    """
+    ruler = artifact("panlabs-python-standards", LONG, files=8, size=234_458)
+    return Catalog(
+        frameworks=(
+            Framework(
+                name="matt-pocock",
+                path=Path("matt-pocock"),
+                description="Agent skills for real engineering: specs, tickets, TDD, review.",
+                artifacts=(artifact("grilling", "Inside the framework.", files=74, size=204_186),),
+            ),
+        ),
+        pool=(
+            artifact("grilling", "Grills a decision until it gets sharp.", files=1, size=948),
+            artifact("heavy-reference", "A reference big enough to read in MiB.", 3, 2_097_152),
+            ruler,
+        ),
+        bundles=(
+            Bundle(
+                name="api-python",
+                description="Equipment for working on a Python API.",
+                artifacts=(ruler,),
+            ),
+        ),
     )
 
 
@@ -168,7 +215,7 @@ def test_the_banner_names_the_version_that_arrived() -> None:
 def test_the_catalog_screen_matches_its_snapshot(
     request: pytest.FixtureRequest, width: int
 ) -> None:
-    rendered = render(catalog_screen(shipped()), width)
+    rendered = render(catalog_screen(recorded()), width)
 
     assert_matches_snapshot(request, f"list-{width}", rendered)
 

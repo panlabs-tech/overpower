@@ -1,0 +1,51 @@
+overpower
+Copyright (c) 2026 Thiago Panini
+
+This product includes material transcribed from third-party sources. Each entry
+below records the origin, its SPDX identifier, the copyright holder, and the
+exact reference the material was taken at.
+
+--------------------------------------------------------------------------------
+
+vercel-labs/skills — the runtime path table
+
+    Origin:      https://github.com/vercel-labs/skills
+    File:        src/agents.ts
+    Reference:   v1.5.22 (commit a4d243c3d4f86cdf9385dd1b6a0733f6937e70b5)
+    SPDX:        MIT
+    Holder:      Vercel, Inc.
+    Used in:     src/overpower/runtimes.py
+
+The table of 76 AI runtimes and their skill directories in
+`src/overpower/runtimes.py` is transcribed from `src/agents.ts` of
+vercel-labs/skills, read from git at the commit above. The transcription covers
+the key, display name, project skills directory and global skills directory of
+each entry, plus the two flags that drive the selection screen. Structure and
+resolution logic around the table are the overpower's own.
+
+The upstream license, reproduced in full as MIT requires:
+
+    MIT License
+
+    Copyright (c) 2026 Vercel, Inc.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+
+MIT on MIT keeps the package metadata honest: `License-Expression: MIT` remains
+true, and no composite SPDX expression is required.

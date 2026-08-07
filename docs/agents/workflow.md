@@ -18,7 +18,9 @@ Isso vale **para este mapa**. Mapas futuros voltam ao padrão: decidem, não exe
 
 ## Política de branch
 
-> **Estado em 2026-08-07: o ruleset ainda não foi criado**, e isso é a ordem obrigatória do [#24](https://github.com/panlabs-tech/overpower/issues/24) sendo respeitada, não atraso — *público → `ci.yml` e teste, com a run acontecendo uma vez → só então o ruleset*. O `ci.yml` sai do [#14](https://github.com/panlabs-tech/overpower/issues/14); ligar o ruleset antes dele trava todo PR em *"Expected"*. Até lá o PR é disciplina, e esta seção descreve o alvo.
+> **Estado em 2026-08-07: o ruleset está ativo** (`main: PR obrigatorio e gate verde`), e a ordem obrigatória do [#24](https://github.com/panlabs-tech/overpower/issues/24) foi cumprida na sequência que ela exige — *público → `ci.yml` e teste, com a run acontecendo uma vez → só então o ruleset*. Esta seção deixou de descrever o alvo e passou a descrever o repo.
+>
+> **A trava foi observada, não inferida:** um `git push origin main` do próprio dono, com o ruleset ligado, é recusado com `Required status check "gate" is expected` e `push declined due to repository rule violations`. A lista de bypass está vazia de verdade.
 
 **Nada entra na `main` sem PR.** Não é convenção: é ruleset, exigindo PR e status checks, com **zero aprovações** — o GitHub não deixa o autor aprovar o próprio PR, e exigir uma travaria um repo de um mantenedor só — e com a **lista de bypass vazia, inclusive para o dono**. Em modo autônomo o agente empurra com a credencial do dev, então bypass com o nome dele é bypass para o agente, e a regra viraria decoração.
 
@@ -52,11 +54,15 @@ O hook local **não é o portão, é o atalho**: ele pega barato o erro barato. 
 |---|---|
 | `static` | `ruff check` · `ruff format --check` · `pyright` · **P1** · **P2** — ubuntu, um Python |
 | `test` | `pytest`, matriz de 3 SOs × 3 versões de Python |
-| `gate` | job vazio, `needs: [static, test]` — **é este o nome exigido pelo ruleset** |
+| `gate` | `needs: [static, test]` com `if: always()` e asserção dos dois resultados — **é este o nome exigido pelo ruleset** |
 
 Todos bloqueantes: portão que não bloqueia é documentação. O `gate` existe por mecânica e não por elegância — required check some **por nome**, e nome de célula de matriz carrega os valores dela, então sem ele mudar a matriz travaria todo PR em *"Expected — waiting for status to be reported"*.
 
-Duas armadilhas medidas, que quem mexer nos portões precisa conhecer: **P1 passa por vacuidade** se `src/overpower/content/` não existir (sai `exit=0` com saída vazia), então ele vem guardado por `test -d`; e **`pytest` sem nenhum teste sai 5**, o que sob ruleset é deadlock de merge e não feiura.
+**O `gate` não pode ser o job vazio que o [#24](https://github.com/panlabs-tech/overpower/issues/24) desenhou**, e isso apareceu ao implementá-lo. Job que é pulado porque a dependência falhou reporta como **skipped**, e o GitHub trata required check skipped como sucesso: o job ficaria verde exatamente quando tivesse algo a dizer. Daí o `if: always()` mais a leitura explícita de `needs.<job>.result`. Observado nas duas rodadas do [#33](https://github.com/panlabs-tech/overpower/pull/33) — vermelho quando o Windows quebrou, verde depois.
+
+Três armadilhas medidas, que quem mexer nos portões precisa conhecer: **P1 passa por vacuidade** se `src/overpower/content/` não existir (sai `exit=0` com saída vazia), então ele vem guardado por `test -d`; **`pytest` sem nenhum teste sai 5**, o que sob ruleset é deadlock de merge e não feiura; e a do `gate` acima. As duas primeiras eram previstas, a terceira não.
+
+**A matriz 3×3 pagou na primeira rodada.** `WindowsPath("/home/dev").is_absolute()` é `False` — falta letra de unidade —, e 79 dos 257 testes falhavam só nas três células Windows. O produto estava certo e os fixtures é que eram POSIX-only. É exatamente a classe que a [doutrina de teste](testing.md) previu que passaria verde numa célula só.
 
 **O que deliberadamente não é portão.** O job `windows-latest` prova o caminho *com* privilégio e não cobre o caso sem ele, porque o runner liga Developer Mode ([#19](https://github.com/panlabs-tech/overpower/issues/19)); a frescura da tabela de runtimes é **ato de curadoria, não automação**; e — quarta ocorrência da mesma classe — **nenhum teste toca o GitHub de verdade em job nenhum**, nem no PR nem no release, decidido em [Doutrina de teste](https://github.com/panlabs-tech/overpower/issues/30). A regra que sai disso: **portão bloqueia o que este repo controla; o que depende de terceiro se verifica na curadoria.**
 

@@ -9,7 +9,10 @@ description = "Instala AI Frameworks curados num repositorio ou na maquina"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
-license-files = ["LICENSE"]
+# NOTICE carries the attribution the vendored runtime path table owes upstream.
+# PEP 639 puts both files in `dist-info/licenses/`, which is why attribution
+# travels with the package and never lands in the user's repository (ADR 0003).
+license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Thiago Panini" }]
 keywords = ["ai", "agent", "skills", "claude", "cursor", "codex"]
 classifiers = [
@@ -25,6 +28,12 @@ classifiers = [
 # in the tree, a failure would be ambiguous between our own package and the
 # mirroring of its transitives. The CLI stack decided in #4 lands in v0.1.0.
 dependencies = []
+
+# The rest of the tooling — ruff, pyright, pytest ini — belongs to
+# https://github.com/panlabs-tech/overpower/issues/14. Only the runner the
+# runtime table needs to be testable is declared here.
+[dependency-groups]
+dev = ["pytest>=9"]
 
 [project.urls]
 Repository = "https://github.com/panlabs-tech/overpower"

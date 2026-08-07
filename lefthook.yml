@@ -41,12 +41,15 @@ pre-commit:
     # P1, the cheap half of the content gate: nothing under `content/` may be
     # hidden from git. https://github.com/panlabs-tech/overpower/issues/11
     #
-    # The `test -d` guard is required, not defensive: measured, with the
-    # directory absent the command exits 0 with empty output, so it would pass
-    # by vacuity — the very failure class it exists to catch.
+    # A subjectless P1 is a failure, not a pass — measured, with the directory
+    # absent `git ls-files --others --ignored` exits 0 with empty output, which
+    # is the very failure class this gate exists to catch. The content root is
+    # tracked since https://github.com/panlabs-tech/overpower/issues/45, so an
+    # empty subject means something removed it.
     content-tracked:
       run: |
-        test -d src/overpower/content || exit 0
+        test "$(git ls-files -- src/overpower/content/ | wc -l)" -gt 0 \
+          || { echo "git tracks nothing under src/overpower/content/; P1 has no subject"; exit 1; }
         hidden="$(git ls-files --others --ignored --exclude-standard -- src/overpower/content/)"
         test -z "$hidden" || { echo "ignored by git, will not reach the wheel:"; echo "$hidden"; exit 1; }
 

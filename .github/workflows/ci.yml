@@ -52,15 +52,19 @@ jobs:
       # P1 — everything under content/ is really tracked by git.
       # https://github.com/panlabs-tech/overpower/issues/11
       #
-      # The `test -d` guard is not defensive noise: measured, with the directory
-      # absent the command exits 0 with empty output and puts its warning on
-      # stderr only. It would pass by vacuity — exactly the failure class it
-      # exists to catch.
+      # Two assertions, and the first one is what
+      # https://github.com/panlabs-tech/overpower/issues/45 switched on. Measured,
+      # with the directory absent `git ls-files --others --ignored` exits 0 with
+      # empty output and puts its warning on stderr only — so while the content
+      # root did not exist this gate passed by vacuity, which is precisely the
+      # failure class it exists to catch. The root is tracked now, so its absence
+      # is a regression rather than a not-yet, and a subjectless P1 is a failure.
       - name: P1 — no ignored file hiding inside content/
         run: |
-          if [ ! -d src/overpower/content ]; then
-            echo "::notice::src/overpower/content/ does not exist yet; P1 has no subject"
-            exit 0
+          tracked="$(git ls-files -- src/overpower/content/ | wc -l)"
+          if [ "$tracked" -eq 0 ]; then
+            echo "::error::git tracks nothing under src/overpower/content/; P1 has no subject"
+            exit 1
           fi
           hidden="$(git ls-files --others --ignored --exclude-standard -- src/overpower/content/)"
           if [ -n "$hidden" ]; then
@@ -68,7 +72,7 @@ jobs:
             echo "$hidden"
             exit 1
           fi
-          echo "P1 ok: nothing under content/ is hidden from git"
+          echo "P1 ok: $tracked tracked path(s) under content/, none hidden from git"
 
       # P2 — what git tracks under content/ is what the wheel carries.
       # It costs one `uv build` (measured at 0.54 s) and it runs here rather
@@ -84,12 +88,18 @@ jobs:
           import zipfile
 
           prefix = "src/overpower/"
+          # `-z`, not a whitespace split: `git ls-files` separates by newline and
+          # *quotes* a path that carries a space or a non-ASCII byte, so a naive
+          # split would invent missing and extra entries out of one vendored
+          # filename. Today's content has neither, and the point of a gate is to
+          # still be right when tomorrow's does.
           tracked = {
               path[len(prefix):]
               for path in subprocess.run(
-                  ["git", "ls-files", "src/overpower/content"],
+                  ["git", "ls-files", "-z", "--", "src/overpower/content"],
                   capture_output=True, text=True, check=True,
-              ).stdout.split()
+              ).stdout.split("\0")
+              if path
           }
           wheel = sorted(glob.glob("dist/*.whl"))[-1]
           inside = {

@@ -2,6 +2,10 @@
 
 O overpower não mantém um registro do que ele contém. O `install` e o `list` descobrem os artefatos embutidos olhando a estrutura de diretórios — `src/overpower/content/pool/<tipo>/<nome>/` e `src/overpower/content/frameworks/<nome>/`. **Nenhum caminho é registrado em lugar nenhum.**
 
+> *Emendado em [Conteúdo vendorizado](https://github.com/panlabs-tech/overpower/issues/45), ao construir a árvore que esta ADR descreve. O nível de tipo **repete-se dentro do framework** — `content/frameworks/<nome>/<tipo>/<artefato>/` —, com o mesmo conjunto fechado de nomes do pool. A redação original tratava o framework como uma pasta opaca, e ela não fecha: o `list --ai-framework` mostra o tipo de cada artefato como prefixo, e esta ADR proíbe entrada de artefato no arquivo escrito, logo a árvore é a **única fonte possível** do tipo. É também o que faz um framework de tipos misturados — o `.specify/` do spec-kit ao lado de skills renderizadas — caber sem mecanismo novo, já que destino é função de (tipo, runtime, escopo). Não muda nenhuma posição desta ADR; corrige o desenho da convenção que ela decidiu.*
+>
+> *A mesma curadoria fixou o endereço do arquivo escrito, que a decisão tinha deixado implícito: `src/overpower/catalog/catalog.toml`, a raiz irmã de `content/` que o [#11](https://github.com/panlabs-tech/overpower/issues/11) nomeou. Ele **não ganha portão**, e a razão é a assimetria de falha medida no [#10](https://github.com/panlabs-tech/overpower/issues/10): conteúdo perdido é silencioso — skill pela metade e ninguém percebe, que é o que P1 e P2 existem para pegar —, catálogo perdido é alto — o bundle some do `list` e o `install` responde que não conhece o nome. O que falha ruidosamente não precisa de verificação.*
+
 Existe um arquivo escrito, e a regra que decide o que entra nele vale para sempre:
 
 > **O que o overpower escreve só carrega o que a árvore não pode saber. Caminho, nunca.**

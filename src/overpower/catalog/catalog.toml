@@ -1,0 +1,44 @@
+# The only file the overpower writes about its own content, and the sibling of
+# `content/` with the opposite invariant: `content/` **100% lands** in the
+# user's repository, this root **0% lands**.
+#
+# The rule that decides what may appear here holds forever, and it is ADR 0006:
+#
+#     what the overpower writes only carries what the tree cannot know.
+#     A path, never.
+#
+# So there is no skill entry, no command entry and no agent entry — those are
+# discovered by walking `content/pool/<type>/<name>/` and
+# `content/frameworks/<name>/<type>/<artifact>/`. Adding a file inside a skill
+# touches nothing here; adding a whole skill touches nothing here.
+#
+# Two things qualify in v0.1.0:
+#
+#   - a **bundle**, which by definition has no tree — it is a manifest that
+#     names artifacts of the pool and carries no content of its own;
+#   - **one description line per AI Framework**, because a framework is a folder
+#     with skills inside it and no frontmatter of its own. The upstream keeps
+#     one in `.claude-plugin/plugin.json`, but that file is outside the vendored
+#     slice and could not be brought into `content/`: `content/` lands whole,
+#     and ADR 0003 forbids adding anything to what lands.
+#
+# A skill needs no line: its description comes from its own `SKILL.md`, whole
+# and never truncated.
+#
+# The count of artifacts is deliberately *not* written here either — the tree
+# knows it, so writing it down would be the duplication this file exists to
+# avoid, and it would go stale on the next curation refresh.
+#
+# THIS ROOT HAS NO GATE, and that is a decision rather than an oversight. P1 and
+# P2 guard `content/` because content lost is lost *silently* — half a skill
+# lands and nobody notices. Losing this file fails loudly instead: the bundle
+# disappears from `list` and `install --bundle api-python` answers that it does
+# not know the name. What fails loudly needs no verification. The asymmetry was
+# measured in issue #10.
+
+[bundles.api-python]
+description = "Equipment for working on a Python API."
+items = ["panlabs-python-standards"]
+
+[frameworks.matt-pocock]
+description = "Matt Pocock's agent skills for real engineering: grilling, spec and ticket flows, TDD, code review, domain modelling and more."

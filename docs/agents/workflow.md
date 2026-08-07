@@ -18,6 +18,8 @@ Isso vale **para este mapa**. Mapas futuros voltam ao padrão: decidem, não exe
 
 ## Política de branch
 
+> **Estado em 2026-08-07: o ruleset ainda não foi criado**, e isso é a ordem obrigatória do [#24](https://github.com/panlabs-tech/overpower/issues/24) sendo respeitada, não atraso — *público → `ci.yml` e teste, com a run acontecendo uma vez → só então o ruleset*. O `ci.yml` sai do [#14](https://github.com/panlabs-tech/overpower/issues/14); ligar o ruleset antes dele trava todo PR em *"Expected"*. Até lá o PR é disciplina, e esta seção descreve o alvo.
+
 **Nada entra na `main` sem PR.** Não é convenção: é ruleset, exigindo PR e status checks, com **zero aprovações** — o GitHub não deixa o autor aprovar o próprio PR, e exigir uma travaria um repo de um mantenedor só — e com a **lista de bypass vazia, inclusive para o dono**. Em modo autônomo o agente empurra com a credencial do dev, então bypass com o nome dele é bypass para o agente, e a regra viraria decoração.
 
 Isso é o que deixa o `release.yml` continuar sem rodar lint nem teste antes de publicar: toda tag sai de um commit que passou pelo portão, por mecanismo e não por disciplina.
@@ -56,8 +58,10 @@ Todos bloqueantes: portão que não bloqueia é documentação. O `gate` existe 
 
 Duas armadilhas medidas, que quem mexer nos portões precisa conhecer: **P1 passa por vacuidade** se `src/overpower/content/` não existir (sai `exit=0` com saída vazia), então ele vem guardado por `test -d`; e **`pytest` sem nenhum teste sai 5**, o que sob ruleset é deadlock de merge e não feiura.
 
-**O que deliberadamente não é portão.** O job `windows-latest` prova o caminho *com* privilégio e não cobre o caso sem ele, porque o runner liga Developer Mode ([#19](https://github.com/panlabs-tech/overpower/issues/19)); e a frescura da tabela de runtimes é **ato de curadoria, não automação**. A regra que sai da terceira ocorrência da mesma classe: **portão bloqueia o que este repo controla; o que depende de terceiro se verifica na curadoria.**
+**O que deliberadamente não é portão.** O job `windows-latest` prova o caminho *com* privilégio e não cobre o caso sem ele, porque o runner liga Developer Mode ([#19](https://github.com/panlabs-tech/overpower/issues/19)); a frescura da tabela de runtimes é **ato de curadoria, não automação**; e — quarta ocorrência da mesma classe — **nenhum teste toca o GitHub de verdade em job nenhum**, nem no PR nem no release, decidido em [Doutrina de teste](https://github.com/panlabs-tech/overpower/issues/30). A regra que sai disso: **portão bloqueia o que este repo controla; o que depende de terceiro se verifica na curadoria.**
 
 ## Referência de padrão Python
 
 O `panlabs-python-standards` é a régua de forma de código consultada aqui. Onde ele e uma decisão do mapa divergirem, vence o mapa — e a divergência vira ADR em `docs/adr/`.
+
+**O eixo de testes já foi adjudicado inteiro**, posição por posição, em [`testing.md`](testing.md): o que é dublê, o que roda de verdade, como a saída visual é asseverada e onde cada arquivo de teste mora. Resultado da adjudicação: **zero divergências** — onde a resposta daqui parece contrariar a régua, é a condição declarada da própria régua que a redireciona. A única posição que precisou de ADR foi a que um leitor da régua tentaria desfazer: [ADR 0010](../adr/0010-nao-existe-duble-de-sistema-de-arquivos.md), não existe dublê de sistema de arquivos.

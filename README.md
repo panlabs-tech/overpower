@@ -11,16 +11,22 @@ Three commands, and they answer three questions. `list` says what there is,
 `install` writes it, `doctor` says whether what was written is still what was
 written.
 
+Typed bare in a terminal, `overpower` opens the banner and the help and exits 0;
+under a pipe the banner stays behind and the help goes through alone, so `grep`
+and a file get something readable. `overpower --version` answers the version that
+arrived, read from the installed metadata rather than from a constant — which is
+what makes it evidence that the package landed intact.
+
 ## Always `@latest`
 
 `uvx` **freezes the version on first use, with no TTL.** Since the version of
-overpower *is* the version of the catalogue it embeds, a bare `uvx overpower`
-serves a catalogue that can never age out. `@latest` is a correctness
-requirement, not README style.
+overpower *is* the version of the catalog it embeds, a bare `uvx overpower`
+serves a catalog that can never age out. `@latest` is a correctness requirement,
+not README style.
 
 ## `list` — what there is
 
-Bare, it prints the whole embedded catalogue in three blocks:
+Bare, it prints the whole embedded catalog in three blocks:
 
 ```bash
 uvx overpower@latest list
@@ -44,9 +50,10 @@ uvx overpower@latest list --skill panlabs-python-standards
 uvx overpower@latest list --bundle api-python
 ```
 
-Two selectors on one line is a question with two answers, and exits 2 naming both
-flags. A name outside the catalogue exits 2 with the closed list in the message:
-the list is closed, so the defect is in what was typed.
+`--skill` and `--bundle` carry the same short forms here as on `install`, `-s`
+and `-b`. Two selectors on one line is a question with two answers, and exits 2
+naming both flags. A name outside the catalog exits 2 with the closed list in
+the message: the list is closed, so the defect is in what was typed.
 
 ## `install` — write it
 
@@ -87,9 +94,13 @@ promising one installation per runtime.
 ```
 $ overpower install --skill panlabs-python-standards --runtime claude-code,cursor,codex --dry-run
 
-  panlabs-python-standards  1 skill
-    .claude/skills/  ← claude-code                                   8 files
-    .agents/skills/  ← codex, cursor                                 8 files
+╭─ plan ───────────────────────────────────────────────────────────────────────╮
+│                                                                              │
+│  panlabs-python-standards  1 skill                                           │
+│    .claude/skills/  ← claude-code                                   8 files  │
+│    .agents/skills/  ← codex, cursor                                 8 files  │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
 **`overpower install` typed bare in a terminal opens a wizard** instead of
@@ -99,10 +110,12 @@ be asked before the scope is known. It builds the same request the flags do.
 
 ### Scope
 
-Inside a git repository the default is the repository. **Outside one the command
+Inside a git repository the default is the repository. **Outside one a flag line
 refuses, exit 2**, unless `--global`/`-g` says explicitly to write under the home
 directory: *the git is the manifest* only holds where there is git, and nothing
-else on the machine would audit what a silent write left behind.
+else on the machine would audit what a silent write left behind. The wizard
+reaches the same explicitness from the other side — outside a repository it does
+not ask a question that has one legal answer, and goes global without the step.
 
 In project scope every landing is a **real copy**. Under `core.symlinks=false` —
 a value git detects and records into the clone — a committed link checks out as
@@ -137,8 +150,8 @@ leaves nothing behind, not even an empty directory.
 uvx overpower@latest install --from https://github.com/owner/repo --skill some-skill --runtime codex
 ```
 
-The vendored catalogue ages by construction, and `--from` is the escape hatch
-that does not wait for a curation refresh. It points `--skill` at **any GitHub
+The vendored catalog ages by construction, and `--from` is the escape hatch that
+does not wait for a curation refresh. It points `--skill` at **any GitHub
 repository, with no registration**, and it is **exclusive**: with it, only the
 remote is consulted, which extinguishes the question of precedence rather than
 answering it. It holds for `--skill` alone — a skill is the one unit that exists
@@ -164,9 +177,9 @@ uvx overpower@latest doctor
 
 Two halves in one output. The **terminal** half reports tty, colour, width and
 `NO_COLOR` — the four facts that explain a screen that came out strange, without
-a round trip. The **integrity** half reads the whole runtime table in both
-scopes, because the target carries no manifest and the closed table is therefore
-the only thing that knows where equipment can be. That is also why there is no
+a round trip. The **integrity** half reads the runtime table in both scopes,
+because the target carries no manifest and the closed table is therefore the only
+thing that knows where equipment can be. That is also why there is no
 `--global` here: one flag switching between the halves would make it two outputs.
 Outside a git repository it still answers, unlike `install`.
 
@@ -252,7 +265,7 @@ uv run --with pytest-cov pytest --cov=src/overpower --cov-report=term-missing
 ### Screens
 
 Recorded screens live in `tests/snapshots/`, one file per screen, at 80 and 60
-columns, without colour. They render a fixture and not the shipped catalogue, so
+columns, without colour. They render a fixture and not the shipped catalog, so
 a content refresh does not rewrite them. Rewriting them is an explicit act:
 
 ```bash
@@ -274,7 +287,7 @@ nothing.
 
 ## Curation
 
-Refreshing the catalogue is an **act, not a job**. A gate blocks what this
+Refreshing the catalog is an **act, not a job**. A gate blocks what this
 repository controls; what depends on a third party is verified here, by hand, on
 purpose.
 
@@ -294,7 +307,7 @@ reference, which `NOTICE` records per origin. A refresh is:
    upstream licence file moved.
 4. Run the four development commands, plus the network test below.
 5. **Bump the version.** By rule 5 the version of the overpower *is* the version
-   of the catalogue, so a refresh nobody can install is not a refresh.
+   of the catalog, so a refresh nobody can install is not a refresh.
 
 ### Tests that touch the real GitHub
 

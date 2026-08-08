@@ -396,6 +396,31 @@ def test_the_doctor_screen_carries_no_ansi_under_a_pipe(tmp_path: Path) -> None:
     assert b"integrity" in result.stdout
 
 
+def test_a_doctor_that_found_something_pipes_exit_three_and_still_no_ansi(
+    tmp_path: Path,
+) -> None:
+    """The finding screen is the one with warm ink on it, so it is the one to pipe.
+
+    A healthy run has nothing styled `op.warn`, so asserting zero `ESC` on it
+    alone would leave the branch that actually reaches for colour unmeasured.
+    Two copies of one name in two global runtime paths is the cheapest way to
+    build a finding without installing anything — and the exit code travels
+    through a real child, which is how a pipeline reads it.
+    """
+    # given
+    for place, content in ((".claude/skills", "one"), (".cursor/skills", "two")):
+        skill = tmp_path / place / "alpha"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text(content, encoding="utf-8", newline="\n")
+
+    result = piped("doctor", sandbox=tmp_path)
+
+    assert result.returncode == 3
+    assert b"\x1b" not in result.stdout
+    assert b"\x1b" not in result.stderr
+    assert b"differ" in result.stdout
+
+
 def test_the_list_screen_survives_a_pipe_whole() -> None:
     """A screen conducted to a file has to stay readable on the other end.
 

@@ -24,13 +24,14 @@ created link is *recorded* as one depends on the platform and on privilege.
 from __future__ import annotations
 
 import shutil
-import subprocess
 from typing import TYPE_CHECKING
 
+from overpower.writing import points_elsewhere
 from tests.support.git_remote import git
 from tests.support.project import AGENTS, CLAUDE, catalog_of, joined, run, workspace
 
 if TYPE_CHECKING:
+    import subprocess
     from pathlib import Path
 
     import pytest
@@ -64,28 +65,13 @@ def commit_a_symlink(source: Path, at: str, target: str) -> None:
     what makes the same commit exist on the nine cells — and it is the honest
     scenario too, since the repository carrying the link was equipped elsewhere.
     """
-    blob = subprocess.run(
-        # `git` by name and without a shell, the same call shape and the same
-        # exemption `tests/support/git_remote.py` states once for the helper:
-        # resolving an absolute path would pin the suite to the machine that
-        # wrote it, and the product's own argv looks exactly like this.
-        ["git", "hash-object", "-w", "--stdin"],  # noqa: S607
-        cwd=source,
-        input=target.encode("utf-8"),
-        capture_output=True,
-        check=True,
-    )
-    entry = f"120000,{blob.stdout.decode().strip()},{at}"
+    blob = must(git("hash-object", "-w", "--stdin", cwd=source, stdin=target))
+    entry = f"120000,{blob.stdout.strip()},{at}"
     must(git("update-index", "--add", "--cacheinfo", entry, cwd=source))
 
 
-def equipped_clone(tmp_path: Path) -> Path:
-    """A repository carrying a link inside a skill, cloned with links turned off.
-
-    The clone is what a Windows machine gets by default: git auto-detects the
-    capability and writes `core.symlinks=false` into the new repository, and the
-    committed link materialises as an ordinary file carrying its own target.
-    """
+def equipped_source(tmp_path: Path) -> Path:
+    """A repository carrying a link inside an equipped skill, committed as mode `120000`."""
     source = tmp_path / "source"
     source.mkdir()
     must(git("init", "-b", "main", cwd=source))
@@ -95,15 +81,46 @@ def equipped_clone(tmp_path: Path) -> Path:
     must(git("add", "-A", cwd=source))
     commit_a_symlink(source, f"{CLAUDE}/alpha/{LINKED}", "SKILL.md")
     must(git("commit", "-m", "equipped", cwd=source))
+    return source
 
+
+def cloned_with_links_off(tmp_path: Path, source: Path, *, config: Path | None = None) -> Path:
+    """Clone `source` the way a machine without working links does.
+
+    Two spellings of the same broken checkout, and they are not interchangeable
+    — `config` is what chooses between them. Without it, `core.symlinks=false`
+    is passed to the clone and git records it in the **new repository**, which
+    is the auto-detection the ticket names. With it, the value lives in the
+    user's own config file instead and git records **nothing** in the clone:
+    measured, the checkout comes out identically broken and identically clean,
+    which is why the product reads both files.
+    """
     clone = tmp_path / "clone"
-    must(git("clone", "-c", "core.symlinks=false", str(source), str(clone), cwd=tmp_path))
+    detected = () if config is not None else ("-c", "core.symlinks=false")
+    environment = {} if config is None else {"GIT_CONFIG_GLOBAL": str(config)}
+    must(git("clone", *detected, str(source), str(clone), cwd=tmp_path, env=environment))
     return clone
 
 
-def dirty(repository: Path) -> str:
-    """What `git status` has to say. Empty is the whole premise of the finding."""
-    return must(git("status", "--porcelain", cwd=repository)).stdout.strip()
+def machine_config_disabling_links(home: Path) -> Path:
+    """`~/.gitconfig` with links turned off — the common Windows workaround."""
+    config = home / ".gitconfig"
+    config.write_text("[core]\n\tsymlinks = false\n", encoding="utf-8", newline="\n")
+    return config
+
+
+def dirty(repository: Path, config: Path | None = None) -> str:
+    """What `git status` has to say. Empty is the whole premise of the finding.
+
+    `config` has to be the same one the developer has, and finding that out cost
+    a red test: with links *enabled*, `git status` reports the text file as a
+    typechange (`T`) against the recorded mode `120000` and the premise
+    evaporates. It is only clean for the person whose configuration turned links
+    off — which is precisely the person the finding is for, and precisely why
+    the git lies to them and to nobody else.
+    """
+    environment = {} if config is None else {"GIT_CONFIG_GLOBAL": str(config)}
+    return must(git("status", "--porcelain", cwd=repository, env=environment)).stdout.strip()
 
 
 # --------------------------------------------------------------------------- #
@@ -218,7 +235,7 @@ def test_a_link_that_became_a_text_file_is_found_with_a_clean_git_status(
     """
     # given
     workspace(tmp_path, monkeypatch)
-    clone = equipped_clone(tmp_path)
+    clone = cloned_with_links_off(tmp_path, equipped_source(tmp_path))
     monkeypatch.chdir(clone)
 
     code, output = run(capsys, "doctor")
@@ -229,6 +246,76 @@ def test_a_link_that_became_a_text_file_is_found_with_a_clean_git_status(
     assert code == 3
     assert "link became a text file" in said
     assert LINKED in said
+
+
+def test_links_turned_off_by_the_machine_and_not_by_the_clone_are_found_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """Measured, and it reverses the obvious reading of where the value lives.
+
+    `core.symlinks=false` in `~/.gitconfig` — the common Windows workaround —
+    produces the **identical** broken checkout and the identical clean status,
+    and git writes **nothing** into the clone: asserted here, because it is the
+    fact that makes reading only the repository's own config a miss.
+    """
+    # given
+    _, home = workspace(tmp_path, monkeypatch)
+    config = machine_config_disabling_links(home)
+    clone = cloned_with_links_off(tmp_path, equipped_source(tmp_path), config=config)
+    monkeypatch.chdir(clone)
+
+    code, output = run(capsys, "doctor")
+
+    assert "symlinks" not in (clone / ".git" / "config").read_text(encoding="utf-8")
+    assert dirty(clone, config) == ""
+    assert code == 3
+    assert "link became a text file" in joined(output)
+
+
+def test_a_repository_that_re_enables_links_overrides_the_machine(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """Git's own precedence: the repository's config is read last and therefore wins.
+
+    Absent has to be distinguishable from present-and-true, or a clone that
+    turns links back on could not undo a machine that turned them off — and the
+    checkout it produces is not broken at all.
+    """
+    # given
+    _, home = workspace(tmp_path, monkeypatch)
+    config = machine_config_disabling_links(home)
+    clone = cloned_with_links_off(tmp_path, equipped_source(tmp_path), config=config)
+    must(git("config", "core.symlinks", "true", cwd=clone))
+    monkeypatch.chdir(clone)
+
+    code, output = run(capsys, "doctor")
+
+    assert code == 0
+    assert "link became a text file" not in joined(output)
+
+
+def test_the_finding_survives_a_git_worktree_where_the_config_is_elsewhere(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """Measured: a linked worktree's gitdir carries `commondir` and **no config**.
+
+    A reader that stopped at the `gitdir:` pointer would look for a file that
+    does not exist and answer *"links are fine"* in every worktree — which is
+    the layout `docs/agents/workflow.md` mandates for every branch of this
+    repository, so the blind spot would be the one its own developers live in.
+    """
+    # given
+    workspace(tmp_path, monkeypatch)
+    clone = cloned_with_links_off(tmp_path, equipped_source(tmp_path))
+    linked = tmp_path / "linked-worktree"
+    must(git("worktree", "add", str(linked), "-b", "probe", cwd=clone))
+    assert (linked / ".git").is_file()
+    monkeypatch.chdir(linked)
+
+    code, output = run(capsys, "doctor")
+
+    assert code == 3
+    assert "link became a text file" in joined(output)
 
 
 def test_the_same_text_file_is_not_a_finding_where_links_are_enabled(
@@ -280,6 +367,11 @@ def test_a_link_in_global_scope_that_does_not_resolve_is_reported(
         "--global",
         "--yes",
     )
+    # The fixture is asserted before it is broken: the ladder degrades to a real
+    # copy where a link cannot be created, and `SKILL.md` being there is equally
+    # true of that path — `rmtree` would then leave a healthy copy and the test
+    # would fail on the product instead of on its own premise.
+    assert points_elsewhere(home / CURSOR / "alpha")
     assert (home / CURSOR / "alpha" / "SKILL.md").is_file()
     shutil.rmtree(home / CLAUDE / "alpha")
 

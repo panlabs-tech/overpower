@@ -22,6 +22,7 @@ from overpower.runtimes import (
     Evidence,
     Runtime,
     Scope,
+    places_of,
     resolve_global_dir,
     resolve_project_dir,
     runtimes_in,
@@ -289,3 +290,44 @@ def test_only_openclaw_consults_the_filesystem() -> None:
 def test_global_path_is_absolute_when_it_exists(row: Runtime) -> None:
     resolved = resolve_global_dir(row, environment())
     assert resolved is None or resolved.is_absolute()
+
+
+# --- grouping runtimes by the place they read ------------------------------
+
+
+def test_places_of_collapses_runtimes_that_read_the_same_directory() -> None:
+    """19 of the 76 rows read `.agents/skills`, and collapsing them is the point.
+
+    Both callers depend on it for different reasons — the plan is honest about
+    what a selection costs (ADR 0008: announcing *"Cursor"* would promise one
+    target and deliver twenty), and the `doctor` walks each place once instead
+    of nineteen times.
+    """
+    universal = [row for row in RUNTIMES if row.project_dir.relative == UNIVERSAL_PROJECT_DIR]
+
+    places = places_of(RUNTIMES, Scope.PROJECT, REPO, environment())
+
+    assert places[resolve_project_dir(universal[0], REPO)] == tuple(row.key for row in universal)
+
+
+def test_places_of_answers_in_the_order_of_the_table() -> None:
+    """The order is the whole contract: it is what the screen and the writer share.
+
+    In global scope it decides more than presentation — the first place is the
+    canonical copy of the ladder (#40), and every other one links to it.
+    """
+    chosen = tuple(RUNTIMES_BY_KEY[key] for key in ("claude-code", "cursor", "codex"))
+
+    ordered = places_of(chosen, Scope.PROJECT, REPO, environment())
+
+    expected = [resolve_project_dir(row, REPO) for row in RUNTIMES if row in chosen]
+    assert list(ordered) == list(dict.fromkeys(expected))
+
+
+def test_places_of_in_global_scope_hangs_off_the_environment_and_not_the_root() -> None:
+    """A global place is anchored by the table, so the root it is handed is inert."""
+    chosen = (RUNTIMES_BY_KEY["claude-code"],)
+
+    places = places_of(chosen, Scope.GLOBAL, REPO, environment())
+
+    assert list(places) == [HOME / ".claude" / "skills"]

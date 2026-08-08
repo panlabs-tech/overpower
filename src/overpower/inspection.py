@@ -33,6 +33,24 @@ table, whole, in both scopes. That is also why `doctor` takes no `--global` — 
 ticket asks for one output, and a flag that switched between the halves would
 make it two.
 
+Two consequences of that are **accepted costs and not oversights**, and they are
+written here so nobody has to re-derive them:
+
+- **anything sitting in a runtime path is equipment.** Not every project path in
+  the table is dotted — `skills`, `data/skills` and `agent/skills` are real rows
+  — so a repository whose *own* layout occupies one gets its directories read as
+  landed writes, and two same-named directories in two runtime paths are
+  reported as divergent. That reading is correct on the table's own terms: a
+  runtime really does read there. Narrowing it would mean guessing which
+  directories the overpower wrote, and `overpower.writing` refuses a provenance
+  heuristic for the same reason in the other direction;
+- **`doctor` reads the repository where `install` writes the working directory.**
+  Deliberate, and the axis is what each one does: `install` equips the place you
+  are standing in, while a diagnosis run from `packages/api` that answered
+  *"nothing installed"* about a fully equipped repository would be the silent
+  false negative this command exists to prevent. `git status` reports the whole
+  repository from anywhere for the same reason.
+
 **The answer is about writes, not about artifacts.** Every record here carries a
 `Destination` — the same two-form datum a `Plan` spells, folder or document plus
 a key — and an artifact maps to a *tuple* of places rather than to one. That is
@@ -69,6 +87,26 @@ GIT_CONFIG = "config"
 
 GIT_DIR_POINTER = "gitdir:"
 """How a worktree and a submodule spell `.git` as a file instead of a directory."""
+
+GIT_COMMON_DIR = "commondir"
+"""How a **linked worktree** says where the shared configuration actually lives.
+
+Measured: `git worktree add` writes a `.git` *file* pointing at
+`<main>/.git/worktrees/<name>`, and that directory carries `HEAD`, `index`,
+`refs` and `commondir` — and **no `config` at all**. A reader that stopped at
+the pointer would look for a file that does not exist and answer *"links are
+fine"* in every worktree, which is the layout this repository's own workflow
+mandates for every branch.
+"""
+
+MACHINE_CONFIG = ".gitconfig"
+"""`~/.gitconfig`, which git reads last of the two user-level files and so wins."""
+
+XDG_CONFIG = "XDG_CONFIG_HOME"
+"""Anchor of `<xdg>/git/config`, the other user-level file, read *before* `~/.gitconfig`."""
+
+GIT_CONFIG_GLOBAL = "GIT_CONFIG_GLOBAL"
+"""Git's own override of both user-level files. Honoured so a hermetic caller stays hermetic."""
 
 LINK_TARGET_LIMIT = 255
 """Longest text a file may carry and still be read as a link that became one.
@@ -192,11 +230,15 @@ def diagnose(terminal: Terminal, root: Path | None, environment: Environment) ->
     """
     landed = (
         *(() if root is None else _landed_in(Scope.PROJECT, root, environment)),
+        # `environment.home` is passed as the root and never read: a global path
+        # hangs off an anchor of the table, which `Environment` resolves. The
+        # parameter stays required because a function whose shape changes with
+        # its own input is a harder one to call correctly.
         *_landed_in(Scope.GLOBAL, environment.home, environment),
     )
     findings: tuple[Finding, ...] = (
         *_dangling(landed),
-        *(() if root is None else _links_turned_text(root, landed)),
+        *(() if root is None else _links_turned_text(root, landed, environment)),
         *_divergences(landed),
     )
     return Diagnosis(
@@ -255,7 +297,7 @@ def _fingerprint(place: Path) -> str | None:
         return None
     digest = hashlib.sha256()
     try:
-        for file in sorted(path for path in place.rglob("*") if path.is_file()):
+        for file in _files_under(place):
             digest.update(file.relative_to(place).as_posix().encode("utf-8"))
             digest.update(b"\x00")
             digest.update(file.read_bytes())
@@ -263,6 +305,16 @@ def _fingerprint(place: Path) -> str | None:
     except OSError:  # pragma: no cover — a file that vanishes mid-walk
         return None
     return digest.hexdigest()
+
+
+def _files_under(place: Path) -> list[Path]:
+    """Every file below `place`, in one order, on the nine cells.
+
+    Sorted because `rglob` answers in the filesystem's order, and both callers
+    need one of ours: a digest folds the order into its own value, and a finding
+    that changed position between two runs would read as a different finding.
+    """
+    return sorted(path for path in place.rglob("*") if path.is_file())
 
 
 def _dangling(landed: Iterable[Landed]) -> Iterator[DanglingLink]:
@@ -286,15 +338,17 @@ def _target_of(path: Path) -> str | None:
         return None
 
 
-def _links_turned_text(root: Path, landed: Iterable[Landed]) -> Iterator[LinkTurnedText]:
-    """Files that are a link's target spelled as content, in a clone with links off.
+def _links_turned_text(
+    root: Path, landed: Iterable[Landed], environment: Environment
+) -> Iterator[LinkTurnedText]:
+    """Files that are a link's target spelled as content, where links are turned off.
 
-    Gated on the clone's own config, and the gate is what makes the check precise
+    Gated on the git configuration, and the gate is what makes the check precise
     instead of a guess: with links enabled, a one-line file naming a sibling is a
-    one-line file naming a sibling. With `core.symlinks=false` recorded in the
-    clone, it is the measured failure — and `git status` will not say so.
+    one-line file naming a sibling. With `core.symlinks=false` in force, it is
+    the measured failure — and `git status` will not say so.
     """
-    if not _symlinks_disabled(root):
+    if not _symlinks_disabled(root, environment):
         return
     for item in landed:
         if item.scope is not Scope.PROJECT:
@@ -307,7 +361,7 @@ def _texts_that_read_as_links(place: Path) -> Iterator[tuple[Path, str]]:
     """Every file under `place` whose whole content names an existing sibling."""
     if not place.is_dir():
         return
-    for file in sorted(path for path in place.rglob("*") if path.is_file()):
+    for file in _files_under(place):
         target = _link_target_text(file)
         if target is not None:
             yield file, target
@@ -336,39 +390,85 @@ def _link_target_text(file: Path) -> str | None:
     return text
 
 
-def _symlinks_disabled(root: Path) -> bool:
-    """Whether this clone records `core.symlinks=false` — read, never asked of git.
+def _symlinks_disabled(root: Path, environment: Environment) -> bool:
+    """Whether `core.symlinks` is off for this checkout — read, never asked of git.
 
-    A plain file read and not `git config --get`, for the reason axiom 1 draws
-    the transport-versus-installer line at: a question asked of a third-party
-    binary is a dependency on it being installed, and the answer is one line of
-    an INI file.
+    Plain file reads and not `git config --get`, for the reason axiom 1 draws the
+    transport-versus-installer line at: a question asked of a third-party binary
+    is a dependency on it being installed, and the answer is one line of an INI
+    file.
 
-    The **repository's own** config, and only it: git auto-detects the capability
-    at clone time and writes it there, which is the mechanism the finding is
-    about. A value inherited from the user's global config would say something
-    about the machine and nothing about this checkout.
+    **Two files, in git's own precedence order**, and the second one is here
+    because a measurement reversed the obvious reading. Git auto-detects the
+    capability and writes it into the clone, which is the mechanism the ticket
+    names — but measured against a real clone, a `core.symlinks=false` set in
+    `~/.gitconfig` produces the **identical** broken checkout, the identical
+    clean `git status`, and git does **not** copy it into the new repository. So
+    a reader that looked only at the clone would miss the spelling that is the
+    common Windows workaround, which is the very machine this finding is for.
+
+    The system file (`/etc/gitconfig`) is deliberately not read: it is
+    administrator territory, the two files above are the two that were measured,
+    and a third read would be a guess dressed as thoroughness.
     """
-    config = _git_config(root)
-    if config is None:
-        return False
-    try:
-        text = config.read_text(encoding="utf-8", errors="replace")
-    except OSError:  # pragma: no cover — a `.git` that lists but does not read
-        return False
-    return _core_symlinks_false(text)
+    disabled = False
+    for config in _git_configs(root, environment):
+        declared = _declared_symlinks(config)
+        if declared is not None:
+            disabled = declared
+    return disabled
 
 
-def _git_config(root: Path) -> Path | None:
-    """The config file of the repository at `root`, following a `gitdir:` pointer.
+def _git_configs(root: Path, environment: Environment) -> Iterator[Path]:
+    """The config files that govern `root`, **lowest precedence first**.
+
+    The order is git's: the user-level files, then the repository's own, so a
+    clone that re-enables links overrides a machine that turned them off.
+    """
+    yield from _machine_configs(environment)
+    repository = _repository_config(root)
+    if repository is not None:
+        yield repository
+
+
+def _machine_configs(environment: Environment) -> Iterator[Path]:
+    """`$GIT_CONFIG_GLOBAL`, or the two user-level files git reads in its own order.
+
+    `GIT_CONFIG_GLOBAL` replaces both when set, which is exactly what git does
+    with it — and honouring it is what lets a caller that wants to be hermetic
+    (this suite) actually be hermetic instead of reading whoever ran it.
+    """
+    override = environment.variables.get(GIT_CONFIG_GLOBAL)
+    if override:
+        yield Path(override)
+        return
+    xdg = environment.variables.get(XDG_CONFIG)
+    base = Path(xdg) if xdg and Path(xdg).is_absolute() else environment.home / ".config"
+    # `<xdg>/git/config` first and `~/.gitconfig` second, because that is the
+    # order git reads them in and therefore which of the two wins.
+    yield base / "git" / GIT_CONFIG
+    yield environment.home / MACHINE_CONFIG
+
+
+def _repository_config(root: Path) -> Path | None:
+    """The config of the repository at `root`, through both indirections git uses.
 
     `.git` is a directory in an ordinary clone and a **file** in a worktree or a
-    submodule — the same two shapes `overpower.scope` already accepts when it
-    decides whether there is a repository at all.
+    submodule — the same two shapes `overpower.scope` accepts when it decides
+    whether there is a repository at all. The two files do not point at the same
+    kind of place: a submodule's gitdir carries its own `config`, while a linked
+    worktree's carries `commondir` and no config, and following that is what
+    keeps the finding alive in the layout this repository develops in.
     """
     git = root / GIT_DIR
-    if git.is_dir():
-        return git / GIT_CONFIG
+    directory = git if git.is_dir() else _pointed_at(root, git)
+    if directory is None:
+        return None
+    return _shared_git_dir(directory) / GIT_CONFIG
+
+
+def _pointed_at(root: Path, git: Path) -> Path | None:
+    """The directory a `.git` *file* names, or `None` when it is not one."""
     if not git.is_file():
         return None
     try:
@@ -378,10 +478,36 @@ def _git_config(root: Path) -> Path | None:
     if not pointer.startswith(GIT_DIR_POINTER):
         return None
     named = Path(pointer[len(GIT_DIR_POINTER) :].strip())
-    return (named if named.is_absolute() else root / named) / GIT_CONFIG
+    return named if named.is_absolute() else root / named
 
 
-def _core_symlinks_false(text: str) -> bool:
+def _shared_git_dir(directory: Path) -> Path:
+    """`commondir` followed when there is one — a linked worktree — else itself."""
+    common = directory / GIT_COMMON_DIR
+    try:
+        named = Path(common.read_text(encoding="utf-8").strip()) if common.is_file() else None
+    except (OSError, UnicodeDecodeError):  # pragma: no cover — a `commondir` that does not read
+        return directory
+    if named is None:
+        return directory
+    return named if named.is_absolute() else directory / named
+
+
+def _declared_symlinks(config: Path) -> bool | None:
+    """Whether `config` turns `core.symlinks` off, on, or does not mention it.
+
+    Three answers and not two: *absent* has to be told from *present and true*,
+    or a repository that re-enables links could not override a machine that
+    turned them off.
+    """
+    try:
+        text = config.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return _core_symlinks_false(text)
+
+
+def _core_symlinks_false(text: str) -> bool | None:
     """`core.symlinks` out of a git config, hand-parsed, last occurrence winning.
 
     Hand-parsed for the reason `overpower.discovery` hand-parses one frontmatter
@@ -390,7 +516,7 @@ def _core_symlinks_false(text: str) -> bool:
     does not justify getting the difference wrong.
     """
     section = ""
-    disabled = False
+    disabled: bool | None = None
     for raw in text.splitlines():
         line = raw.strip()
         if line.startswith("["):

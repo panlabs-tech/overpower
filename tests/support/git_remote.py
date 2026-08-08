@@ -72,18 +72,35 @@ def git(
     *args: str,
     cwd: Path,
     env: Mapping[str, str] | None = None,
+    stdin: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    """Run `git` under a deterministic identity and the C locale.
+    """Run `git` under a deterministic identity, the C locale and no user config.
 
     The process environment is inherited and then overridden, never replaced: a
     child with no `PATH` cannot find `git` at all on Windows, and on POSIX it
     falls back to `os.defpath` — so a replaced environment is a helper that
     works on some cells of the matrix and not others.
+
+    What is scrubbed instead is git's own configuration. `GIT_CONFIG_GLOBAL`
+    points at a path that will not exist and `GIT_CONFIG_NOSYSTEM` turns the
+    system file off, so the developer's `~/.gitconfig` cannot decide what a
+    fixture ends up looking like. That is not hygiene in the abstract:
+    `core.symlinks=false` set there produces a *differently* broken checkout,
+    measured, and it is exactly the value one test builds on purpose — a caller
+    that wants it passes it back through `env`.
+
+    `stdin` is what a plumbing call needs: `git hash-object --stdin` takes the
+    blob's bytes from the pipe and writes no trailing newline of its own.
     """
+    scrubbed = {
+        "GIT_CONFIG_GLOBAL": str(cwd / ".absent-gitconfig"),
+        "GIT_CONFIG_NOSYSTEM": "1",
+    }
     return subprocess.run(  # noqa: S603 - fixed argv, no shell; see _GIT above
         [_GIT, *args],
         cwd=cwd,
-        env={**os.environ, **_DETERMINISTIC, **(env or {})},
+        env={**os.environ, **_DETERMINISTIC, **scrubbed, **(env or {})},
+        input=stdin,
         capture_output=True,
         text=True,
         check=False,

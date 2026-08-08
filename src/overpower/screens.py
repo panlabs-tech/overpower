@@ -280,6 +280,37 @@ class _DoctorScreen:
         )
 
 
+@dataclass(frozen=True)
+class _Roots:
+    """The two places a `doctor` path can be shortened against, and how.
+
+    A type rather than two parameters travelling together through three call
+    levels: the screen reports both scopes in one output, so *"which root does
+    this path belong to"* is one question asked at every path, and the answer
+    reads better next to the data than passed alongside it.
+    """
+
+    repository: Path | None
+    home: Path
+
+    def shorten(self, path: Path) -> str:
+        """The repository first, then the home, then not at all.
+
+        `/` separators on every platform, deliberately, as on the plan: the
+        runtime table spells its paths that way, `git status` prints them that
+        way on Windows too, and a screen whose separator changes with the
+        platform cannot be recorded once for the nine cells.
+
+        A place under neither root is shown whole, because it is not a detail
+        the reader can reconstruct — that is the second write of a graft.
+        """
+        if self.repository is not None and path.is_relative_to(self.repository):
+            return path.relative_to(self.repository).as_posix()
+        if path.is_relative_to(self.home):
+            return f"~/{path.relative_to(self.home).as_posix()}"
+        return path.as_posix()
+
+
 def _terminal_block(terminal: Terminal) -> Panel:
     """The four facts a strange-looking screen is explained by."""
     facts = Table.grid(padding=(0, 2))
@@ -316,27 +347,28 @@ def _integrity_block(diagnosis: Diagnosis, arrow: str) -> Panel:
         f" · {len(diagnosis.landed)} {_plural('place', len(diagnosis.landed))}",
         style="op.dim",
     )
+    roots = _Roots(repository=diagnosis.root, home=diagnosis.home)
     found: list[RenderableType] = [
-        _finding(finding, diagnosis, arrow) for finding in diagnosis.findings
+        _finding(finding, roots, arrow) for finding in diagnosis.findings
     ]
     if not found:
         found = [Text("no findings", style="op.ok")]
     return _block("integrity", "what is installed", [counted, *found])
 
 
-def _finding(finding: Finding, diagnosis: Diagnosis, arrow: str) -> RenderableType:
+def _finding(finding: Finding, roots: _Roots, arrow: str) -> RenderableType:
     """One thing that is wrong: what class it is, and every path that carries it."""
     match finding:
         case DanglingLink(destination, points_at):
-            place = _located(destination, diagnosis)
+            place = _located(destination, roots)
             pointed = "" if points_at is None else f"  {arrow} {points_at}"
             return _flagged("dangling link", [f"{place}{pointed}"])
         case LinkTurnedText(destination, inside, points_at):
-            place = _located(destination, diagnosis)
-            relative = _inside(inside, destination)
+            place = _located(destination, roots)
+            relative = _under(inside, destination.path)
             return _flagged("link became a text file", [f"{place}  {relative} {arrow} {points_at}"])
         case Divergence(name, _, destinations):
-            places = [_located(destination, diagnosis) for destination in destinations]
+            places = [_located(destination, roots) for destination in destinations]
             return _flagged(f"copies of `{name}` differ", places)
         case _ as unreachable:
             assert_never(unreachable)
@@ -358,15 +390,16 @@ def _flagged(headline: str, places: Sequence[str]) -> RenderableType:
     return Group(Text(headline, style="op.warn"), Padding(stacked, (0, 0, 0, 2)))
 
 
-def _located(destination: Destination, diagnosis: Diagnosis) -> str:
+def _located(destination: Destination, roots: _Roots) -> str:
     """Where a write is, said the shortest way that still names it unambiguously.
 
-    Relative to the repository when it is in one, `~/…` when it is on the
-    machine, absolute when it is neither — because `doctor` reports both scopes
-    in one output and the two roots have to be told apart at a glance. A place
-    outside both is shown whole, which is the second write of a graft.
+    The two forms of a destination read differently on purpose: a folder earns a
+    trailing separator, and a document plus a key inside it is spelled with the
+    key attached. v0.1.0 produces only the first, and the second is here because
+    a report that could only spell a folder would be one v0.2 has to replace
+    rather than extend.
     """
-    shown = _relative_to_a_root(destination.path, diagnosis)
+    shown = roots.shorten(destination.path)
     match destination:
         case DirectoryTree():
             return f"{shown}/"
@@ -376,20 +409,10 @@ def _located(destination: Destination, diagnosis: Diagnosis) -> str:
             assert_never(unreachable)
 
 
-def _relative_to_a_root(path: Path, diagnosis: Diagnosis) -> str:
-    """The path against the repository first, then the home, then not at all."""
-    root = diagnosis.root
-    if root is not None and path.is_relative_to(root):
-        return path.relative_to(root).as_posix()
-    if path.is_relative_to(diagnosis.home):
-        return f"~/{path.relative_to(diagnosis.home).as_posix()}"
-    return path.as_posix()
-
-
-def _inside(path: Path, destination: Destination) -> str:
+def _under(path: Path, base: Path) -> str:
     """A file named against the write it was found in, so the line stays readable."""
-    if path.is_relative_to(destination.path):
-        return path.relative_to(destination.path).as_posix()
+    if path.is_relative_to(base):
+        return path.relative_to(base).as_posix()
     return path.as_posix()  # pragma: no cover — the walk starts at the destination
 
 

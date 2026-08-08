@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING
 from rich.console import Console
 
 from overpower import cli
+from overpower.inspection import GIT_CONFIG_GLOBAL
+from overpower.runtimes import RUNTIMES, EnvironmentAnchor
 from overpower.screens import THEME
 
 if TYPE_CHECKING:
@@ -44,22 +46,29 @@ set and nothing else. A runtime key carries no separator.
 """
 
 ANCHORS = (
-    "XDG_CONFIG_HOME",
-    "AUTOHAND_HOME",
-    "CLAUDE_CONFIG_DIR",
-    "CODEX_HOME",
-    "GROK_HOME",
-    "HERMES_HOME",
-    "VIBE_HOME",
+    GIT_CONFIG_GLOBAL,
+    *sorted(
+        {
+            runtime.global_dir.anchor.variable
+            for runtime in RUNTIMES
+            if runtime.global_dir is not None
+            and isinstance(runtime.global_dir.anchor, EnvironmentAnchor)
+        }
+    ),
 )
-"""Every variable a global path of the runtime table can hang off.
+"""Every variable that can move a path the product reads, out of the sandbox.
 
 Scrubbed alongside `HOME`, and for the same reason: a developer with
 `CLAUDE_CONFIG_DIR` exported would send a global install *out* of the sandbox,
 and a test that asserted against `tmp_path` would fail on their machine and
-nowhere else. `doctor` makes it sharper still — it walks **every** global
-destination of the table, so an unscrubbed anchor is the suite reading the
-developer's own equipment.
+nowhere else. `doctor` makes it sharper — it walks **every** global destination
+of the table, so an unscrubbed anchor is the suite reading the developer's own
+equipment — and `GIT_CONFIG_GLOBAL` joins them because `overpower.inspection`
+honours it when it looks for `core.symlinks`.
+
+**Derived from the table, never listed by hand.** The runtime table grows and
+never shrinks, so a hand-written list would go quietly stale on the next
+transcription and restore exactly the leak this exists to close.
 """
 
 

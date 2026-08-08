@@ -685,6 +685,21 @@ DIAGNOSIS_CASES = [
     for width in WIDTHS
 ]
 
+SNAPSHOT_CASES = [
+    pytest.param(name, case, width, id=f"{name}-{width}cols")
+    for name, case in (
+        ("doctor", recorded_diagnosis),
+        ("doctor-healthy", recorded_healthy_diagnosis),
+    )
+    for width in WIDTHS
+]
+"""The recorded screens, carrying their own file name.
+
+The name is a parameter and not something the test recovers by comparing the
+callable it was handed: a snapshot file is identity, so the id in the report and
+the file on disk have to come from one place.
+"""
+
 
 @pytest.mark.parametrize(("case", "width"), DIAGNOSIS_CASES)
 def test_no_rendered_line_of_the_doctor_screen_exceeds_the_terminal_width(
@@ -752,12 +767,10 @@ def test_the_doctor_screen_spells_a_destination_that_is_a_document_key() -> None
     assert ".mcp.json#context7" in joined
 
 
-@pytest.mark.parametrize(("case", "width"), DIAGNOSIS_CASES)
+@pytest.mark.parametrize(("name", "case", "width"), SNAPSHOT_CASES)
 def test_the_doctor_screen_matches_its_snapshot(
-    request: pytest.FixtureRequest, case: Callable[[], Diagnosis], width: int
+    request: pytest.FixtureRequest, name: str, case: Callable[[], Diagnosis], width: int
 ) -> None:
-    state = "doctor" if case is recorded_diagnosis else "doctor-healthy"
-
     rendered = render(doctor_screen(case()), width)
 
-    assert_matches_snapshot(request, f"{state}-{width}", rendered)
+    assert_matches_snapshot(request, f"{name}-{width}", rendered)

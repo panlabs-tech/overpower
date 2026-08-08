@@ -30,10 +30,10 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from overpower import cli
+from overpower import cli, writing
 from overpower.discovery import ArtifactType
 from overpower.planning import DocumentKey, Landing, Plan, Selection, Write, WriteMode
-from overpower.writing import UnsupportedWriteError, execute
+from overpower.writing import UnsupportedWriteError, execute, points_elsewhere
 from tests.support.project import (
     AGENTS,
     CLAUDE,
@@ -376,10 +376,15 @@ def test_a_destination_that_is_a_document_key_is_refused_by_name(tmp_path: Path)
 # --------------------------------------------------------------------------- #
 
 
-def test_the_global_ladder_lands_a_canonical_copy_and_a_relative_link(
+def test_the_global_ladder_lands_a_canonical_copy_and_a_link_pointing_at_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """`claude-code` precedes `cursor` in table order: it is the real copy."""
+    """`claude-code` precedes `cursor` in table order: it is the real copy.
+
+    `points_elsewhere` — the same predicate the removal trap uses — is what
+    makes the second half of this assertion true on every platform: a symlink
+    on POSIX, a junction on Windows, never `is_symlink()` alone.
+    """
     # given
     catalog_of(tmp_path, monkeypatch, "alpha")
     target(tmp_path, monkeypatch)
@@ -399,12 +404,15 @@ def test_the_global_ladder_lands_a_canonical_copy_and_a_relative_link(
     canonical = tmp_path / CLAUDE / "alpha"
     linked = tmp_path / ".cursor" / "skills" / "alpha"
     assert canonical.is_dir()
-    assert not canonical.is_symlink()
+    assert not points_elsewhere(canonical)
     assert (canonical / "SKILL.md").is_file()
-    assert linked.is_symlink()
+    assert points_elsewhere(linked)
     assert (linked / "SKILL.md").is_file()
-    # relative, so the link survives $HOME moving and the machine cloning
-    assert not linked.readlink().is_absolute()
+    if sys.platform != "win32":
+        # relative, so the link survives $HOME moving and the machine cloning
+        # — a junction's target is always absolute (#19), so this half of the
+        # property is POSIX only.
+        assert not linked.readlink().is_absolute()
 
 
 def test_force_detaches_an_existing_link_before_writing_the_new_one(
@@ -423,15 +431,15 @@ def test_force_detaches_an_existing_link_before_writing_the_new_one(
     selectors = ("install", "--skill", "alpha", "--runtime", "claude-code,cursor", "--global")
     run(capsys, *selectors, "--yes")
     linked = tmp_path / ".cursor" / "skills" / "alpha"
-    assert linked.is_symlink()
+    assert points_elsewhere(linked)
 
     code, _ = run(capsys, *selectors, "--force", "--yes")
 
     assert code == 0
     canonical = tmp_path / CLAUDE / "alpha"
     assert canonical.is_dir()
-    assert not canonical.is_symlink()
-    assert linked.is_symlink()
+    assert not points_elsewhere(canonical)
+    assert points_elsewhere(linked)
     assert (linked / "SKILL.md").is_file()
 
 
@@ -462,18 +470,23 @@ def test_the_three_way_identity_holds_in_global_scope_including_mode(
     assert list(dry_home.iterdir()) == []
     assert dry_code == real_code == 0
 
-    # what the screen called a link is a link on disk, for both artifacts
-    assert "link" in joined(dry_out)
-    assert "link" in joined(real_out)
+    # what the screen calls the non-canonical rung is what lands on disk:
+    # a link on POSIX, a junction on Windows — never a real copy either way.
+    rung = "junction" if sys.platform == "win32" else "link"
+    assert rung in joined(dry_out)
+    assert rung in joined(real_out)
     for name in ("alpha", "beta"):
         canonical = real_home / CLAUDE / name
         linked = real_home / ".cursor" / "skills" / name
         assert canonical.is_dir()
-        assert not canonical.is_symlink()
-        assert linked.is_symlink()
+        assert not points_elsewhere(canonical)
+        assert points_elsewhere(linked)
         assert (linked / "SKILL.md").is_file()
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="the link rung is POSIX only; Windows takes the junction rung"
+)
 def test_a_symlink_that_cannot_be_created_degrades_to_a_copy_with_a_warning(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -509,6 +522,41 @@ def test_a_symlink_that_cannot_be_created_degrades_to_a_copy_with_a_warning(
     assert "degraded to copy" in joined(output)
     landed = tmp_path / ".cursor" / "skills" / "alpha"
     assert not landed.is_symlink()
+    assert landed.is_dir()
+    assert (landed / "SKILL.md").is_file()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the junction rung is Windows only")
+def test_a_junction_that_cannot_be_created_degrades_to_a_copy_with_a_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The Windows twin of the POSIX symlink-fallback test above, same seam, same reasoning."""
+    # given
+    catalog_of(tmp_path, monkeypatch, "alpha")
+    target(tmp_path, monkeypatch)
+
+    def refuse(source: Path, destination: Path) -> None:
+        del source, destination
+        message = "junction creation blocked"
+        raise OSError(message)
+
+    monkeypatch.setattr(writing, "_create_junction", refuse)
+
+    code, output = run(
+        capsys,
+        "install",
+        "--skill",
+        "alpha",
+        "--runtime",
+        "claude-code,cursor",
+        "--global",
+        "--yes",
+    )
+
+    assert code == 0
+    assert "degraded to copy" in joined(output)
+    landed = tmp_path / ".cursor" / "skills" / "alpha"
+    assert not points_elsewhere(landed)
     assert landed.is_dir()
     assert (landed / "SKILL.md").is_file()
 

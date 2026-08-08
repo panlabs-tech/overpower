@@ -169,10 +169,26 @@ def runtime_choices(
     global scope never had a fixed canonical to lock either — which selection
     becomes canonical there is a function of what gets picked, not a fact
     knowable before the pick (`overpower.planning`).
+
+    **Membership is the path, and it has to be read off the path.** The heading
+    names `.agents/skills` and therefore claims its members land there, which is
+    true of the **19** rows whose project directory is that path — the number
+    `UNIVERSAL_PROJECT_DIR` records. `in_universal_list` is a different fact of
+    the upstream table and is `False` on exactly **two** rows, so grouping by it
+    put **74** runtimes under that heading, 57 of which read somewhere else
+    entirely: `claude-code` from `.claude/skills`, `droid` from
+    `.factory/skills`, `astrbot` from `data/skills`. A heading that names a path
+    57 of its members do not read is the *"screen that says one thing and the
+    result is another"* class ADR 0008 exists to refuse, arriving through the
+    screen instead of through the write.
     """
     candidates = runtimes_in(scope)
-    universal = [runtime for runtime in candidates if runtime.in_universal_list]
-    other = [runtime for runtime in candidates if not runtime.in_universal_list]
+    universal = [
+        runtime for runtime in candidates if runtime.project_dir.relative == UNIVERSAL_PROJECT_DIR
+    ]
+    other = [
+        runtime for runtime in candidates if runtime.project_dir.relative != UNIVERSAL_PROJECT_DIR
+    ]
     choices: list[questionary.Separator | questionary.Choice] = [
         questionary.Separator(f"-- Universal ({UNIVERSAL_PROJECT_DIR}) --"),
         *(_choice(runtime, detected) for runtime in universal),

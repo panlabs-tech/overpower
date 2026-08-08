@@ -217,8 +217,31 @@ def _listed(
 
 
 @app.command()
-def install(
+def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three selectors plus three
+    # mode flags land at six; splitting the signature would not shrink the surface it names.
     *,
+    ai_framework: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--ai-framework",
+            metavar="NAME",
+            # No short flag, and the reason is `--force`: `-f` is spoken for by
+            # the mode flag this command will grow, and a selector that means
+            # `--force` on one line and `--ai-framework` on another is worse than
+            # typing it. Same call as `list`'s.
+            help="AI Frameworks to install, whole. Comma-separated, repeated, or both.",
+        ),
+    ] = None,
+    bundle: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--bundle",
+            "-b",
+            metavar="NAME",
+            help="Bundles to expand into the pool artifacts they name. "
+            "Comma-separated, repeated, or both.",
+        ),
+    ] = None,
     skill: Annotated[
         list[str] | None,
         typer.Option(
@@ -248,6 +271,8 @@ def install(
 ) -> None:
     """Install curated equipment into the current repository."""
     request = Request(
+        ai_frameworks=_accumulated(ai_framework),
+        bundles=_accumulated(bundle),
         skills=_accumulated(skill),
         runtimes=_accumulated(runtime),
         scope=Scope.PROJECT,

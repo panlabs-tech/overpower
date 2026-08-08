@@ -6,12 +6,22 @@ it is a testing one: a writer that recomputed a path could diverge from the
 screen *by construction*, and no test written afterwards would close that.
 
 **`Request`** is what was asked for: the artifacts by type, the scope, the
-runtimes and the mode flags. v0.1.0's first selector is `--skill`, so `skills` is
-the one artifact tuple here; `--ai-framework` and `--bundle` join it as sibling
-tuples (https://github.com/panlabs-tech/overpower/issues/39) and the wizard
-produces **the same type** from keystrokes
+runtimes and the mode flags. `skills`, `ai_frameworks` and `bundles` are sibling
+tuples — the three units are chosen independently — and the wizard produces
+**the same type** from keystrokes
 (https://github.com/panlabs-tech/overpower/issues/41), so the selection logic is
 tested over values and never over keys.
+
+**A line may mix all three**, and the plan they produce has a fixed, documented
+order — framework, then bundle, then individual artifact
+(https://github.com/panlabs-tech/overpower/issues/39). That is also the order a
+collided destination resolves in: an intra-command collision is not *detected* —
+`install --ai-framework matt-pocock --skill <x>` may write the same destination
+twice, once from each selector — but the order means the individual artifact,
+the most specific unit, is always the last write and therefore the content that
+survives. Testability is why the order is fixed rather than left to the parser:
+*"overwrites somehow"* has no assertion, and *"the individual artifact's content
+is what's on disk"* does.
 
 **`Plan`** is an *ordered* sequence of writes. Each write carries origin,
 destination and mode. It is what the plan screen renders, what `--dry-run`
@@ -46,7 +56,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
     from pathlib import Path
 
-    from overpower.discovery import Artifact, ArtifactType, Catalog
+    from overpower.discovery import Artifact, ArtifactType, Bundle, Catalog, Framework
     from overpower.runtimes import Runtime
 
 
@@ -179,8 +189,13 @@ class Request:
     Produced two ways, and it is the same type both times: from the flags, and
     from the wizard. That is what keeps the selection logic testable over values
     (`docs/agents/testing.md`, §7).
+
+    `ai_frameworks`, `bundles` and `skills` are independent, and a line may name
+    any combination of the three (https://github.com/panlabs-tech/overpower/issues/39).
     """
 
+    ai_frameworks: tuple[str, ...] = ()
+    bundles: tuple[str, ...] = ()
     skills: tuple[str, ...] = ()
     runtimes: tuple[str, ...] = ()
     scope: Scope = Scope.PROJECT
@@ -221,7 +236,7 @@ class NoRuntimeSelectedError(BadInvocationError):
 
 
 class NothingSelectedError(BadInvocationError):
-    """Nothing was asked for.
+    """Nothing was asked for, on any of the three independent selectors.
 
     The command line is the manifest, so an empty one is a typo and not a
     request — answering it with an empty plan and exit 0 would be the *"success
@@ -233,7 +248,9 @@ class NothingSelectedError(BadInvocationError):
 
     def __init__(self) -> None:
         """Say that nothing was named, and what naming something looks like."""
-        super().__init__("nothing to install: name at least one --skill")
+        super().__init__(
+            "nothing to install: name at least one --skill, --ai-framework or --bundle"
+        )
 
 
 class UnknownSkillError(BadInvocationError):
@@ -266,31 +283,67 @@ def plan_for(request: Request, catalog: Catalog, root: Path) -> Plan:
 
     *What* before *where*, so a line missing both selectors is answered about
     the one the reader typed first.
+
+    Selections are built framework, then bundle, then individual artifact — the
+    fixed collision order (module docstring, https://github.com/panlabs-tech/overpower/issues/39)
+    — and that order is what the writer executes, since `Plan.writes` flattens
+    `selections` in place.
     """
-    artifacts = _selected_skills(request.skills, catalog)
+    if not (request.ai_frameworks or request.bundles or request.skills):
+        raise NothingSelectedError
+    frameworks = _selected_frameworks(request.ai_frameworks, catalog)
+    bundles = _selected_bundles(request.bundles, catalog)
+    skills = _selected_skills(request.skills, catalog)
     landings = _landings(_selected_runtimes(request.runtimes, request.scope), request.scope, root)
     return Plan(
         root=root,
-        selections=tuple(_selection(artifact, landings) for artifact in artifacts),
+        selections=(
+            *(_framework_selection(framework, landings) for framework in frameworks),
+            *(_bundle_selection(bundle, landings) for bundle in bundles),
+            *(_skill_selection(artifact, landings) for artifact in skills),
+        ),
     )
 
 
-def _selection(artifact: Artifact, places: Mapping[Path, tuple[str, ...]]) -> Selection:
-    """One artifact, landing in every selected place, as a real copy in each."""
+def _framework_selection(framework: Framework, places: Mapping[Path, tuple[str, ...]]) -> Selection:
+    """The whole framework — rule 1 — every artifact it carries, in every selected place."""
+    return _grouped_selection(framework.name, framework.artifacts, places)
+
+
+def _bundle_selection(bundle: Bundle, places: Mapping[Path, tuple[str, ...]]) -> Selection:
+    """Exactly what the bundle's manifest names (ADR 0002), in every selected place."""
+    return _grouped_selection(bundle.name, bundle.artifacts, places)
+
+
+def _skill_selection(artifact: Artifact, places: Mapping[Path, tuple[str, ...]]) -> Selection:
+    """One pool artifact, landing in every selected place, as a real copy in each."""
+    return _grouped_selection(artifact.name, (artifact,), places)
+
+
+def _grouped_selection(
+    name: str, artifacts: Sequence[Artifact], places: Mapping[Path, tuple[str, ...]]
+) -> Selection:
+    """One thing that was asked for, every artifact it carries, everywhere it lands.
+
+    The shape serves a pool skill (one artifact), a bundle (the artifacts its
+    manifest names) and a framework (every artifact it carries) alike: the unit
+    differs, the landing arithmetic does not.
+    """
     return Selection(
-        name=artifact.name,
-        artifacts=(artifact.type,),
+        name=name,
+        artifacts=tuple(artifact.type for artifact in artifacts),
         landings=tuple(
             Landing(
                 place=place,
                 readers=readers,
-                writes=(
+                writes=tuple(
                     Write(
                         source=artifact.path,
                         destination=DirectoryTree(place / artifact.name),
                         mode=WriteMode.COPY,
                         files=artifact.files,
-                    ),
+                    )
+                    for artifact in artifacts
                 ),
             )
             for place, readers in places.items()
@@ -324,10 +377,10 @@ def _selected_skills(names: Sequence[str], catalog: Catalog) -> tuple[Artifact, 
 
     The command is the contract (rule 7): `--skill wayfinder` writes `wayfinder`
     and nothing else, even when its text tells the agent to invoke four others.
-    Nothing is declared, validated, warned about or dragged along.
+    Nothing is declared, validated, warned about or dragged along. A framework's
+    inner artifact is not in this pool (rule 1: no partial framework install), so
+    naming one here is the same miss as naming any other unknown skill.
     """
-    if not names:
-        raise NothingSelectedError
     pool = {artifact.name: artifact for artifact in catalog.pool}
     chosen: dict[str, Artifact] = {}
     for name in names:
@@ -335,6 +388,26 @@ def _selected_skills(names: Sequence[str], catalog: Catalog) -> tuple[Artifact, 
         if artifact is None:
             raise UnknownSkillError(name, pool)
         chosen[name] = artifact
+    return tuple(chosen.values())
+
+
+def _selected_frameworks(names: Sequence[str], catalog: Catalog) -> tuple[Framework, ...]:
+    """The AI Frameworks named, deduplicated, in the order they were typed.
+
+    Lookup goes through `Catalog.framework`, the same closed-list error `list`
+    already answers with — one place names what the catalog does not have.
+    """
+    chosen: dict[str, Framework] = {}
+    for name in names:
+        chosen[name] = catalog.framework(name)
+    return tuple(chosen.values())
+
+
+def _selected_bundles(names: Sequence[str], catalog: Catalog) -> tuple[Bundle, ...]:
+    """The bundles named, deduplicated, in the order they were typed."""
+    chosen: dict[str, Bundle] = {}
+    for name in names:
+        chosen[name] = catalog.bundle(name)
     return tuple(chosen.values())
 
 

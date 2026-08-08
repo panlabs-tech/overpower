@@ -83,6 +83,87 @@ def test_the_plan_the_screen_and_the_disk_name_the_same_paths(
     assert dry_code == real_code == 0
 
 
+def test_the_three_way_identity_holds_with_all_three_selectors_mixed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """#39: framework, bundle and skill on one line do not break the identity.
+
+    Three distinct names — one per selector, none shared with a bundle — so this
+    proves the identity and not the fixed collision order, which has its own
+    test right below.
+    """
+    # given
+    catalog_of(
+        tmp_path,
+        monkeypatch,
+        "alpha",
+        "beta",
+        frameworks={"matt-pocock": ("gamma",)},
+        bundles={"api-python": ("beta",)},
+    )
+    dry_root = target(tmp_path, monkeypatch, "dry")
+    real_root = target(tmp_path, monkeypatch, "real")
+    selectors = (
+        "install",
+        "--ai-framework",
+        "matt-pocock",
+        "--bundle",
+        "api-python",
+        "--skill",
+        "alpha",
+        "--runtime",
+        "claude-code",
+    )
+
+    monkeypatch.chdir(dry_root)
+    dry_code, dry_out = run(capsys, *selectors, "--dry-run")
+    monkeypatch.chdir(real_root)
+    real_code, real_out = run(capsys, *selectors)
+
+    announced = paths_in(real_out)
+    assert paths_in(dry_out) == announced
+    assert landings_of(files_under(real_root), announced) == announced
+    assert list(dry_root.iterdir()) == []
+    assert dry_code == real_code == 0
+
+
+def test_a_collided_destination_ends_with_the_individual_artifacts_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """#39: the order is framework -> bundle -> individual artifact, the last write standing.
+
+    Detecting the intra-command collision is not the point — this asserts *which*
+    content survives it, which is the only assertion a fixed order buys.
+    """
+    # given
+    content = catalog_of(tmp_path, monkeypatch, "shared", frameworks={"matt-pocock": ("shared",)})
+    (source(content, "shared") / "SKILL.md").write_text(
+        "---\nname: shared\ndescription: The pool version.\n---\n\npool\n", encoding="utf-8"
+    )
+    (content / "frameworks" / "matt-pocock" / "skills" / "shared" / "SKILL.md").write_text(
+        "---\nname: shared\ndescription: The framework version.\n---\n\nframework\n",
+        encoding="utf-8",
+    )
+    root = target(tmp_path, monkeypatch)
+
+    code, _ = run(
+        capsys,
+        "install",
+        "--ai-framework",
+        "matt-pocock",
+        "--skill",
+        "shared",
+        "--runtime",
+        "claude-code",
+        "--yes",
+    )
+
+    assert code == 0
+    landed = (root / CLAUDE / "shared" / "SKILL.md").read_text(encoding="utf-8")
+    assert "pool" in landed
+    assert "framework" not in landed
+
+
 def test_the_selected_artifacts_land_in_every_selected_path_as_a_real_copy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

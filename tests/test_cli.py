@@ -30,12 +30,17 @@ from overpower import cli
 from overpower.discovery import load_catalog
 from overpower.errors import OverpowerError
 from overpower.packaged import catalog_file, content_root
+from overpower.planning import Request
+from overpower.runtimes import Scope
 from overpower.screens import THEME
 from tests.support import project
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
     from pathlib import Path
+
+    from overpower.discovery import Catalog
+    from overpower.runtimes import Environment
 
     CaptureFixture = pytest.CaptureFixture[str]
 
@@ -540,3 +545,119 @@ def test_global_needs_no_git_repository_at_all(
 
     assert code == 0
     assert (home / project.CLAUDE / "alpha" / "SKILL.md").is_file()
+
+
+# --------------------------------------------------------------------------- #
+# #41: install pelado (no artifact selector) opens the wizard in a terminal
+# --------------------------------------------------------------------------- #
+
+
+def _stub_wizard(
+    request: Request, root: Path
+) -> Callable[[Catalog, Environment, Path], tuple[Request, Path]]:
+    """A `run_wizard` replacement that hands back a fixed outcome.
+
+    Named and explicitly typed rather than a lambda closing over `request` and
+    `root`: `pytest.MonkeyPatch.setattr`'s string-keyed overload types `value`
+    as `object`, so an unannotated lambda parameter stays `Unknown` under
+    `pyright --strict` with nothing to infer it from.
+    """
+
+    def wizard(_catalog: Catalog, _environment: Environment, _cwd: Path) -> tuple[Request, Path]:
+        return request, root
+
+    return wizard
+
+
+def _never_called(*_args: object, **_kwargs: object) -> object:
+    message = "the wizard must not run here"
+    raise AssertionError(message)
+
+
+def test_a_bare_install_in_a_terminal_calls_the_wizard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """`install` pelado com TTY abre o wizard: the wizard's `Request` drives the same flow."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    root = project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    request = Request(skills=("alpha",), runtimes=("claude-code",), scope=Scope.PROJECT)
+    monkeypatch.setattr(cli, "run_wizard", _stub_wizard(request, root))
+
+    code, _ = project.run(capsys, "install", "--yes")
+
+    assert code == 0
+    assert (root / project.CLAUDE / "alpha" / "SKILL.md").is_file()
+
+
+def test_a_bare_install_without_a_terminal_never_touches_the_wizard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """Without a TTY the bare invocation still reaches `NothingSelectedError` — exit 2, no hang."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    project.target(tmp_path, monkeypatch)  # tty=False by default
+    monkeypatch.setattr(cli, "run_wizard", _never_called)
+
+    code, output = project.run(capsys, "install")
+
+    assert code == 2
+    assert "nothing to install" in project.joined(output)
+
+
+def test_flags_given_in_a_terminal_do_not_open_the_wizard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """A selector on the line is not a bare invocation, even from a terminal."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    root = project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    monkeypatch.setattr(cli, "run_wizard", _never_called)
+
+    code, _ = project.run(
+        capsys, "install", "--skill", "alpha", "--runtime", "claude-code", "--yes"
+    )
+
+    assert code == 0
+    assert (root / project.CLAUDE / "alpha" / "SKILL.md").is_file()
+
+
+def test_the_wizard_being_abandoned_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """Backing out of the wizard is the same shape as declining the confirmation."""
+
+    def abandoned(_catalog: Catalog, _environment: Environment, _cwd: Path) -> None:
+        return None
+
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    root = project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    monkeypatch.setattr(cli, "run_wizard", abandoned)
+
+    code, output = project.run(capsys, "install")
+
+    assert code == 1
+    assert "nothing was written" in project.joined(output)
+    assert list(root.iterdir()) == []
+
+
+def test_the_wizard_request_still_takes_its_mode_flags_from_the_command_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """`--dry-run`, `--force` and `--yes` are not wizard steps — they pass through unchanged."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    root = project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    request = Request(skills=("alpha",), runtimes=("claude-code",), scope=Scope.PROJECT)
+    monkeypatch.setattr(cli, "run_wizard", _stub_wizard(request, root))
+
+    code, output = project.run(capsys, "install", "--dry-run")
+
+    assert code == 0
+    assert "dry run" in project.joined(output)
+    assert list(root.iterdir()) == []

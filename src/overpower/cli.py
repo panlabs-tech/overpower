@@ -29,6 +29,7 @@ form that `install` needs is a different question and arrives with it.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from enum import IntEnum
 from importlib import metadata
 from pathlib import Path
@@ -55,6 +56,7 @@ from overpower.screens import (
     framework_screen,
     plan_screen,
 )
+from overpower.wizard import run_wizard
 from overpower.writing import execute
 
 if TYPE_CHECKING:
@@ -307,23 +309,49 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
 ) -> None:
     """Install curated equipment into the current repository, or onto the machine."""
     environment = Environment.from_process()
-    scope, root = _scope_and_root(global_=global_, environment=environment)
-    request = Request(
-        ai_frameworks=_accumulated(ai_framework),
-        bundles=_accumulated(bundle),
-        skills=_accumulated(skill),
-        runtimes=_accumulated(runtime),
-        scope=scope,
-        force=force,
-        dry_run=dry_run,
-        yes=yes,
+    catalog = load_catalog(content_root(), catalog_file())
+    # The same condition `NothingSelectedError` checks: nothing on any of the
+    # three artifact selectors. In a terminal the wizard is the branch that
+    # replaces that error rather than a case competing with it
+    # (https://github.com/panlabs-tech/overpower/issues/41); without a
+    # terminal the flag path below still reaches that same error, so a bare
+    # invocation off a pipe exits 2 without ever touching `questionary`.
+    wizarding = _out.is_terminal and not (
+        _accumulated(ai_framework) or _accumulated(bundle) or _accumulated(skill)
     )
-    # Planned before anything is drawn, so a refusal costs no screen: a bad
-    # runtime, or a global destination that already exists without --force, is
-    # exit 2 or exit 3 with nothing written and nothing announced.
-    plan = plan_for(request, load_catalog(content_root(), catalog_file()), root, environment)
 
-    _print_banner()
+    if wizarding:
+        # The banner first: a human about to answer three questions reads it
+        # as context, unlike the flag path below, where a screen ahead of a
+        # refusal would be the product answering before it knew.
+        _print_banner()
+        outcome = run_wizard(catalog, environment, Path.cwd())
+        if outcome is None:
+            _out.print(Text("nothing was written", style="op.dim"))
+            raise typer.Exit(ExitCode.CANNOT_RUN)
+        wizard_request, root = outcome
+        request = replace(wizard_request, force=force, dry_run=dry_run, yes=yes)
+    else:
+        scope, root = _scope_and_root(global_=global_, environment=environment)
+        request = Request(
+            ai_frameworks=_accumulated(ai_framework),
+            bundles=_accumulated(bundle),
+            skills=_accumulated(skill),
+            runtimes=_accumulated(runtime),
+            scope=scope,
+            force=force,
+            dry_run=dry_run,
+            yes=yes,
+        )
+
+    # Planned before anything is drawn, so a refusal on the flag path costs no
+    # screen: a bad runtime, or a global destination that already exists
+    # without --force, is exit 2 or exit 3 with nothing written and nothing
+    # announced.
+    plan = plan_for(request, catalog, root, environment)
+
+    if not wizarding:
+        _print_banner()
     _out.print(plan_screen(plan))
 
     if request.dry_run:

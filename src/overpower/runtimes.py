@@ -194,6 +194,44 @@ def resolve_global_dir(runtime: Runtime, environment: Environment) -> Path | Non
     return _join(_resolve_anchor(global_dir.anchor, environment), global_dir.relative)
 
 
+def places_of(
+    runtimes: Sequence[Runtime], scope: Scope, root: Path, environment: Environment
+) -> Mapping[Path, tuple[str, ...]]:
+    """Each distinct place `runtimes` read in `scope`, mapped to all of its readers.
+
+    Two runtimes collapse into one place far more often than not — 19 of the 76
+    rows read `.agents/skills` — and collapsing them is what makes both callers
+    honest. `overpower.planning` passes the runtimes a line *selected*, so the
+    plan says what a selection costs instead of naming a runtime that shares its
+    directory with eighteen others (ADR 0008); `overpower.inspection` passes the
+    whole scope, because the `doctor` has no manifest to read (axiom 2) and the
+    closed table is the only thing that knows where equipment can be.
+
+    Insertion order is the order of the runtime table, and both callers inherit
+    it: it is the only order the screen and the writer share — and, in global
+    scope, the order that decides which place is canonical.
+    """
+    grouped: dict[Path, list[str]] = {}
+    for runtime in runtimes:
+        grouped.setdefault(_place_of(runtime, scope, environment, root), []).append(runtime.key)
+    return {place: tuple(readers) for place, readers in grouped.items()}
+
+
+def _place_of(runtime: Runtime, scope: Scope, environment: Environment, root: Path) -> Path:
+    """Where `runtime` reads skills, in `scope`."""
+    match scope:
+        case Scope.PROJECT:
+            return resolve_project_dir(runtime, root)
+        case Scope.GLOBAL:
+            place = resolve_global_dir(runtime, environment)
+            if place is None:  # pragma: no cover — every caller filters by `runtimes_in` first
+                message = f"`{runtime.key}` has no global destination, despite `runtimes_in`"
+                raise AssertionError(message)
+            return place
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
 def _join(base: Path, relative: str) -> Path:
     r"""Append an upstream `/`-separated path to `base` as a platform path.
 

@@ -1,0 +1,24 @@
+╭─ terminal  how this screen is set up ────────────────────────────────────────╮
+│                                                                              │
+│  tty       yes                                                               │
+│  colour    truecolor                                                         │
+│  width     80 columns                                                        │
+│  NO_COLOR  unset                                                             │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+╭─ integrity  what is installed ───────────────────────────────────────────────╮
+│                                                                              │
+│  3 artifacts · 5 places                                                      │
+│                                                                              │
+│  dangling link                                                               │
+│    ~/.cursor/skills/grilling/  ← ../../.claude/skills/grilling               │
+│                                                                              │
+│  link became a text file                                                     │
+│    .claude/skills/grilling/  alias.md ← SKILL.md                             │
+│                                                                              │
+│  copies of `panlabs-python-standards` differ                                 │
+│    .claude/skills/panlabs-python-standards/                                  │
+│    .agents/skills/panlabs-python-standards/                                  │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

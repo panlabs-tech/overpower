@@ -52,7 +52,7 @@ FORCED_COLOUR = ("FORCE_COLOR", "PY_COLORS", "CLICOLOR_FORCE", "GITHUB_ACTIONS",
 terminal. Scrubbed in the child so the pipe is the only thing left to answer."""
 
 
-def piped(*argv: str) -> subprocess.CompletedProcess[bytes]:
+def piped(*argv: str, sandbox: Path | None = None) -> subprocess.CompletedProcess[bytes]:
     """Run the command the way a user pipes it: a real child, a real pipe.
 
     The output is read as **bytes**, and that is the assertion's own unit — the
@@ -61,12 +61,23 @@ def piped(*argv: str) -> subprocess.CompletedProcess[bytes]:
     the child writes cp1252 and rich swaps the box characters for ASCII
     (`ConsoleOptions.ascii_only`). The screen degrades and stays ANSI-free, which
     is the property; decoding it as UTF-8 is what breaks.
+
+    `sandbox` moves the child's working directory *and* its home, and it is not
+    a convenience: `doctor` reads both scopes off the machine, so a child left in
+    the real environment would report the developer's own equipment — and could
+    exit 3 on it, turning a property about ANSI bytes into a test of whose
+    laptop ran it.
     """
     environment = {key: value for key, value in os.environ.items() if key not in FORCED_COLOUR}
     environment["COLUMNS"] = "80"
+    if sandbox is not None:
+        environment.update(HOME=str(sandbox), USERPROFILE=str(sandbox))
+        for anchor in project.ANCHORS:
+            environment.pop(anchor, None)
     return subprocess.run(  # noqa: S603 — the argv is this interpreter and literals
         [sys.executable, "-c", RUN, *argv],
         capture_output=True,
+        cwd=None if sandbox is None else sandbox,
         env=environment,
         check=False,
     )
@@ -373,6 +384,46 @@ def test_the_banner_is_suppressed_without_a_tty() -> None:
 
     assert result.returncode == 0
     assert b"_____" not in result.stdout
+
+
+def test_the_doctor_screen_carries_no_ansi_under_a_pipe(tmp_path: Path) -> None:
+    """The one command a pipeline reads on purpose, so the pipe half is measured.
+
+    A sandbox rather than the repository this suite runs in: `doctor` reports the
+    machine as well, and pointing the child at the developer's home would make
+    the exit code depend on what they happen to have installed.
+    """
+    result = piped("doctor", sandbox=tmp_path)
+
+    assert result.returncode == 0
+    assert b"\x1b" not in result.stdout
+    assert b"\x1b" not in result.stderr
+    assert b"integrity" in result.stdout
+
+
+def test_a_doctor_that_found_something_pipes_exit_three_and_still_no_ansi(
+    tmp_path: Path,
+) -> None:
+    """The finding screen is the one with warm ink on it, so it is the one to pipe.
+
+    A healthy run has nothing styled `op.warn`, so asserting zero `ESC` on it
+    alone would leave the branch that actually reaches for colour unmeasured.
+    Two copies of one name in two global runtime paths is the cheapest way to
+    build a finding without installing anything — and the exit code travels
+    through a real child, which is how a pipeline reads it.
+    """
+    # given
+    for place, content in ((".claude/skills", "one"), (".cursor/skills", "two")):
+        skill = tmp_path / place / "alpha"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text(content, encoding="utf-8", newline="\n")
+
+    result = piped("doctor", sandbox=tmp_path)
+
+    assert result.returncode == 3
+    assert b"\x1b" not in result.stdout
+    assert b"\x1b" not in result.stderr
+    assert b"differ" in result.stdout
 
 
 def test_the_list_screen_survives_a_pipe_whole() -> None:

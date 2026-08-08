@@ -42,6 +42,7 @@ from rich.text import Text
 
 from overpower.discovery import load_catalog
 from overpower.errors import BadInvocationError, OverpowerError, RefusedError
+from overpower.inspection import Terminal, diagnose
 from overpower.packaged import catalog_file, content_root
 from overpower.planning import Request, plan_for
 from overpower.remote import catalog_from
@@ -53,6 +54,7 @@ from overpower.screens import (
     banner,
     bundle_screen,
     catalog_screen,
+    doctor_screen,
     error_panel,
     framework_screen,
     plan_screen,
@@ -491,6 +493,47 @@ def _perform(
     if report.degraded:
         listed = ", ".join(str(path) for path in report.degraded)
         _out.print(Text.assemble(("degraded to copy", "op.warn"), " ", (listed, "op.dim")))
+
+
+@app.command()
+def doctor() -> None:
+    """Report the terminal, and the integrity of what is installed."""
+    environment = Environment.from_process()
+    # Both scopes, in one output, and therefore no `--global` here: the command
+    # answers *"how is what was installed"*, and equipment lives in the
+    # repository and on the machine at the same time. A flag that switched
+    # between the two halves would make it two outputs.
+    #
+    # No git is not a refusal, unlike `install`: `git_root` answering `None`
+    # takes the project half off the screen and leaves the machine on it.
+    diagnosis = diagnose(_terminal(environment), git_root(Path.cwd()), environment)
+
+    _print_banner()
+    _out.print(doctor_screen(diagnosis))
+
+    if not diagnosis.healthy:
+        # 3 and never 1: the command ran, computed the answer, and the answer is
+        # no. That distinction is the whole reason `doctor` works as a CI gate.
+        raise typer.Exit(ExitCode.REFUSED)
+
+
+def _terminal(environment: Environment) -> Terminal:
+    """The console as facts, read here because this module is the one that owns it.
+
+    `NO_COLOR` comes through `Environment` and not `os.environ`: `from_process`
+    is the single place in the package that touches the process environment, and
+    reading it twice would be two answers to one question.
+
+    `color_system` and `NO_COLOR` are both reported because they are not the same
+    fact — rich still names the palette it detected while refusing to use it —
+    and *"my screen came out strange"* is answered by seeing both.
+    """
+    return Terminal(
+        tty=_out.is_terminal,
+        colour=_out.color_system or "none",
+        width=_out.width,
+        no_color=environment.variables.get("NO_COLOR"),
+    )
 
 
 def _scope_and_root(*, global_: bool, environment: Environment) -> tuple[Scope, Path]:

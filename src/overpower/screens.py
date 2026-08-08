@@ -35,7 +35,7 @@ be a second place for the truncation rule to be forgotten.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, assert_never
 
 from rich import box
 from rich.console import Group
@@ -45,7 +45,8 @@ from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 
-from overpower.planning import WriteMode
+from overpower.inspection import DanglingLink, Divergence, LinkTurnedText
+from overpower.planning import DirectoryTree, DocumentKey, WriteMode
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
@@ -54,7 +55,8 @@ if TYPE_CHECKING:
     from rich.console import Console, ConsoleOptions, RenderableType, RenderResult
 
     from overpower.discovery import Artifact, ArtifactType, Bundle, Catalog, Framework
-    from overpower.planning import Landing, Plan, Selection
+    from overpower.inspection import Diagnosis, Finding, Terminal
+    from overpower.planning import Destination, Landing, Plan, Selection
 
 THEME = Theme(
     {
@@ -240,6 +242,178 @@ class _PlanScreen:
         """Draw the panel with the arrow this console can carry."""
         del console
         yield _plan_panel(self.plan, "<-" if options.ascii_only else "←")
+
+
+def doctor_screen(diagnosis: Diagnosis) -> RenderableType:
+    """Two questions in one output: how the terminal is, and how what landed is.
+
+    Two blocks and not one, for the reason the catalog screen has three: they
+    answer different questions, and a single frame would rank the environment
+    against the integrity when the whole point of `doctor` is that either one
+    alone leaves a person guessing.
+    """
+    return _DoctorScreen(diagnosis)
+
+
+@dataclass(frozen=True)
+class _DoctorScreen:
+    """The `doctor` output, assembled at render time for the arrow of `_PlanScreen`.
+
+    Same measurement, same switch: `←` is not encodable in cp1252, which is what
+    a pipe on Windows takes, and this screen points at a link's target on exactly
+    the cells where that matters most.
+    """
+
+    diagnosis: Diagnosis
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        """Draw both blocks with the arrow this console can carry."""
+        del console
+        arrow = "<-" if options.ascii_only else "←"
+        yield Group(
+            *_spaced(
+                (
+                    _terminal_block(self.diagnosis.terminal),
+                    _integrity_block(self.diagnosis, arrow),
+                )
+            )
+        )
+
+
+@dataclass(frozen=True)
+class _Roots:
+    """The two places a `doctor` path can be shortened against, and how.
+
+    A type rather than two parameters travelling together through three call
+    levels: the screen reports both scopes in one output, so *"which root does
+    this path belong to"* is one question asked at every path, and the answer
+    reads better next to the data than passed alongside it.
+    """
+
+    repository: Path | None
+    home: Path
+
+    def shorten(self, path: Path) -> str:
+        """The repository first, then the home, then not at all.
+
+        `/` separators on every platform, deliberately, as on the plan: the
+        runtime table spells its paths that way, `git status` prints them that
+        way on Windows too, and a screen whose separator changes with the
+        platform cannot be recorded once for the nine cells.
+
+        A place under neither root is shown whole, because it is not a detail
+        the reader can reconstruct — that is the second write of a graft.
+        """
+        if self.repository is not None and path.is_relative_to(self.repository):
+            return path.relative_to(self.repository).as_posix()
+        if path.is_relative_to(self.home):
+            return f"~/{path.relative_to(self.home).as_posix()}"
+        return path.as_posix()
+
+
+def _terminal_block(terminal: Terminal) -> Panel:
+    """The four facts a strange-looking screen is explained by."""
+    facts = Table.grid(padding=(0, 2))
+    facts.add_column()
+    facts.add_column(overflow="fold")
+    rows = (
+        ("tty", "yes" if terminal.tty else "no"),
+        ("colour", terminal.colour),
+        ("width", f"{terminal.width} {_plural('column', terminal.width)}"),
+        ("NO_COLOR", _no_color(terminal.no_color)),
+    )
+    for label, value in rows:
+        facts.add_row(Text(label, style="op.dim"), Text(value, style="op.key"))
+    return _block("terminal", "how this screen is set up", [facts])
+
+
+def _no_color(value: str | None) -> str:
+    """`NO_COLOR` is presence-based, so *set to nothing* is not the same as *unset*."""
+    if value is None:
+        return "unset"
+    return value if value.strip() else 'set to ""'
+
+
+def _integrity_block(diagnosis: Diagnosis, arrow: str) -> Panel:
+    """What landed, counted, and everything wrong with it.
+
+    The count line says **artifacts and places**, two numbers and never one: an
+    artifact occupies as many places as runtimes were equipped, and a screen
+    that printed a single number would be the screen assuming one artifact costs
+    one write — the shape `domain.md` locks against for the graft.
+    """
+    counted = Text(
+        f"{diagnosis.artifacts} {_plural('artifact', diagnosis.artifacts)}"
+        f" · {len(diagnosis.landed)} {_plural('place', len(diagnosis.landed))}",
+        style="op.dim",
+    )
+    roots = _Roots(repository=diagnosis.root, home=diagnosis.home)
+    found: list[RenderableType] = [
+        _finding(finding, roots, arrow) for finding in diagnosis.findings
+    ]
+    if not found:
+        found = [Text("no findings", style="op.ok")]
+    return _block("integrity", "what is installed", [counted, *found])
+
+
+def _finding(finding: Finding, roots: _Roots, arrow: str) -> RenderableType:
+    """One thing that is wrong: what class it is, and every path that carries it."""
+    match finding:
+        case DanglingLink(destination, points_at):
+            place = _located(destination, roots)
+            pointed = "" if points_at is None else f"  {arrow} {points_at}"
+            return _flagged("dangling link", [f"{place}{pointed}"])
+        case LinkTurnedText(destination, inside, points_at):
+            place = _located(destination, roots)
+            relative = _under(inside, destination.path)
+            return _flagged("link became a text file", [f"{place}  {relative} {arrow} {points_at}"])
+        case Divergence(name, _, destinations):
+            places = [_located(destination, roots) for destination in destinations]
+            return _flagged(f"copies of `{name}` differ", places)
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+def _flagged(headline: str, places: Sequence[str]) -> RenderableType:
+    """A finding: the class in warning ink, the paths indented under it.
+
+    Indented with `Padding` and never with spaces in the string, for the reason
+    `_entry` uses it: a path long enough to wrap has to keep its indent, and a
+    narrow terminal is exactly where a path is long enough to wrap.
+    """
+    stacked = Table.grid()
+    # `fold`, as on the plan: a truncated path is the one thing a diagnosis may
+    # not print, because the path is the whole of what the reader has to act on.
+    stacked.add_column(overflow="fold")
+    for place in places:
+        stacked.add_row(Text(place, style="op.dim"))
+    return Group(Text(headline, style="op.warn"), Padding(stacked, (0, 0, 0, 2)))
+
+
+def _located(destination: Destination, roots: _Roots) -> str:
+    """Where a write is, said the shortest way that still names it unambiguously.
+
+    The two forms of a destination read differently on purpose: a folder earns a
+    trailing separator, and a document plus a key inside it is spelled with the
+    key attached. v0.1.0 produces only the first, and the second is here because
+    a report that could only spell a folder would be one v0.2 has to replace
+    rather than extend.
+    """
+    shown = roots.shorten(destination.path)
+    match destination:
+        case DirectoryTree():
+            return f"{shown}/"
+        case DocumentKey(_, key):
+            return f"{shown}#{key}"
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+def _under(path: Path, base: Path) -> str:
+    """A file named against the write it was found in, so the line stays readable."""
+    if path.is_relative_to(base):
+        return path.relative_to(base).as_posix()
+    return path.as_posix()  # pragma: no cover — the walk starts at the destination
 
 
 def error_panel(body: Text) -> Panel:

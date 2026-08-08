@@ -135,7 +135,158 @@ def test_naming_nothing_exits_two_instead_of_writing_nothing_and_saying_zero(
     catalog_of(tmp_path, monkeypatch, "alpha")
     root = target(tmp_path, monkeypatch)
 
-    code, _ = run(capsys, "install", "--runtime", "claude-code")
+    code, output = run(capsys, "install", "--runtime", "claude-code")
 
     assert code == 2
     assert list(root.iterdir()) == []
+    assert "--ai-framework" in joined(output)
+    assert "--bundle" in joined(output)
+
+
+# --------------------------------------------------------------------------- #
+# #39: framework and bundle join --skill as sibling selectors
+# --------------------------------------------------------------------------- #
+
+
+def test_an_ai_framework_writes_every_artifact_it_carries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rule 1: a framework installs whole — one write per artifact it carries."""
+    # given
+    content = catalog_of(tmp_path, monkeypatch, frameworks={"matt-pocock": ("grilling", "tdd")})
+    root = target(tmp_path, monkeypatch)
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+
+    plan = plan_for(
+        Request(ai_frameworks=("matt-pocock",), runtimes=("claude-code",)), catalog, root
+    )
+
+    assert [selection.name for selection in plan.selections] == ["matt-pocock"]
+    assert {write.destination for write in plan.writes} == {
+        DirectoryTree(path=root / CLAUDE / "grilling"),
+        DirectoryTree(path=root / CLAUDE / "tdd"),
+    }
+
+
+def test_a_bundle_writes_exactly_what_it_names_and_no_framework(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR 0002: a bundle is a manifest over the pool, never a framework."""
+    # given
+    content = catalog_of(
+        tmp_path,
+        monkeypatch,
+        "alpha",
+        "beta",
+        frameworks={"matt-pocock": ("gamma",)},
+        bundles={"api-python": ("alpha",)},
+    )
+    root = target(tmp_path, monkeypatch)
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+
+    plan = plan_for(Request(bundles=("api-python",), runtimes=("claude-code",)), catalog, root)
+
+    assert [selection.name for selection in plan.selections] == ["api-python"]
+    assert [write.destination for write in plan.writes] == [
+        DirectoryTree(path=root / CLAUDE / "alpha")
+    ]
+
+
+def test_framework_bundle_and_skill_on_one_line_produce_one_plan_in_fixed_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#39: the order is fixed and documented — framework, bundle, individual artifact."""
+    # given
+    content = catalog_of(
+        tmp_path,
+        monkeypatch,
+        "alpha",
+        frameworks={"matt-pocock": ("gamma",)},
+        bundles={"api-python": ("alpha",)},
+    )
+    root = target(tmp_path, monkeypatch)
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+
+    plan = plan_for(
+        Request(
+            ai_frameworks=("matt-pocock",),
+            bundles=("api-python",),
+            skills=("alpha",),
+            runtimes=("claude-code",),
+        ),
+        catalog,
+        root,
+    )
+
+    assert [selection.name for selection in plan.selections] == [
+        "matt-pocock",
+        "api-python",
+        "alpha",
+    ]
+
+
+def test_requesting_a_frameworks_inner_artifact_by_skill_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Rule 1: no partial framework install — a framework's artifact is not in the pool."""
+    # given
+    catalog_of(tmp_path, monkeypatch, frameworks={"matt-pocock": ("grilling",)})
+    root = target(tmp_path, monkeypatch)
+
+    code, output = run(capsys, "install", "--skill", "grilling", "--runtime", "claude-code")
+
+    assert code == 2
+    assert "grilling" in joined(output)
+    assert list(root.iterdir()) == []
+
+
+def test_an_ai_framework_and_a_bundle_accept_comma_and_repetition_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """What `--skill` already taught, extended to the two selectors #39 adds."""
+    # given
+    catalog_of(
+        tmp_path,
+        monkeypatch,
+        "p1",
+        "p2",
+        frameworks={"fw-one": ("f1",), "fw-two": ("f2",)},
+        bundles={"bun-one": ("p1",), "bun-two": ("p2",)},
+    )
+    root = target(tmp_path, monkeypatch)
+
+    code, _ = run(
+        capsys,
+        "install",
+        "--ai-framework",
+        "fw-one",
+        "--ai-framework",
+        "fw-two",
+        "--bundle",
+        "bun-one,bun-two",
+        "--runtime",
+        "claude-code",
+        "--yes",
+    )
+
+    assert code == 0
+    assert {entry.name for entry in (root / CLAUDE).iterdir()} == {"f1", "f2", "p1", "p2"}
+
+
+def test_a_skill_naming_other_skills_in_its_text_writes_only_itself(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rule 7: the command is the contract, even when the text names siblings."""
+    # given
+    content = catalog_of(tmp_path, monkeypatch, "wayfinder", "to-spec")
+    (content / "pool" / "skills" / "wayfinder" / "SKILL.md").write_text(
+        "---\nname: wayfinder\ndescription: Names to-spec in its own body.\n---\n\n"
+        "Invoke to-spec.\n",
+        encoding="utf-8",
+    )
+    root = target(tmp_path, monkeypatch)
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+
+    plan = plan_for(Request(skills=("wayfinder",), runtimes=("claude-code",)), catalog, root)
+
+    assert [selection.name for selection in plan.selections] == ["wayfinder"]

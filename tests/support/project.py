@@ -24,7 +24,7 @@ from overpower import cli
 from overpower.screens import THEME
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from pathlib import Path
 
     import pytest
@@ -45,32 +45,61 @@ set and nothing else. A runtime key carries no separator.
 
 
 def catalog_of(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *names: str, extra: Sequence[str] = ()
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *names: str,
+    extra: Sequence[str] = (),
+    frameworks: Mapping[str, Sequence[str]] | None = None,
+    bundles: Mapping[str, Sequence[str]] | None = None,
 ) -> Path:
     """Build a real content tree of `names`, aim the product at it, answer its root.
 
-    Each skill gets the `SKILL.md` whose frontmatter discovery reads, plus
+    Each pool skill gets the `SKILL.md` whose frontmatter discovery reads, plus
     whatever `extra` names — which is how a skill is given more than one file
     when the test is about what survives a second install.
+
+    `frameworks` maps a framework name to the skill names inside it, each built
+    the same way as a pool skill and written into the catalog with a description
+    (#39: a framework needs one, discovery reads it and not a tree). `bundles`
+    maps a bundle name to the pool skill names its manifest points at. Both are
+    optional and additive, so a call that only names pool skills is unaffected.
     """
     content = tmp_path / "packaged" / "content"
     for name in names:
-        skill = content / "pool" / "skills" / name
-        skill.mkdir(parents=True)
-        (skill / "SKILL.md").write_text(
-            f"---\nname: {name}\ndescription: The {name} skill.\n---\n\n# {name}\n",
-            encoding="utf-8",
-        )
-        for relative in extra:
-            path = skill / relative
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(f"{name}: {relative}\n", encoding="utf-8")
+        _skill(content / "pool" / "skills" / name, name, extra)
+    for framework, artifacts in (frameworks or {}).items():
+        for artifact_name in artifacts:
+            _skill(content / "frameworks" / framework / "skills" / artifact_name, artifact_name, ())
 
     written = tmp_path / "packaged" / "catalog.toml"
-    written.write_text("", encoding="utf-8")
+    written.write_text(_written(frameworks or {}, bundles or {}), encoding="utf-8")
     monkeypatch.setattr(cli, "content_root", lambda: content)
     monkeypatch.setattr(cli, "catalog_file", lambda: written)
     return content
+
+
+def _skill(skill: Path, name: str, extra: Sequence[str]) -> None:
+    """One skill directory, with the `SKILL.md` frontmatter discovery reads."""
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: The {name} skill.\n---\n\n# {name}\n", encoding="utf-8"
+    )
+    for relative in extra:
+        path = skill / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{name}: {relative}\n", encoding="utf-8")
+
+
+def _written(frameworks: Mapping[str, Sequence[str]], bundles: Mapping[str, Sequence[str]]) -> str:
+    """The written catalog: one description per framework, one manifest per bundle."""
+    bundle_tables = (
+        f'[bundles.{name}]\ndescription = "The {name} bundle."\nitems = {list(items)!r}\n'
+        for name, items in bundles.items()
+    )
+    framework_tables = (
+        f'[frameworks.{name}]\ndescription = "The {name} framework."\n' for name in frameworks
+    )
+    return "\n".join((*bundle_tables, *framework_tables))
 
 
 def source(content: Path, name: str) -> Path:

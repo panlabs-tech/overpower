@@ -45,6 +45,8 @@ from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 
+from overpower.planning import WriteMode
+
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
     from pathlib import Path
@@ -296,6 +298,7 @@ def _planned(selection: Selection, root: Path, arrow: str) -> RenderableType:
                 (arrow, "op.dim"),
                 " ",
                 (_readers(landing.readers), "op.dim"),
+                *_mode_suffix(landing.mode),
             ),
             Text(f"{landing.files} {_plural('file', landing.files)}", style="op.dim"),
         )
@@ -303,6 +306,20 @@ def _planned(selection: Selection, root: Path, arrow: str) -> RenderableType:
         Text.assemble((selection.name, "op.key"), "  ", (_carries(selection.artifacts), "op.dim")),
         Padding(places, (0, 0, 0, 2)),
     )
+
+
+def _mode_suffix(mode: WriteMode) -> tuple[tuple[str, str], ...]:
+    """`  · link` or `  · junction` after the readers, nothing for a real copy.
+
+    Project scope is copy-only and this renders nothing there, so no snapshot
+    that predates the global scope moves. What it buys is the other half of the
+    central assertion (https://github.com/panlabs-tech/overpower/issues/40): the
+    plan now carries mode as well as path, so what the screen *calls* a link has
+    something on screen to check against what is actually on disk.
+    """
+    if mode is WriteMode.COPY:
+        return ()
+    return ((f"  · {mode}", "op.dim"),)
 
 
 def _shown(root: Path, landing: Landing) -> str:

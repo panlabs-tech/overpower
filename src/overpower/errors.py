@@ -49,3 +49,17 @@ class BadInvocationError(OverpowerError):
     here is *"ran, and the answer is no"* — that is code `3`, and the defect
     there is on our side of the question, not on theirs.
     """
+
+
+class RefusedError(OverpowerError):
+    """The named half of code `3`: the invocation was correct, and the answer is no.
+
+    A subclass for the same reason `BadInvocationError` is: the rendering is
+    identical, and only the number differs. ADR 0009 is where the axis against
+    `2` was drawn — *"whose defect is it"* — and settled that a value that
+    exists, named by a flag that exists, refused only because the table has no
+    destination for the pair, is not a typo. `--runtime eve --global` and a
+    global destination that already exists without `--force` both belong here:
+    the line was well-formed, the product ran, computed the answer, and the
+    answer is no.
+    """

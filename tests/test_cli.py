@@ -476,3 +476,67 @@ def test_the_dry_run_mirrors_the_exit_code_of_the_real_run(
 
     assert dry_code == real_code == 2
     assert list(root.iterdir()) == []
+
+
+# --------------------------------------------------------------------------- #
+# #40: the default scope needs a git repository, and --global does not
+# --------------------------------------------------------------------------- #
+
+
+def test_inside_a_git_repository_no_flag_lands_in_the_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """`project.target` puts a `.git` above `root`: the ordinary case."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    root = project.target(tmp_path, monkeypatch)
+
+    code, _ = project.run(
+        capsys, "install", "--skill", "alpha", "--runtime", "claude-code", "--yes"
+    )
+
+    assert code == 0
+    assert (root / project.CLAUDE / "alpha" / "SKILL.md").is_file()
+
+
+def test_outside_a_git_repository_no_scope_exits_two_and_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """Axiom 2 — the git is the manifest — only holds where there is git."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    bare = tmp_path / "no-repo-here"
+    bare.mkdir()
+    monkeypatch.chdir(bare)
+    monkeypatch.setenv("HOME", str(tmp_path / "unused-home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "unused-home"))
+    monkeypatch.setattr(cli, "_out", project.pinned(tty=False))
+
+    code, output = project.run(capsys, "install", "--skill", "alpha", "--runtime", "claude-code")
+
+    assert code == 2
+    assert "--global" in project.joined(output)
+    assert list(bare.iterdir()) == []
+
+
+def test_global_needs_no_git_repository_at_all(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """`--global` names the machine, which settles the question the git check asks."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    home = tmp_path / "home"
+    home.mkdir()
+    bare = tmp_path / "no-repo-here"
+    bare.mkdir()
+    monkeypatch.chdir(bare)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setattr(cli, "_out", project.pinned(tty=False))
+
+    code, _ = project.run(
+        capsys, "install", "--skill", "alpha", "--runtime", "claude-code", "--global", "--yes"
+    )
+
+    assert code == 0
+    assert (home / project.CLAUDE / "alpha" / "SKILL.md").is_file()

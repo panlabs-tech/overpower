@@ -36,6 +36,16 @@ https://github.com/panlabs-tech/overpower/issues/19):
 
 Plus `symlinks=True` on the `copytree`, or a link inside the skill arrives
 dereferenced as a second copy.
+
+**Global scope climbs a ladder** (https://github.com/panlabs-tech/overpower/issues/40):
+a `WriteMode.LINK` or `WriteMode.JUNCTION` write points at the canonical
+landing's *destination*, which by plan order has already been written as a real
+copy by the time a link write runs. Either rung can fail — a filesystem with no
+reparse points, a network share a junction cannot cross, a Windows audit hook
+blocking `_winapi.CreateJunction` — and the fallback is the same one #9 already
+decided for a collision it could not resolve: land a real copy instead, and say
+so. Falling back is a warning at exit 0, never a failure: the content is on
+disk either way, and what changed is only which of the three modes carries it.
 """
 
 from __future__ import annotations
@@ -44,12 +54,13 @@ import os
 import shutil
 import sys
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from overpower.errors import OverpowerError
 from overpower.planning import DirectoryTree, DocumentKey, WriteMode
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     from overpower.planning import Destination, Plan, Write
@@ -61,6 +72,13 @@ class Report:
 
     writes: int
     files: int
+    degraded: tuple[Path, ...] = ()
+    """Destinations planned as a link or a junction that landed as a copy instead.
+
+    Empty on the happy path. Non-empty is not a failure — the content is intact
+    at every one of these paths — it is what earns the warning `overpower.cli`
+    prints after a successful install.
+    """
 
 
 class WriteFailedError(OverpowerError):
@@ -106,16 +124,19 @@ def execute(plan: Plan) -> Report:
     writes = plan.writes
     done = 0
     files = 0
+    degraded: list[Path] = []
     for write in writes:
         try:
-            _perform(write)
+            landed = _perform(write)
         except OSError as failure:
             # `.path` on either form of destination: both of them occupy one,
             # and which one it is does not change what the report has to name.
             raise WriteFailedError(done, len(writes), write.destination.path, failure) from failure
+        if landed is not write.mode:
+            degraded.append(write.destination.path)
         done += 1
         files += write.files
-    return Report(writes=done, files=files)
+    return Report(writes=done, files=files, degraded=tuple(degraded))
 
 
 def points_elsewhere(path: Path) -> bool:
@@ -128,16 +149,24 @@ def points_elsewhere(path: Path) -> bool:
     return path.is_symlink() or os.path.isjunction(path)
 
 
-def _perform(write: Write) -> None:
+def _perform(write: Write) -> WriteMode:
     """One write, dispatched on the *form of the destination* before the mode.
 
     The form comes first because that is the axis the graft lock is about: a
     flow that read the mode first would have already assumed the destination is
     a folder.
+
+    Returns the mode that actually landed, which is `write.mode` on the happy
+    path and `WriteMode.COPY` wherever a link or a junction degraded.
     """
     match write.destination, write.mode:
         case DirectoryTree(path), WriteMode.COPY:
             _land_tree(write.source, path)
+            return WriteMode.COPY
+        case DirectoryTree(path), WriteMode.LINK:
+            return _land_link(write.source, path)
+        case DirectoryTree(path), WriteMode.JUNCTION:
+            return _land_junction(write.source, path)
         case destination, mode:
             raise UnsupportedWriteError(destination, mode)
 
@@ -150,6 +179,69 @@ def _land_tree(source: Path, destination: Path) -> None:
     # second copy. No `dirs_exist_ok`: the destination was just cleared, and
     # overlaying is trap 3.
     shutil.copytree(source, destination, symlinks=True)
+
+
+def _land_link(source: Path, destination: Path) -> WriteMode:
+    """Point `destination` at `source` with a relative symlink, or copy if it fails.
+
+    Relative, not absolute: `os.path.relpath` is what lets the link survive
+    `$HOME` moving and the machine cloning to another one. The failure this
+    catches is real but not reproducible on demand — a FAT32 or exFAT target, a
+    network share, PyPy without `os.symlink` parity — so it is a plain `OSError`
+    around one call, exercised in the suite with a narrow stub rather than a
+    fabricated filesystem (ADR 0010 rules out the latter).
+    """
+    _clear(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    target = os.path.relpath(source, destination.parent)
+    try:
+        destination.symlink_to(target, target_is_directory=True)
+    except OSError:
+        _land_tree(source, destination)
+        return WriteMode.COPY
+    return WriteMode.LINK
+
+
+def _land_junction(source: Path, destination: Path) -> WriteMode:
+    """Point `destination` at `source` with a junction, or copy if it fails.
+
+    No privilege probe first: measured in
+    https://github.com/panlabs-tech/overpower/issues/19, a junction works with
+    or without `SeCreateSymbolicLinkPrivilege` — there is no rung to choose, only
+    one to attempt. The catch is broad on purpose: an audit hook on
+    `_winapi.CreateJunction` can raise from outside the `OSError` hierarchy, and
+    the correct response to *that* is the same fallback as to `FileNotFoundError`
+    on a missing volume — land a real copy and say so, never crash an install
+    over the one write that could not take the fast path.
+    """
+    _clear(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        _create_junction(source, destination)
+    except Exception:  # noqa: BLE001 — see the docstring: an audit hook is not an OSError
+        _land_tree(source, destination)
+        return WriteMode.COPY
+    return WriteMode.JUNCTION
+
+
+def _create_junction(source: Path, destination: Path) -> None:
+    """`_winapi.CreateJunction(str, str)` — Windows only, imported only when run there.
+
+    Two guards this API does not carry itself, measured in #19: it accepts
+    `Path` nowhere (`str` or `TypeError`), and it accepts a *file* as `source`
+    and creates an unusable junction in silence. Both are this function's job,
+    not the caller's.
+    """
+    if not source.is_dir():
+        message = f"junction source is not a directory: {source}"
+        raise NotADirectoryError(message)
+    import _winapi  # noqa: PLC0415 — Windows-only builtin, reached only on that platform
+
+    create_junction = cast(
+        "Callable[[str, str], None]",
+        _winapi.CreateJunction,  # pyright: ignore[reportAttributeAccessIssue,reportUnknownMemberType]
+    )
+    create_junction(str(source), str(destination))
 
 
 def _clear(path: Path) -> None:

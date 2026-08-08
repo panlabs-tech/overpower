@@ -15,7 +15,9 @@ address moves.
 
 from __future__ import annotations
 
+import os
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rich.console import Console
@@ -25,7 +27,6 @@ from overpower.screens import THEME
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
-    from pathlib import Path
 
     import pytest
 
@@ -108,7 +109,17 @@ def source(content: Path, name: str) -> Path:
 
 
 def target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str = "project") -> Path:
-    """An empty directory, made the working directory, the home and a pipe."""
+    """An empty directory, made the working directory, the home and a pipe.
+
+    `tmp_path` itself carries a `.git` marker, and `root` is a subdirectory of
+    it — a repository with the command run from inside it, the ordinary case
+    (https://github.com/panlabs-tech/overpower/issues/40). The marker sits
+    *above* `root`, never inside it, so every existing `root.iterdir()`
+    assertion keeps seeing exactly what `install` wrote and nothing else. A
+    test of the *outside-a-repository* refusal builds its own bare directory
+    instead of calling this.
+    """
+    (tmp_path / ".git").mkdir(exist_ok=True)
     root = tmp_path / name
     root.mkdir(parents=True, exist_ok=True)
     monkeypatch.chdir(root)
@@ -165,8 +176,21 @@ def paths_in(output: str) -> set[str]:
 
 
 def files_under(root: Path) -> set[str]:
-    """Every file below `root`, relative and separator-normalised. A plain walk."""
-    return {path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file()}
+    """Every file below `root`, relative and separator-normalised.
+
+    `os.walk(followlinks=True)`, not `Path.rglob` — a global-scope landing may
+    be a symlink, and the whole point of the central identity
+    (https://github.com/panlabs-tech/overpower/issues/40) is that content
+    reachable *through* one still counts. `rglob`'s own `recurse_symlinks` is
+    3.13+ only, and the floor here is 3.12. A junction needs no opt-in: it is
+    not a symlink (`os.path.islink()` is `False` for one), so `os.walk` always
+    descends into it regardless of `followlinks`.
+    """
+    return {
+        Path(base, name).relative_to(root).as_posix()
+        for base, _dirs, names in os.walk(root, followlinks=True)
+        for name in names
+    }
 
 
 def landings_of(files: set[str], announced: set[str]) -> set[str]:

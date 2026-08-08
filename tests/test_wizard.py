@@ -28,7 +28,7 @@ import questionary
 from overpower import wizard
 from overpower.discovery import load_catalog
 from overpower.planning import Request
-from overpower.runtimes import Environment, Scope
+from overpower.runtimes import RUNTIMES, UNIVERSAL_PROJECT_DIR, Environment, Scope, runtimes_in
 from tests.support.project import catalog_of
 
 if TYPE_CHECKING:
@@ -251,6 +251,55 @@ def test_runtime_choices_group_the_universal_set_under_one_heading() -> None:
     assert any("Universal" in separator.line for separator in separators)
 
 
+def test_the_universal_heading_covers_exactly_the_runtimes_that_read_that_path() -> None:
+    """The heading names a path, so its members are whoever reads it — nobody else.
+
+    Asserted over membership and not merely over the presence of the heading,
+    which is the assertion whose absence let the group be built from
+    `in_universal_list`: that flag is `False` on two rows, so it gathered 74
+    runtimes under `.agents/skills` when 19 read it.
+    """
+    # given
+    reads_the_path = [
+        runtime.key
+        for runtime in runtimes_in(Scope.PROJECT)
+        if runtime.project_dir.relative == UNIVERSAL_PROJECT_DIR
+    ]
+
+    choices = wizard.runtime_choices(Scope.PROJECT, frozenset())
+
+    grouped = _under(choices, "Universal")
+    assert grouped == reads_the_path
+    assert len(grouped) == len(RUNTIMES) - len(_under(choices, "Other"))
+
+
+def test_no_runtime_is_grouped_under_a_path_it_does_not_read() -> None:
+    """The measured shape of the defect: `claude-code` reads `.claude/skills`.
+
+    Named individually because the three of them are the ones a reader
+    recognises, and because a count alone would not say *which* rows moved.
+    """
+    choices = wizard.runtime_choices(Scope.PROJECT, frozenset())
+
+    grouped = _under(choices, "Universal")
+    assert "claude-code" not in grouped
+    assert "droid" not in grouped
+    assert "astrbot" not in grouped
+
+
+def _under(choices: list[questionary.Separator | questionary.Choice], heading: str) -> list[str]:
+    """Every runtime key listed under the heading containing `heading`, until the next one."""
+    keys: list[str] = []
+    collecting = False
+    for choice in choices:
+        if isinstance(choice, questionary.Separator):
+            collecting = heading in choice.line
+            continue
+        if collecting:
+            keys.append(str(choice.value))
+    return keys
+
+
 def test_ask_runtimes_returns_the_pick_as_a_tuple(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -415,8 +464,13 @@ def test_the_real_wizard_under_a_pty_produces_the_expected_request(tmp_path: Pat
     Against the real shipped catalog — one AI Framework, one pool skill, one
     bundle — so the first artifact choice is deterministic without pinning a
     curated name that a refresh could rename. Runtimes are equally
-    deterministic off the runtime table itself: the first row, `aider-desk`,
-    is in the universal group, shown first.
+    deterministic off the runtime table itself: the universal group is shown
+    first, and its first member in table order is `amp`.
+
+    It used to expect `aider-desk` here, and that expectation was the defect
+    seen from the other side: `aider-desk` reads `.aider-desk/skills`, and it
+    only came first while the group was built from `in_universal_list` and
+    therefore held 74 of the 76 rows.
     """
     # given
     cwd = tmp_path / "project"
@@ -435,4 +489,4 @@ def test_the_real_wizard_under_a_pty_produces_the_expected_request(tmp_path: Pat
     assert data["bundles"] == ""
     assert data["skills"] == ""
     assert data["scope"] == "project"
-    assert data["runtimes"] == "aider-desk"
+    assert data["runtimes"] == "amp"

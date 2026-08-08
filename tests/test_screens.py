@@ -27,27 +27,32 @@ screens a change had licence to move, and a screen that also moves when the
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+from rich.console import Console
 
 from overpower.discovery import Artifact, ArtifactType, Bundle, Catalog, Framework, load_catalog
 from overpower.packaged import catalog_file, content_root
+from overpower.planning import DirectoryTree, Landing, Plan, Selection, Write, WriteMode
 from overpower.screens import (
     BANNER,
+    THEME,
     artifact_screen,
     banner,
     bundle_screen,
     catalog_screen,
     framework_screen,
     human,
+    plan_screen,
 )
 from tests.support.screens import WIDTHS, console, render
 from tests.support.snapshots import assert_matches_snapshot
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from rich.console import RenderableType
 
@@ -226,6 +231,136 @@ def recorded_bundle() -> Bundle:
         description="Equipment for working on a Python API.",
         artifacts=(artifact("tdd", "Red-green-refactor.", files=4, size=6_800), ruler()),
     )
+
+
+ROOT = Path("project")
+"""The target a recorded plan hangs off. Relative, and never touched: the screen
+shows destinations relative to it, so this is path arithmetic and not a disk."""
+
+UNIVERSAL_READERS = (
+    "cursor",
+    "codex",
+    "github-copilot",
+    *(f"reader-{index:02d}" for index in range(16)),
+)
+"""19 runtimes reading one place, which is the case the screen exists for.
+
+`.agents/skills` is shared by 19 of the 76 rows, so a plan that named the
+runtime instead of the path would promise Cursor and deliver twenty (ADR 0008).
+Three names and a `(+16)` is what the reader gets instead.
+"""
+
+
+def landing(place: str, readers: Sequence[str], name: str, files: int) -> Landing:
+    return Landing(
+        place=ROOT / place,
+        readers=tuple(readers),
+        writes=(
+            Write(
+                source=Path("content") / "pool" / "skills" / name,
+                destination=DirectoryTree(ROOT / place / name),
+                mode=WriteMode.COPY,
+                files=files,
+            ),
+        ),
+    )
+
+
+def selected(name: str, files: int) -> Selection:
+    return Selection(
+        name=name,
+        artifacts=(ArtifactType.SKILL,),
+        landings=(
+            landing(".agents/skills", UNIVERSAL_READERS, name, files),
+            landing(".claude/skills", ("claude-code",), name, files),
+        ),
+    )
+
+
+def recorded_plan() -> Plan:
+    """The plan the screens are recorded against: fixed, and ours.
+
+    Two selections, so the blank line between them is recorded; two landings
+    each, so the collapse of many runtimes into one path is recorded; and both
+    spellings of the file count — `8 files` and `1 file` — because those are the
+    formatting paths an edit could break in silence.
+    """
+    return Plan(
+        root=ROOT,
+        selections=(selected("panlabs-python-standards", 8), selected("grilling", 1)),
+    )
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_every_planned_path_appears_in_the_rendered_plan(width: int) -> None:
+    """No write may be invisible: the screen is the promise the disk has to keep."""
+    plan = recorded_plan()
+
+    joined = unwrapped(render(plan_screen(plan), width))
+
+    for selection in plan.selections:
+        assert selection.name in joined
+        for landed in selection.landings:
+            assert f"{landed.place.relative_to(ROOT).as_posix()}/" in joined
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_plan_names_who_reads_each_path(width: int) -> None:
+    """`.agents/skills/ ← cursor, codex, github-copilot (+16)`, never just a runtime.
+
+    Content and not layout, because layout is the snapshot's job: at 60 columns
+    the reader list wraps around the right-aligned file count, and asserting the
+    one-line spelling here would be asserting the width.
+    """
+    joined = unwrapped(render(plan_screen(recorded_plan()), width))
+
+    for reader in ("cursor", "codex", "github-copilot", "claude-code"):
+        assert reader in joined
+    assert "(+16)" in joined
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_no_rendered_line_of_the_plan_exceeds_the_terminal_width(width: int) -> None:
+    rendered = render(plan_screen(recorded_plan()), width)
+
+    assert [line for line in rendered.splitlines() if len(line) > width] == []
+    assert "…" not in rendered
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_plan_screen_matches_its_snapshot(request: pytest.FixtureRequest, width: int) -> None:
+    rendered = render(plan_screen(recorded_plan()), width)
+
+    assert_matches_snapshot(request, f"plan-{width}", rendered)
+
+
+@pytest.mark.parametrize(
+    ("encoding", "expected"),
+    [pytest.param("utf-8", "←", id="utf-8"), pytest.param("cp1252", "<-", id="cp1252")],
+)
+def test_the_arrow_follows_what_the_encoding_can_carry(encoding: str, expected: str) -> None:
+    """Measured: `←` is not in cp1252, which is what a pipe on Windows takes.
+
+    Rich writes text straight to the file, so a hard-coded arrow raises
+    `UnicodeEncodeError` out of the middle of the screen — on three of the nine
+    cells and nowhere else. Writing to a stream that carries the encoding is the
+    only honest measurement, and the write itself is half the assertion.
+    """
+    stream = io.TextIOWrapper(io.BytesIO(), encoding=encoding, newline="")
+    target = Console(
+        file=stream,
+        record=True,
+        width=80,
+        force_terminal=True,
+        legacy_windows=False,
+        no_color=True,
+        highlight=False,
+        theme=THEME,
+    )
+
+    target.print(plan_screen(recorded_plan()))
+
+    assert expected in target.export_text(clear=False, styles=False)
 
 
 @pytest.mark.parametrize("width", WIDTH_CASES)

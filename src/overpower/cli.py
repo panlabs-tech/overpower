@@ -31,8 +31,10 @@ from __future__ import annotations
 
 from enum import IntEnum
 from importlib import metadata
+from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
+import questionary
 import typer
 from rich.console import Console
 from rich.text import Text
@@ -40,6 +42,8 @@ from rich.text import Text
 from overpower.discovery import load_catalog
 from overpower.errors import BadInvocationError, OverpowerError
 from overpower.packaged import catalog_file, content_root
+from overpower.planning import Request, plan_for
+from overpower.runtimes import Scope
 from overpower.screens import (
     THEME,
     artifact_screen,
@@ -48,7 +52,9 @@ from overpower.screens import (
     catalog_screen,
     error_panel,
     framework_screen,
+    plan_screen,
 )
+from overpower.writing import execute
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -210,6 +216,68 @@ def _listed(
     return catalog_screen(catalog)
 
 
+@app.command()
+def install(
+    *,
+    skill: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--skill",
+            "-s",
+            metavar="NAME",
+            help="Pool skills to install. Comma-separated, repeated, or both.",
+        ),
+    ] = None,
+    runtime: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--runtime",
+            metavar="KEY",
+            help="Runtimes to equip. Comma-separated, repeated, or both. No default.",
+        ),
+    ] = None,
+    yes: Annotated[
+        bool, typer.Option("--yes", "-y", help="Skip the confirmation, and nothing else.")
+    ] = False,
+    dry_run: Annotated[
+        # No short form, on purpose: an audit flag typed out in full is part of
+        # the gesture. It resolves everything and leaves nothing in the target.
+        bool,
+        typer.Option("--dry-run", help="Print the plan and write nothing."),
+    ] = False,
+) -> None:
+    """Install curated equipment into the current repository."""
+    request = Request(
+        skills=_accumulated(skill),
+        runtimes=_accumulated(runtime),
+        scope=Scope.PROJECT,
+        dry_run=dry_run,
+        yes=yes,
+    )
+    # Planned before anything is drawn, so a refusal costs no screen: a bad
+    # runtime is exit 2 with nothing written and nothing announced.
+    plan = plan_for(request, load_catalog(content_root(), catalog_file()), Path.cwd())
+
+    _print_banner()
+    _out.print(plan_screen(plan))
+
+    if request.dry_run:
+        _out.print(Text.assemble(("dry run", "op.warn"), " ", ("nothing was written", "op.dim")))
+        return
+    if _asking(request) and not _confirmed():
+        _out.print(Text("nothing was written", style="op.dim"))
+        raise typer.Exit(ExitCode.CANNOT_RUN)
+
+    report = execute(plan)
+    _out.print(
+        Text.assemble(
+            ("installed", "op.ok"),
+            " ",
+            (f"{report.writes} writes · {report.files} files", "op.dim"),
+        )
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """The console script, and the only place an exception stops being one.
 
@@ -243,6 +311,46 @@ def _print_banner() -> None:
     if not _out.is_terminal:
         return
     _out.print(banner(_version(), _out.width))
+
+
+def _accumulated(values: Sequence[str] | None) -> tuple[str, ...]:
+    """Comma and repeated flag, both accepted, both accumulating.
+
+    It is what `ruff --select E,F,W` and `gh pr create --reviewer a,b --reviewer c`
+    taught people to type, so both spellings arrive at the same tuple and the
+    rest of the program never learns which was used.
+    """
+    if not values:
+        return ()
+    return tuple(part.strip() for value in values for part in value.split(",") if part.strip())
+
+
+def _asking(request: Request) -> bool:
+    """Whether this run stops to confirm before the first byte.
+
+    Two ways out, and they are not the same one. `--yes` skips the confirmation
+    and nothing else — choosing between writing in the repository and writing in
+    `~/` is not a yes-or-no question. And **without a terminal the command runs
+    without needing `--yes` at all**: v0.1.0 removes nothing, so it stands next
+    to `pip` and not next to `apt-get`. `--yes` stays *accepted* there as a
+    no-op, so the same line runs identically in a terminal and in CI.
+    """
+    return _out.is_terminal and not request.yes
+
+
+def _confirmed() -> bool:
+    """Ask, and read the answer as a yes or anything else.
+
+    The copy is English for a mechanical reason before an aesthetic one: read in
+    the source of `questionary`, the echo of `confirm` comes from a module
+    constant and the keys are fixed at `y`/`n`, with no binding for `s` — in
+    pt-BR the user would press `s` for *"sim"*, nothing would happen, and the
+    answer would echo `Yes`.
+
+    `ask()` answers `None` when the prompt is interrupted, which is the same
+    gesture as declining and is treated as one.
+    """
+    return bool(questionary.confirm("Write these paths?", default=True).ask())
 
 
 def _failed(message: str, code: ExitCode = ExitCode.CANNOT_RUN, *, unexpected: bool = False) -> int:

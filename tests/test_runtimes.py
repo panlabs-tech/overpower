@@ -22,6 +22,7 @@ from overpower.runtimes import (
     Evidence,
     Runtime,
     Scope,
+    detected_runtimes,
     places_of,
     resolve_global_dir,
     resolve_project_dir,
@@ -331,3 +332,59 @@ def test_places_of_in_global_scope_hangs_off_the_environment_and_not_the_root() 
     places = places_of(chosen, Scope.GLOBAL, REPO, environment())
 
     assert list(places) == [HOME / ".claude" / "skills"]
+
+
+# --- the wizard's pre-mark: detected_runtimes -------------------------------
+#
+# No state file (ADR 0008): pre-checking comes from what already exists, read
+# through `environment.directory_exists` and never a bare `Path.is_dir()`, so
+# these stay as testable as every other resolution above.
+
+
+def test_project_scope_pre_checks_only_the_runtime_whose_directory_exists() -> None:
+    env = environment(present=frozenset({REPO / ".claude" / "skills"}))
+    assert detected_runtimes(Scope.PROJECT, REPO, env) == frozenset({"claude-code"})
+
+
+def test_project_scope_with_nothing_on_disk_detects_nothing() -> None:
+    assert detected_runtimes(Scope.PROJECT, REPO, environment()) == frozenset()
+
+
+def test_project_scope_falls_back_to_home_when_the_repository_has_no_runtime_directory() -> None:
+    """The one divergence from upstream ADR 0008 names: 65 of 76 probe `~` outright.
+
+    Here the project is asked first — it is what the *repository* carries —
+    and only a repository with zero signal falls back to the machine.
+    """
+    env = environment(present=frozenset({HOME / ".cursor" / "skills"}))
+    assert detected_runtimes(Scope.PROJECT, REPO, env) == frozenset({"cursor"})
+
+
+def test_a_repository_with_any_runtime_directory_does_not_fall_back() -> None:
+    """One project signal is enough to trust the project over the machine."""
+    env = environment(present=frozenset({REPO / ".claude" / "skills", HOME / ".cursor" / "skills"}))
+    assert detected_runtimes(Scope.PROJECT, REPO, env) == frozenset({"claude-code"})
+
+
+def test_global_scope_probes_home_directly_and_never_the_project() -> None:
+    env = environment(present=frozenset({REPO / ".claude" / "skills"}))
+    assert detected_runtimes(Scope.GLOBAL, REPO, env) == frozenset()
+
+
+def test_global_scope_pre_checks_what_is_already_under_home() -> None:
+    env = environment(present=frozenset({HOME / ".cursor" / "skills"}))
+    assert detected_runtimes(Scope.GLOBAL, REPO, env) == frozenset({"cursor"})
+
+
+def test_detection_never_offers_a_runtime_the_scope_would_refuse() -> None:
+    """`eve` and `promptscript` have no global destination (ADR 0009).
+
+    Everything is marked present, which is the adversarial case: if the two
+    rows could ever appear, this is where they would. `_present_at` only ever
+    iterates `runtimes_in(scope)`, so they cannot — asserted over the whole
+    scoped set rather than the two known keys, the way
+    `test_every_runtime_offered_in_a_scope_has_somewhere_to_land` already is.
+    """
+    env = Environment(home=HOME, variables={}, directory_exists=lambda _path: True)
+    detected = detected_runtimes(Scope.GLOBAL, REPO, env)
+    assert detected == {r.key for r in runtimes_in(Scope.GLOBAL)}

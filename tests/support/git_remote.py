@@ -33,8 +33,10 @@ import subprocess
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from overpower import remote
+
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
     from pathlib import Path
 
 # `git` is invoked by name and without a shell. `S603`/`S607` want an absolute
@@ -146,3 +148,66 @@ def _must(result: subprocess.CompletedProcess[str]) -> subprocess.CompletedProce
         message = f"building the local remote failed ({result.returncode}): {result.stderr}"
         raise RuntimeError(message)
     return result
+
+
+def skill_files(*names: str, under: str = "skills") -> dict[str, str]:
+    """A repository tree carrying one `SKILL.md` per name, at `<under>/<name>/`.
+
+    The same mapping `build` takes, so a tree can be committed into a local
+    remote or planted directly by `planting` without either side knowing which
+    one the test chose.
+    """
+    return {
+        f"{under}/{name}/SKILL.md": (
+            f"---\nname: {name}\ndescription: The {name} skill.\n---\n\n# {name}\n"
+        )
+        for name in names
+    }
+
+
+def instead_of_github(local: LocalRemote) -> Callable[[str, str, Path], Path]:
+    """The product's own primary obtention, aimed at `local` instead of GitHub.
+
+    Not a double of the fetch: it **is** `overpower.remote.fetch_with_git`, with
+    the one argument that cannot be a local path — the URL — replaced. That is
+    what keeps the subprocess, the argv, the `LC_ALL=C` guard and the `exit 128`
+    classification real while the network stays out of the gate
+    (`docs/agents/testing.md`, §3).
+    """
+
+    # Bound now, not at call time: the caller's next move is to monkeypatch this
+    # very name, and a late lookup would find the replacement and recurse.
+    real = remote.fetch_with_git
+
+    def fetch(_url: str, ref: str, into: Path) -> Path:
+        return real(local.url, ref, into)
+
+    return fetch
+
+
+def planting(files: Mapping[str, str]) -> Callable[[str, str, Path], Path]:
+    """An obtainer that succeeds, landing `files` where the search will look.
+
+    This is the one double the doctrine's table sanctions on this path — *"decidir
+    cair no fallback: **stub** do obtentor, devolvendo o desfecho"*. It stands in
+    for the outcome of an obtention, never for its mechanism, which is what
+    `instead_of_github` keeps real.
+    """
+
+    def fetch(_url: str, _ref: str, into: Path) -> Path:
+        for relative, content in files.items():
+            destination = into / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(content, encoding="utf-8", newline="\n")
+        return into
+
+    return fetch
+
+
+def refusing(reason: str) -> Callable[..., Path]:
+    """An obtainer that fails the way a transport fails, carrying `reason`."""
+
+    def fetch(*_args: object, **_kwargs: object) -> Path:
+        raise remote.ObtentionError(reason)
+
+    return fetch

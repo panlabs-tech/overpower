@@ -314,17 +314,30 @@ def _type_dirs(root: Path) -> Iterable[tuple[Path, ArtifactType]]:
         yield directory, artifact_type
 
 
+def artifact_at(directory: Path, artifact_type: ArtifactType) -> Artifact:
+    """One artifact, read off its own directory: its name, its description, its weight.
+
+    The embedded walk and the remote search of `--from` both land here, and that
+    is what makes the module docstring's promise true rather than hopeful: the
+    two paths describe an artifact identically **because both of them read the
+    artifact**. The type is a parameter because the tree is what knows it — the
+    walk reads it off the folder above, and a remote search of `SKILL.md` names
+    it at the call site.
+    """
+    files, size = _weigh(directory)
+    return Artifact(
+        type=artifact_type,
+        name=directory.name,
+        path=directory,
+        description=_description_of(directory),
+        files=files,
+        size=size,
+    )
+
+
 def _artifacts_in(type_dir: Path, artifact_type: ArtifactType) -> Iterable[Artifact]:
     for directory in _directories(type_dir):
-        files, size = _weigh(directory)
-        yield Artifact(
-            type=artifact_type,
-            name=directory.name,
-            path=directory,
-            description=_description_of(directory),
-            files=files,
-            size=size,
-        )
+        yield artifact_at(directory, artifact_type)
 
 
 def _directories(root: Path) -> list[Path]:

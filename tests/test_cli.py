@@ -26,16 +26,21 @@ from typing import TYPE_CHECKING
 import pytest
 from rich.console import Console
 
-from overpower import cli
+from overpower import cli, remote
 from overpower.discovery import load_catalog
 from overpower.errors import OverpowerError
 from overpower.packaged import catalog_file, content_root
+from overpower.planning import Request
+from overpower.runtimes import Scope
 from overpower.screens import THEME
-from tests.support import project
+from tests.support import git_remote, project
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
     from pathlib import Path
+
+    from overpower.discovery import Catalog
+    from overpower.runtimes import Environment
 
     CaptureFixture = pytest.CaptureFixture[str]
 
@@ -591,3 +596,363 @@ def test_global_needs_no_git_repository_at_all(
 
     assert code == 0
     assert (home / project.CLAUDE / "alpha" / "SKILL.md").is_file()
+
+
+# --------------------------------------------------------------------------- #
+# #41: install pelado (no artifact selector) opens the wizard in a terminal
+# --------------------------------------------------------------------------- #
+
+
+def _stub_wizard(
+    request: Request, root: Path
+) -> Callable[[Catalog, Environment, Path], tuple[Request, Path]]:
+    """A `run_wizard` replacement that hands back a fixed outcome.
+
+    Named and explicitly typed rather than a lambda closing over `request` and
+    `root`: `pytest.MonkeyPatch.setattr`'s string-keyed overload types `value`
+    as `object`, so an unannotated lambda parameter stays `Unknown` under
+    `pyright --strict` with nothing to infer it from.
+    """
+
+    def wizard(_catalog: Catalog, _environment: Environment, _cwd: Path) -> tuple[Request, Path]:
+        return request, root
+
+    return wizard
+
+
+def _never_called(*_args: object, **_kwargs: object) -> object:
+    message = "the wizard must not run here"
+    raise AssertionError(message)
+
+
+def test_a_bare_install_in_a_terminal_calls_the_wizard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """`install` pelado com TTY abre o wizard: the wizard's `Request` drives the same flow."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    root = project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    request = Request(skills=("alpha",), runtimes=("claude-code",), scope=Scope.PROJECT)
+    monkeypatch.setattr(cli, "run_wizard", _stub_wizard(request, root))
+
+    code, _ = project.run(capsys, "install", "--yes")
+
+    assert code == 0
+    assert (root / project.CLAUDE / "alpha" / "SKILL.md").is_file()
+
+
+def test_a_bare_install_without_a_terminal_never_touches_the_wizard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """Without a TTY the bare invocation still reaches `NothingSelectedError` — exit 2, no hang."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    project.target(tmp_path, monkeypatch)  # tty=False by default
+    monkeypatch.setattr(cli, "run_wizard", _never_called)
+
+    code, output = project.run(capsys, "install")
+
+    assert code == 2
+    assert "nothing to install" in project.joined(output)
+
+
+def test_flags_given_in_a_terminal_do_not_open_the_wizard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """A selector on the line is not a bare invocation, even from a terminal."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    root = project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    monkeypatch.setattr(cli, "run_wizard", _never_called)
+
+    code, _ = project.run(
+        capsys, "install", "--skill", "alpha", "--runtime", "claude-code", "--yes"
+    )
+
+    assert code == 0
+    assert (root / project.CLAUDE / "alpha" / "SKILL.md").is_file()
+
+
+def test_the_wizard_being_abandoned_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """Backing out of the wizard is the same shape as declining the confirmation."""
+
+    def abandoned(_catalog: Catalog, _environment: Environment, _cwd: Path) -> None:
+        return None
+
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    root = project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    monkeypatch.setattr(cli, "run_wizard", abandoned)
+
+    code, output = project.run(capsys, "install")
+
+    assert code == 1
+    assert "nothing was written" in project.joined(output)
+    assert list(root.iterdir()) == []
+
+
+def test_the_wizard_request_still_takes_its_mode_flags_from_the_command_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """`--dry-run`, `--force` and `--yes` are not wizard steps — they pass through unchanged."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    root = project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    request = Request(skills=("alpha",), runtimes=("claude-code",), scope=Scope.PROJECT)
+    monkeypatch.setattr(cli, "run_wizard", _stub_wizard(request, root))
+
+    code, output = project.run(capsys, "install", "--dry-run")
+
+    assert code == 0
+    assert "dry run" in project.joined(output)
+    assert list(root.iterdir()) == []
+
+
+# --------------------------------------------------------------------------- #
+# #42: --from, the remote search root, and the exit codes it answers with
+# --------------------------------------------------------------------------- #
+
+REMOTE = "https://github.com/owner/repo"
+"""Any GitHub URL, without registration. Nothing here reaches it: the obtainer
+is the one double the doctrine's table sanctions on this path."""
+
+
+def _exploding(*_: object, **__: object) -> object:
+    """A catalog read that must never happen: `--from` is exclusive."""
+    message = "the embedded catalog was read while `--from` was given"
+    raise OverpowerError(message)
+
+
+@pytest.mark.parametrize(
+    "unit",
+    [
+        pytest.param(("--ai-framework", "matt-pocock"), id="--ai-framework"),
+        pytest.param(("--bundle", "api-python"), id="--bundle"),
+    ],
+)
+def test_from_with_a_framework_or_a_bundle_exits_two(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture, unit: tuple[str, str]
+) -> None:
+    """Skill is the only unit that exists in the market; the other two only exist
+    in a repository that already knows the overpower."""
+    # given
+    project.target(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+
+    code, output = project.run(
+        capsys, "install", "--from", REMOTE, *unit, "--runtime", "claude-code"
+    )
+
+    assert code == 2
+    assert unit[0] in project.joined(output)
+
+
+def test_from_with_nothing_to_look_for_exits_two_before_obtaining_anything(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """A search root and nothing to search for costs a repository download otherwise."""
+    # given
+    project.target(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    monkeypatch.setattr(remote, "fetch_with_git", git_remote.refusing("obtention was attempted"))
+    monkeypatch.setattr(remote, "fetch_tarball", git_remote.refusing("obtention was attempted"))
+
+    code, _ = project.run(capsys, "install", "--from", REMOTE, "--runtime", "claude-code")
+
+    assert code == 2
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param(REMOTE, id="repository root"),
+        pytest.param(f"{REMOTE}/tree/main/skills", id="a subfolder"),
+        pytest.param(f"{REMOTE}/tree/main/skills/alpha", id="the artifact's own folder"),
+    ],
+)
+def test_the_three_depths_of_url_install_the_same_skill(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture, url: str
+) -> None:
+    """And the embedded catalog is never read: with `--from`, only the remote is consulted."""
+    # given
+    root = project.target(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    monkeypatch.setattr(
+        remote, "fetch_with_git", git_remote.planting(git_remote.skill_files("alpha", "beta"))
+    )
+
+    code, _ = project.run(
+        capsys, "install", "--from", url, "--skill", "alpha", "--runtime", "claude-code", "--yes"
+    )
+
+    assert code == 0
+    assert (root / project.CLAUDE / "alpha" / "SKILL.md").is_file()
+    assert not (root / project.CLAUDE / "beta").exists()
+
+
+def test_a_search_that_finds_nothing_does_not_fall_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """#25 measured this as a live bug: the fallback ran for *"the skill is not
+    there"*, re-fetched the whole repository and returned the same answer.
+
+    Obtention failure -> fallback, then exit 1 if it also fails.
+    Obtained, searched, not found -> exit 3, and the fallback is never called.
+    """
+    # given
+    asked: list[object] = []
+    root = project.target(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    monkeypatch.setattr(
+        remote, "fetch_with_git", git_remote.planting(git_remote.skill_files("alpha"))
+    )
+
+    def fallback(*args: object, **_kwargs: object) -> object:
+        return asked.append(args)
+
+    monkeypatch.setattr(remote, "fetch_tarball", fallback)
+
+    code, output = project.run(
+        capsys, "install", "--from", REMOTE, "--skill", "beta", "--runtime", "claude-code", "--yes"
+    )
+
+    assert code == 3
+    assert asked == []
+    assert "beta" in project.joined(output)
+    assert list(root.iterdir()) == []
+
+
+def test_an_obtention_that_fails_on_both_paths_exits_one_carrying_the_transport_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """Exit 1 is *could not run*, and the message is the transport's, because it
+    is the one that names the problem."""
+    # given
+    root = project.target(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    monkeypatch.setattr(
+        remote, "fetch_with_git", git_remote.refusing("fatal: couldn't find remote ref nope")
+    )
+    monkeypatch.setattr(remote, "fetch_tarball", git_remote.refusing("HTTP Error 404: Not Found"))
+
+    code, output = project.run(
+        capsys, "install", "--from", REMOTE, "--skill", "alpha", "--runtime", "claude-code", "--yes"
+    )
+
+    assert code == 1
+    assert "couldn't find remote ref nope" in project.joined(output)
+    assert list(root.iterdir()) == []
+
+
+def test_a_dry_run_resolves_the_remote_and_still_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """A dry run that does not fetch is a report about another installation."""
+    # given
+    obtained: list[object] = []
+    root = project.target(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    planted = git_remote.planting(git_remote.skill_files("alpha"))
+
+    def fetch(url: str, ref: str, into: Path) -> Path:
+        obtained.append(url)
+        return planted(url, ref, into)
+
+    monkeypatch.setattr(remote, "fetch_with_git", fetch)
+
+    code, output = project.run(
+        capsys,
+        "install",
+        "--from",
+        REMOTE,
+        "--skill",
+        "alpha",
+        "--runtime",
+        "claude-code",
+        "--dry-run",
+    )
+
+    assert code == 0
+    assert obtained
+    assert "alpha" in project.joined(output)
+    assert list(root.iterdir()) == []
+
+
+def test_from_in_a_terminal_installs_instead_of_opening_the_wizard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """#41 and #42 meet here: a `--from` line is never a bare invocation.
+
+    The wizard is driven by the embedded catalog, which is exactly what *"only
+    the remote is consulted"* forbids — so the two features cannot both be right
+    on one line, and this is which of them wins.
+    """
+    # given
+    root = project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    monkeypatch.setattr(cli, "run_wizard", _never_called)
+    monkeypatch.setattr(
+        remote, "fetch_with_git", git_remote.planting(git_remote.skill_files("alpha"))
+    )
+
+    code, _ = project.run(
+        capsys, "install", "--from", REMOTE, "--skill", "alpha", "--runtime", "claude-code", "--yes"
+    )
+
+    assert code == 0
+    assert (root / project.CLAUDE / "alpha" / "SKILL.md").is_file()
+
+
+def test_from_with_nothing_to_look_for_is_refused_rather_than_handed_to_the_wizard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The other half of the same rule, and the one the refusal's *order* buys.
+
+    Naming a search root and nothing to look for is a bare invocation by the
+    wizard's own test — no selector on the line — so without the guard landing
+    first, a terminal would answer a `--from` line by opening the embedded
+    catalog.
+    """
+    # given
+    project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    monkeypatch.setattr(cli, "run_wizard", _never_called)
+    monkeypatch.setattr(remote, "fetch_with_git", git_remote.refusing("obtention was attempted"))
+    monkeypatch.setattr(remote, "fetch_tarball", git_remote.refusing("obtention was attempted"))
+
+    code, output = project.run(capsys, "install", "--from", REMOTE, "--runtime", "claude-code")
+
+    assert code == 2
+    assert "--skill" in project.joined(output)
+
+
+def test_a_url_that_is_not_a_github_repository_exits_two_before_obtaining_anything(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    # given
+    project.target(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    monkeypatch.setattr(remote, "fetch_with_git", git_remote.refusing("obtention was attempted"))
+    monkeypatch.setattr(remote, "fetch_tarball", git_remote.refusing("obtention was attempted"))
+
+    code, output = project.run(
+        capsys,
+        "install",
+        "--from",
+        "https://gitlab.com/owner/repo",
+        "--skill",
+        "alpha",
+        "--runtime",
+        "claude-code",
+    )
+
+    assert code == 2
+    assert "gitlab.com" in project.joined(output)

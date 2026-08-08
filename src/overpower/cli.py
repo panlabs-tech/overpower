@@ -44,6 +44,7 @@ from overpower.discovery import load_catalog
 from overpower.errors import BadInvocationError, OverpowerError, RefusedError
 from overpower.packaged import catalog_file, content_root
 from overpower.planning import Request, plan_for
+from overpower.remote import catalog_from
 from overpower.runtimes import Environment, Scope
 from overpower.scope import git_root
 from overpower.screens import (
@@ -124,6 +125,42 @@ class TooManySelectorsError(BadInvocationError):
         self.flags = tuple(flags)
         given = " and ".join(self.flags)
         super().__init__(f"`list` shows one item at a time, and got {given}")
+
+
+class UnsupportedRemoteUnitError(BadInvocationError):
+    """`--from` on a line that also names an AI Framework or a bundle.
+
+    `--from` is for `--skill` and nothing else in v0.1.0, and the reason is the
+    same one that separates the three units: a **skill is the only one that
+    exists in the market**, while a bundle and an AI Framework only exist in a
+    repository that already knows the overpower. Refusing by name is what keeps
+    the flag from silently meaning less than it says.
+
+    It lives here rather than in `overpower.remote` for the same reason
+    `TooManySelectorsError` does: nothing about the URL or the names is wrong —
+    it is the *line* that has no single answer, so no obtention is attempted.
+    """
+
+    def __init__(self, flags: Sequence[str]) -> None:
+        """Name every unit flag that cannot travel with `--from`."""
+        self.flags = tuple(flags)
+        given = " and ".join(self.flags)
+        super().__init__(f"`--from` installs skills only, and this line also has {given}")
+
+
+class NothingToSearchForError(BadInvocationError):
+    """`--from` with no `--skill`: a search root, and nothing to look for in it.
+
+    `plan_for` already refuses an empty selection, and this exists because of
+    *when* rather than *whether*: reaching that refusal would cost a whole
+    repository download first, for a line that could never have installed
+    anything. It is the same reasoning that puts `TooManySelectorsError` before
+    the catalog is read.
+    """
+
+    def __init__(self) -> None:
+        """Say which half of the line is missing."""
+        super().__init__("`--from` names where to look, and no --skill names what to look for")
 
 
 class OutsideRepositoryError(BadInvocationError):
@@ -281,6 +318,18 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
             help="Runtimes to equip. Comma-separated, repeated, or both. No default.",
         ),
     ] = None,
+    from_: Annotated[
+        # No short flag, and no default: absent means the embedded catalog, which
+        # is the only other thing it could mean.
+        str | None,
+        typer.Option(
+            "--from",
+            metavar="URL",
+            help="Take --skill from any GitHub repository instead of the embedded catalog. "
+            "The URL is a search root: the repository, a subfolder or the skill's own folder. "
+            "`tree/<ref>/<path>` pins a branch, a tag or a SHA.",
+        ),
+    ] = None,
     global_: Annotated[
         bool,
         typer.Option(
@@ -308,49 +357,119 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
     ] = False,
 ) -> None:
     """Install curated equipment into the current repository, or onto the machine."""
+    frameworks = _accumulated(ai_framework)
+    bundles = _accumulated(bundle)
+    skills = _accumulated(skill)
+    # Before the scope, before the catalog and before any obtention: a line that
+    # `--from` cannot answer is a defect of the *line*, and answering it must not
+    # depend on there being a git repository, a readable tree or a network.
+    _refuse_a_line_from_cannot_answer(from_, frameworks, bundles, skills)
+
     environment = Environment.from_process()
-    catalog = load_catalog(content_root(), catalog_file())
     # The same condition `NothingSelectedError` checks: nothing on any of the
     # three artifact selectors. In a terminal the wizard is the branch that
     # replaces that error rather than a case competing with it
     # (https://github.com/panlabs-tech/overpower/issues/41); without a
     # terminal the flag path below still reaches that same error, so a bare
     # invocation off a pipe exits 2 without ever touching `questionary`.
-    wizarding = _out.is_terminal and not (
-        _accumulated(ai_framework) or _accumulated(bundle) or _accumulated(skill)
-    )
+    #
+    # `--from` is never the wizard's line: a wizard driven by the embedded
+    # catalog is exactly what *"only the remote is consulted"* forbids. The
+    # guard above already makes that true — it proved the line names a skill,
+    # so the third clause is false anyway — and the first clause says the rule
+    # here rather than leaving it to be re-derived. It is what a later
+    # relaxation of the guard would have to walk past on purpose.
+    wizarding = from_ is None and _out.is_terminal and not (frameworks or bundles or skills)
 
     if wizarding:
         # The banner first: a human about to answer three questions reads it
         # as context, unlike the flag path below, where a screen ahead of a
         # refusal would be the product answering before it knew.
         _print_banner()
+        catalog = load_catalog(content_root(), catalog_file())
         outcome = run_wizard(catalog, environment, Path.cwd())
         if outcome is None:
             _out.print(Text("nothing was written", style="op.dim"))
             raise typer.Exit(ExitCode.CANNOT_RUN)
         wizard_request, root = outcome
         request = replace(wizard_request, force=force, dry_run=dry_run, yes=yes)
-    else:
-        scope, root = _scope_and_root(global_=global_, environment=environment)
-        request = Request(
-            ai_frameworks=_accumulated(ai_framework),
-            bundles=_accumulated(bundle),
-            skills=_accumulated(skill),
-            runtimes=_accumulated(runtime),
-            scope=scope,
-            force=force,
-            dry_run=dry_run,
-            yes=yes,
-        )
+        _perform(request, catalog, root, environment, banner=False)
+        return
 
-    # Planned before anything is drawn, so a refusal on the flag path costs no
-    # screen: a bad runtime, or a global destination that already exists
-    # without --force, is exit 2 or exit 3 with nothing written and nothing
-    # announced.
+    scope, root = _scope_and_root(global_=global_, environment=environment)
+    request = Request(
+        ai_frameworks=frameworks,
+        bundles=bundles,
+        skills=skills,
+        runtimes=_accumulated(runtime),
+        scope=scope,
+        force=force,
+        dry_run=dry_run,
+        yes=yes,
+    )
+
+    if from_ is None:
+        _perform(request, load_catalog(content_root(), catalog_file()), root, environment)
+        return
+    # The scratch lives exactly as long as the block, which has to cover the
+    # write as well as the plan: the sources of a remote install are inside it.
+    with catalog_from(from_, request.skills) as catalog:
+        _perform(request, catalog, root, environment)
+
+
+def _refuse_a_line_from_cannot_answer(
+    from_: str | None,
+    frameworks: Sequence[str],
+    bundles: Sequence[str],
+    skills: Sequence[str],
+) -> None:
+    """The two ways a `--from` line has no answer, refused before anything is fetched.
+
+    The three sequences are `Request`'s three sibling selectors and would rather
+    travel as one, which is what they do everywhere else in this module. They
+    cannot here, and the reason is the *order*: this refusal has to land before
+    `_scope_and_root` — a line `--from` cannot answer must not need a git
+    repository to be told so — and a `Request` built before the scope is resolved
+    would carry a scope that is not the one it will run under. Three parameters
+    is the smaller lie.
+    """
+    if from_ is None:
+        return
+    given = [
+        flag for flag, names in (("--ai-framework", frameworks), ("--bundle", bundles)) if names
+    ]
+    if given:
+        raise UnsupportedRemoteUnitError(given)
+    if not skills:
+        raise NothingToSearchForError
+
+
+def _perform(
+    request: Request,
+    catalog: Catalog,
+    root: Path,
+    environment: Environment,
+    *,
+    banner: bool = True,
+) -> None:
+    """Plan against `catalog`, show the plan, and — unless asked not to — write it.
+
+    One body for all three sources, and that is the whole shape of `--from`: it
+    decides **where the catalog comes from** and changes nothing about what
+    happens to one. A dry run therefore resolves the remote exactly as the real
+    run does, which is what keeps it a report about *this* installation.
+
+    `banner` is off for the wizard alone, and the asymmetry is the reason the
+    flag exists: the wizard has already drawn it as context for the questions it
+    asked, while on a flag line the banner has to wait until behind `plan_for`,
+    where a refusal costs no screen at all.
+    """
+    # Planned before anything is drawn, so a refusal costs no screen: a bad
+    # runtime, or a global destination that already exists without --force, is
+    # exit 2 or exit 3 with nothing written and nothing announced.
     plan = plan_for(request, catalog, root, environment)
 
-    if not wizarding:
+    if banner:
         _print_banner()
     _out.print(plan_screen(plan))
 

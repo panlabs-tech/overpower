@@ -15,9 +15,7 @@ address moves.
 
 from __future__ import annotations
 
-import os
 import re
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rich.console import Console
@@ -27,6 +25,7 @@ from overpower.screens import THEME
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
+    from pathlib import Path
 
     import pytest
 
@@ -178,17 +177,18 @@ def paths_in(output: str) -> set[str]:
 def files_under(root: Path) -> set[str]:
     """Every file below `root`, relative and separator-normalised.
 
-    `os.walk(followlinks=True)`, not `Path.rglob` — a global-scope landing may
+    `Path.walk(follow_symlinks=True)`, not `rglob` — a global-scope landing may
     be a symlink, and the whole point of the central identity
     (https://github.com/panlabs-tech/overpower/issues/40) is that content
     reachable *through* one still counts. `rglob`'s own `recurse_symlinks` is
-    3.13+ only, and the floor here is 3.12. A junction needs no opt-in: it is
-    not a symlink (`os.path.islink()` is `False` for one), so `os.walk` always
-    descends into it regardless of `followlinks`.
+    3.13+ only; `Path.walk` carries the same option since 3.12, which is the
+    floor here. A junction needs no opt-in: it is not a symlink
+    (`os.path.islink()` is `False` for one), so the walk always descends into
+    it regardless of `follow_symlinks`.
     """
     return {
-        Path(base, name).relative_to(root).as_posix()
-        for base, _dirs, names in os.walk(root, followlinks=True)
+        (base / name).relative_to(root).as_posix()
+        for base, _dirs, names in root.walk(follow_symlinks=True)
         for name in names
     }
 

@@ -48,16 +48,10 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, assert_never
+from typing import TYPE_CHECKING
 
 from overpower.errors import BadInvocationError, RefusedError
-from overpower.runtimes import (
-    RUNTIMES_BY_KEY,
-    Scope,
-    resolve_global_dir,
-    resolve_project_dir,
-    runtimes_in,
-)
+from overpower.runtimes import RUNTIMES_BY_KEY, Scope, places_of, runtimes_in
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
@@ -348,7 +342,7 @@ def plan_for(request: Request, catalog: Catalog, root: Path, environment: Enviro
     bundles = _selected_bundles(request.bundles, catalog)
     skills = _selected_skills(request.skills, catalog)
     runtimes = _selected_runtimes(request.runtimes, request.scope)
-    landings = _landings(runtimes, request.scope, root, environment)
+    landings = places_of(runtimes, request.scope, root, environment)
     plan = Plan(
         root=root,
         selections=(
@@ -522,37 +516,3 @@ def _selected_bundles(names: Sequence[str], catalog: Catalog) -> tuple[Bundle, .
     for name in names:
         chosen[name] = catalog.bundle(name)
     return tuple(chosen.values())
-
-
-def _landings(
-    runtimes: Sequence[Runtime], scope: Scope, root: Path, environment: Environment
-) -> Mapping[Path, tuple[str, ...]]:
-    """Each distinct place the selected runtimes read, mapped to all of its readers.
-
-    Two runtimes collapse into one place far more often than not — 19 of the 76
-    rows read `.agents/skills` — and collapsing them is what makes the plan
-    honest about what a selection costs.
-
-    Insertion order is the order of the runtime table, and that is what the plan
-    inherits: it is the only order the screen and the writer both share — and,
-    in global scope, the order that decides which place is canonical.
-    """
-    grouped: dict[Path, list[str]] = {}
-    for runtime in runtimes:
-        grouped.setdefault(_place_of(runtime, scope, root, environment), []).append(runtime.key)
-    return {place: tuple(readers) for place, readers in grouped.items()}
-
-
-def _place_of(runtime: Runtime, scope: Scope, root: Path, environment: Environment) -> Path:
-    """Where `runtime` reads skills, in `scope`."""
-    match scope:
-        case Scope.PROJECT:
-            return resolve_project_dir(runtime, root)
-        case Scope.GLOBAL:
-            place = resolve_global_dir(runtime, environment)
-            if place is None:  # pragma: no cover — `_selected_runtimes` already filtered by scope
-                message = f"`{runtime.key}` has no global destination, despite `runtimes_in`"
-                raise AssertionError(message)
-            return place
-        case _ as unreachable:
-            assert_never(unreachable)

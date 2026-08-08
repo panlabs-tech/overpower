@@ -35,8 +35,25 @@ import pytest
 from rich.console import Console
 
 from overpower.discovery import Artifact, ArtifactType, Bundle, Catalog, Framework, load_catalog
+from overpower.inspection import (
+    DanglingLink,
+    Diagnosis,
+    Divergence,
+    Landed,
+    LinkTurnedText,
+    Terminal,
+)
 from overpower.packaged import catalog_file, content_root
-from overpower.planning import DirectoryTree, Landing, Plan, Selection, Write, WriteMode
+from overpower.planning import (
+    DirectoryTree,
+    DocumentKey,
+    Landing,
+    Plan,
+    Selection,
+    Write,
+    WriteMode,
+)
+from overpower.runtimes import Scope
 from overpower.screens import (
     BANNER,
     THEME,
@@ -44,6 +61,7 @@ from overpower.screens import (
     banner,
     bundle_screen,
     catalog_screen,
+    doctor_screen,
     framework_screen,
     human,
     plan_screen,
@@ -576,3 +594,170 @@ def test_a_framework_says_what_it_weighs() -> None:
 
     assert "matt-pocock" in joined
     assert f"{human(inside.size)} · 1 file" in joined
+
+
+# --------------------------------------------------------------------------- #
+# the `doctor`: the terminal, and the integrity of what landed
+# --------------------------------------------------------------------------- #
+
+
+DOCTOR_HOME = Path("home")
+"""What the machine half hangs off. Relative and never touched, like `ROOT`:
+the screen shortens a path against it, so this is arithmetic and not a disk."""
+
+CLAUDE_SKILLS = ROOT / ".claude" / "skills"
+AGENTS_SKILLS = ROOT / ".agents" / "skills"
+CURSOR_SKILLS = DOCTOR_HOME / ".cursor" / "skills"
+
+
+def landed(
+    place: Path, name: str, scope: Scope = Scope.PROJECT, digest: str | None = "a"
+) -> Landed:
+    return Landed(
+        name=name, scope=scope, destination=DirectoryTree(place / name), fingerprint=digest
+    )
+
+
+def recorded_diagnosis() -> Diagnosis:
+    """The `doctor` output the screens are recorded against: fixed, and ours.
+
+    All three findings at once, because they are three different shapes on the
+    page — one place and a target, one place and a file inside it, and a list of
+    places under one name — and a recording that carried only one of them would
+    leave the other two free to move unseen.
+
+    Both scopes too: a project path shortens against the repository and a machine
+    path against the home, and a screen that reported both roots the same way
+    would be a screen a reader has to guess at.
+    """
+    return Diagnosis(
+        terminal=Terminal(tty=True, colour="truecolor", width=80, no_color=None),
+        root=ROOT,
+        home=DOCTOR_HOME,
+        landed=(
+            landed(CLAUDE_SKILLS, "grilling"),
+            landed(CLAUDE_SKILLS, "panlabs-python-standards"),
+            landed(AGENTS_SKILLS, "grilling"),
+            landed(AGENTS_SKILLS, "panlabs-python-standards", digest="b"),
+            landed(CURSOR_SKILLS, "grilling", Scope.GLOBAL, digest=None),
+        ),
+        findings=(
+            DanglingLink(
+                destination=DirectoryTree(CURSOR_SKILLS / "grilling"),
+                points_at="../../.claude/skills/grilling",
+            ),
+            LinkTurnedText(
+                destination=DirectoryTree(CLAUDE_SKILLS / "grilling"),
+                inside=CLAUDE_SKILLS / "grilling" / "alias.md",
+                points_at="SKILL.md",
+            ),
+            Divergence(
+                name="panlabs-python-standards",
+                scope=Scope.PROJECT,
+                destinations=(
+                    DirectoryTree(CLAUDE_SKILLS / "panlabs-python-standards"),
+                    DirectoryTree(AGENTS_SKILLS / "panlabs-python-standards"),
+                ),
+            ),
+        ),
+    )
+
+
+def recorded_healthy_diagnosis() -> Diagnosis:
+    """The screen a green CI run gets, which is the one most people ever see.
+
+    A screen of its own and not a variant of the one above: `--dry-run` and
+    `doctor` are the two commands read by a pipeline, and *nothing is wrong* has
+    to be as unmistakable as *something is*.
+    """
+    return Diagnosis(
+        terminal=Terminal(tty=False, colour="none", width=80, no_color="1"),
+        root=ROOT,
+        home=DOCTOR_HOME,
+        landed=(landed(CLAUDE_SKILLS, "grilling"), landed(AGENTS_SKILLS, "grilling")),
+        findings=(),
+    )
+
+
+DIAGNOSIS_CASES = [
+    pytest.param(case, width, id=f"{state}-{width}cols")
+    for state, case in (("found", recorded_diagnosis), ("healthy", recorded_healthy_diagnosis))
+    for width in WIDTHS
+]
+
+
+@pytest.mark.parametrize(("case", "width"), DIAGNOSIS_CASES)
+def test_no_rendered_line_of_the_doctor_screen_exceeds_the_terminal_width(
+    case: Callable[[], Diagnosis], width: int
+) -> None:
+    """A path is the whole of what a diagnosis asks someone to act on.
+
+    So it re-wraps and is never cut — the same property the catalog screen holds
+    for a description, asserted here on the screen whose content is paths.
+    """
+    rendered = render(doctor_screen(case()), width)
+
+    assert [line for line in rendered.splitlines() if len(line) > width] == []
+    assert "…" not in rendered
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_doctor_screen_names_every_place_it_found_something_in(width: int) -> None:
+    """No finding may be invisible, and a path is how a finding gets acted on."""
+    diagnosis = recorded_diagnosis()
+
+    joined = unwrapped(render(doctor_screen(diagnosis), width))
+
+    assert "~/.cursor/skills/grilling/" in joined
+    assert "alias.md" in joined
+    for place in (".claude/skills", ".agents/skills"):
+        assert f"{place}/panlabs-python-standards/" in joined
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_doctor_screen_counts_artifacts_and_places_separately(width: int) -> None:
+    """Two numbers and never one: an artifact occupies as many places as it landed in.
+
+    A single number would be the screen assuming one artifact costs one write,
+    which is the shape `domain.md` locks against for the graft — where one
+    artifact costs a second write, possibly outside the repository.
+    """
+    joined = unwrapped(render(doctor_screen(recorded_diagnosis()), width))
+
+    assert "3 artifacts · 5 places" in joined
+
+
+def test_the_doctor_screen_spells_a_destination_that_is_a_document_key() -> None:
+    """The graft class exists in the model, and the `doctor` can already say it.
+
+    Built by hand because nothing in the v0.1.0 catalog produces one — there is
+    no MCP server and no hook — exactly as `test_writing.py` builds one to assert
+    that the write path refuses it by name. A report that could only spell a
+    folder would be a report v0.2 has to replace instead of extend.
+    """
+    # given
+    grafted = DocumentKey(path=ROOT / ".mcp.json", key="context7")
+    diagnosis = Diagnosis(
+        terminal=Terminal(tty=False, colour="none", width=80, no_color=None),
+        root=ROOT,
+        home=DOCTOR_HOME,
+        landed=(
+            Landed(name="context7", scope=Scope.PROJECT, destination=grafted, fingerprint=None),
+        ),
+        findings=(DanglingLink(destination=grafted, points_at=None),),
+    )
+
+    joined = unwrapped(render(doctor_screen(diagnosis), 80))
+
+    assert ".mcp.json#context7" in joined
+
+
+@pytest.mark.parametrize(("case", "width"), DIAGNOSIS_CASES)
+def test_the_doctor_screen_matches_its_snapshot(
+    request: pytest.FixtureRequest, case: Callable[[], Diagnosis], width: int
+) -> None:
+    state = "doctor" if case is recorded_diagnosis else "doctor-healthy"
+
+    rendered = render(doctor_screen(case()), width)
+
+    assert_matches_snapshot(request, f"{state}-{width}", rendered)

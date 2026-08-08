@@ -43,6 +43,25 @@ relative to the target with a trailing separator — so this finds the announced
 set and nothing else. A runtime key carries no separator.
 """
 
+ANCHORS = (
+    "XDG_CONFIG_HOME",
+    "AUTOHAND_HOME",
+    "CLAUDE_CONFIG_DIR",
+    "CODEX_HOME",
+    "GROK_HOME",
+    "HERMES_HOME",
+    "VIBE_HOME",
+)
+"""Every variable a global path of the runtime table can hang off.
+
+Scrubbed alongside `HOME`, and for the same reason: a developer with
+`CLAUDE_CONFIG_DIR` exported would send a global install *out* of the sandbox,
+and a test that asserted against `tmp_path` would fail on their machine and
+nowhere else. `doctor` makes it sharper still — it walks **every** global
+destination of the table, so an unscrubbed anchor is the suite reading the
+developer's own equipment.
+"""
+
 
 def catalog_of(
     tmp_path: Path,
@@ -122,14 +141,49 @@ def target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str = "project
     root = tmp_path / name
     root.mkdir(parents=True, exist_ok=True)
     monkeypatch.chdir(root)
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("USERPROFILE", str(tmp_path))
-    # Rich reads `COLUMNS` off the environment mapping it captured at
-    # construction, so this pins the width of the error panel, which is the one
-    # screen that does not go through the console pinned below.
-    monkeypatch.setenv("COLUMNS", "100")
+    _sandboxed(monkeypatch, tmp_path)
     monkeypatch.setattr(cli, "_out", pinned(tty=False))
     return root
+
+
+def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
+    """A repository and a home that are **different directories**, and the CLI in it.
+
+    `target` puts the two on top of each other — the `.git` marker sits on
+    `tmp_path`, which is also `HOME` — and for `install` that costs nothing,
+    because one command writes in one scope. `doctor` reads **both scopes in one
+    output**, so a home that is also the repository would make every project
+    place and its global twin the same directory on disk: the counts double and
+    a divergence between them can never exist. Pulling them apart is what makes
+    the two halves of the screen separately assertable.
+
+    Answers `(repository, home)`, with the working directory inside the
+    repository — the ordinary case, and the one where `install` and `doctor`
+    disagree about the root on purpose: `install` writes where you stand,
+    `doctor` reads the repository, so that running it from a subdirectory cannot
+    answer *"nothing installed"* about a repository that is fully equipped.
+    """
+    home = tmp_path / "home"
+    home.mkdir(parents=True, exist_ok=True)
+    root = tmp_path / "repo"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / ".git").mkdir(exist_ok=True)
+    monkeypatch.chdir(root)
+    _sandboxed(monkeypatch, home)
+    monkeypatch.setattr(cli, "_out", pinned(tty=False))
+    return root, home
+
+
+def _sandboxed(monkeypatch: pytest.MonkeyPatch, home: Path) -> None:
+    """Point every machine variable the product can read at the sandbox."""
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    for anchor in ANCHORS:
+        monkeypatch.delenv(anchor, raising=False)
+    # Rich reads `COLUMNS` off the environment mapping it captured at
+    # construction, so this pins the width of the error panel, which is the one
+    # screen that does not go through the console pinned in `pinned`.
+    monkeypatch.setenv("COLUMNS", "100")
 
 
 def pinned(*, tty: bool) -> Console:

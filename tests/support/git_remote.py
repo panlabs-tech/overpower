@@ -28,6 +28,7 @@ not here.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -72,11 +73,17 @@ def git(
     cwd: Path,
     env: Mapping[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    """Run `git` under a deterministic identity and the C locale."""
+    """Run `git` under a deterministic identity and the C locale.
+
+    The process environment is inherited and then overridden, never replaced: a
+    child with no `PATH` cannot find `git` at all on Windows, and on POSIX it
+    falls back to `os.defpath` — so a replaced environment is a helper that
+    works on some cells of the matrix and not others.
+    """
     return subprocess.run(  # noqa: S603 - fixed argv, no shell; see _GIT above
         [_GIT, *args],
         cwd=cwd,
-        env={**_DETERMINISTIC, **(env or {})},
+        env={**os.environ, **_DETERMINISTIC, **(env or {})},
         capture_output=True,
         text=True,
         check=False,

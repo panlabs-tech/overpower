@@ -373,10 +373,12 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
     # terminal the flag path below still reaches that same error, so a bare
     # invocation off a pipe exits 2 without ever touching `questionary`.
     #
-    # `--from` is never the wizard's line, on both halves of the condition: the
-    # guard above has already proved it names a skill, and a wizard driven by
-    # the embedded catalog is exactly what *"only the remote is consulted"*
-    # forbids.
+    # `--from` is never the wizard's line: a wizard driven by the embedded
+    # catalog is exactly what *"only the remote is consulted"* forbids. The
+    # guard above already makes that true — it proved the line names a skill,
+    # so the third clause is false anyway — and the first clause says the rule
+    # here rather than leaving it to be re-derived. It is what a later
+    # relaxation of the guard would have to walk past on purpose.
     wizarding = from_ is None and _out.is_terminal and not (frameworks or bundles or skills)
 
     if wizarding:

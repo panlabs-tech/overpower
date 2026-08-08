@@ -833,6 +833,56 @@ def test_a_dry_run_resolves_the_remote_and_still_writes_nothing(
     assert list(root.iterdir()) == []
 
 
+def test_from_in_a_terminal_installs_instead_of_opening_the_wizard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """#41 and #42 meet here: a `--from` line is never a bare invocation.
+
+    The wizard is driven by the embedded catalog, which is exactly what *"only
+    the remote is consulted"* forbids — so the two features cannot both be right
+    on one line, and this is which of them wins.
+    """
+    # given
+    root = project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    monkeypatch.setattr(cli, "run_wizard", _never_called)
+    monkeypatch.setattr(
+        remote, "fetch_with_git", git_remote.planting(git_remote.skill_files("alpha"))
+    )
+
+    code, _ = project.run(
+        capsys, "install", "--from", REMOTE, "--skill", "alpha", "--runtime", "claude-code", "--yes"
+    )
+
+    assert code == 0
+    assert (root / project.CLAUDE / "alpha" / "SKILL.md").is_file()
+
+
+def test_from_with_nothing_to_look_for_is_refused_rather_than_handed_to_the_wizard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The other half of the same rule, and the one the refusal's *order* buys.
+
+    Naming a search root and nothing to look for is a bare invocation by the
+    wizard's own test — no selector on the line — so without the guard landing
+    first, a terminal would answer a `--from` line by opening the embedded
+    catalog.
+    """
+    # given
+    project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    monkeypatch.setattr(cli, "run_wizard", _never_called)
+    monkeypatch.setattr(remote, "fetch_with_git", git_remote.refusing("obtention was attempted"))
+    monkeypatch.setattr(remote, "fetch_tarball", git_remote.refusing("obtention was attempted"))
+
+    code, output = project.run(capsys, "install", "--from", REMOTE, "--runtime", "claude-code")
+
+    assert code == 2
+    assert "--skill" in project.joined(output)
+
+
 def test_a_url_that_is_not_a_github_repository_exits_two_before_obtaining_anything(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:

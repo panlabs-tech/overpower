@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import contextlib
 import os
-import pty
 import select
 import sys
 import time
@@ -379,6 +378,8 @@ def _drive(cwd: Path, home: Path, captured: Path, keys: str) -> None:
     (`prototype/terminal-experience/drive.py`), which measured that
     `questionary` needs an actual terminal — a pipe raises `EOFError`.
     """
+    import pty  # noqa: PLC0415 — POSIX-only module, imported only where this runs
+
     env = dict(os.environ, HOME=str(home), USERPROFILE=str(home))
     env.update(COLUMNS="80", LINES="40", TERM="xterm-256color")
     pid, fd = pty.fork()

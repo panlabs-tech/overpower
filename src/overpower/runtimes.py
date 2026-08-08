@@ -544,12 +544,20 @@ def detected_runtimes(scope: Scope, root: Path, environment: Environment) -> fro
     than pre-checking nothing.
     """
     candidates = runtimes_in(scope)
-    if scope is Scope.GLOBAL:
-        return _present_at(candidates, environment, lambda r: resolve_global_dir(r, environment))
-    found = _present_at(candidates, environment, lambda r: resolve_project_dir(r, root))
-    if found:
-        return found
-    return _present_at(candidates, environment, lambda r: resolve_global_dir(r, environment))
+    match scope:
+        case Scope.PROJECT:
+            found = _present_at(candidates, environment, lambda r: resolve_project_dir(r, root))
+            if found:
+                return found
+            return _present_at(
+                candidates, environment, lambda r: resolve_global_dir(r, environment)
+            )
+        case Scope.GLOBAL:
+            return _present_at(
+                candidates, environment, lambda r: resolve_global_dir(r, environment)
+            )
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
 def _present_at(

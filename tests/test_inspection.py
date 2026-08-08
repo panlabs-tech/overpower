@@ -87,18 +87,28 @@ def equipped_source(tmp_path: Path) -> Path:
 def cloned_with_links_off(tmp_path: Path, source: Path, *, config: Path | None = None) -> Path:
     """Clone `source` the way a machine without working links does.
 
-    Two spellings of the same broken checkout, and they are not interchangeable
-    — `config` is what chooses between them. Without it, `core.symlinks=false`
-    is passed to the clone and git records it in the **new repository**, which
-    is the auto-detection the ticket names. With it, the value lives in the
-    user's own config file instead and git records **nothing** in the clone:
-    measured, the checkout comes out identically broken and identically clean,
-    which is why the product reads both files.
+    Two spellings of the same broken checkout, and `config` chooses between
+    them. Without it, `core.symlinks=false` is passed to the clone and git
+    records it in the **new repository** — the auto-detection the ticket names.
+    With it, the value lives in the user's own config file, and the clone is
+    stripped of anything it recorded about links so that file is the **only**
+    source left.
+
+    Stripping is what makes the second case the same case on the nine cells, and
+    it cost a red Windows build to learn: git *also* probes the filesystem at
+    clone time, so where links do not work it writes `symlinks = false` into the
+    clone whatever the user's config says. Asserting that git had written
+    nothing was asserting the platform. Unsetting afterwards heals nothing — the
+    working tree is already on disk, text file and all — it only removes the
+    second source of the answer.
     """
     clone = tmp_path / "clone"
     detected = () if config is not None else ("-c", "core.symlinks=false")
     environment = {} if config is None else {"GIT_CONFIG_GLOBAL": str(config)}
     must(git("clone", *detected, str(source), str(clone), cwd=tmp_path, env=environment))
+    if config is not None:
+        # exit 5 is `--unset` on a key that was not there, which is a fine outcome.
+        git("config", "--unset", "core.symlinks", cwd=clone, env=environment)
     return clone
 
 
@@ -251,12 +261,14 @@ def test_a_link_that_became_a_text_file_is_found_with_a_clean_git_status(
 def test_links_turned_off_by_the_machine_and_not_by_the_clone_are_found_too(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:
-    """Measured, and it reverses the obvious reading of where the value lives.
+    """The value can live in either file, and a reader of one of them misses the other.
 
-    `core.symlinks=false` in `~/.gitconfig` — the common Windows workaround —
-    produces the **identical** broken checkout and the identical clean status,
-    and git writes **nothing** into the clone: asserted here, because it is the
-    fact that makes reading only the repository's own config a miss.
+    Measured on POSIX, where links do work: `core.symlinks=false` set only in
+    the user's own config produces the **identical** broken checkout and the
+    identical clean status, and git records nothing about links in the clone. So
+    the fixture leaves that file as the only source — the clone is stripped of
+    anything it recorded — and what is asserted is that the product still finds
+    it. Reading only the repository's config would answer *"links are fine"*.
     """
     # given
     _, home = workspace(tmp_path, monkeypatch)

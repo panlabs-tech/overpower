@@ -398,14 +398,14 @@ def _symlinks_disabled(root: Path, environment: Environment) -> bool:
     is a dependency on it being installed, and the answer is one line of an INI
     file.
 
-    **Two files, in git's own precedence order**, and the second one is here
-    because a measurement reversed the obvious reading. Git auto-detects the
+    **Two files, in git's own precedence order**, because the value can live in
+    either and a reader of one of them misses the other. Git auto-detects the
     capability and writes it into the clone, which is the mechanism the ticket
-    names — but measured against a real clone, a `core.symlinks=false` set in
-    `~/.gitconfig` produces the **identical** broken checkout, the identical
-    clean `git status`, and git does **not** copy it into the new repository. So
-    a reader that looked only at the clone would miss the spelling that is the
-    common Windows workaround, which is the very machine this finding is for.
+    names — but measured on a machine where links *do* work, a
+    `core.symlinks=false` set in the user's own config produces the **identical**
+    broken checkout and the identical clean `git status`, with git recording
+    nothing about links in the new repository. A reader that looked only at the
+    clone would answer *"links are fine"* to a checkout that is not.
 
     The system file (`/etc/gitconfig`) is deliberately not read: it is
     administrator territory, the two files above are the two that were measured,

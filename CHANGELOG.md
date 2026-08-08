@@ -17,6 +17,228 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.1.0] - 2026-08-08
+
+### Added
+
+- The command line is born, and with it the frame the rest of v0.1.0 hangs off.
+  `overpower` opens the banner and the help in a terminal, the help alone under a
+  pipe, and exits 0 in both; `overpower --version` answers the version that
+  arrived; `overpower list` shows the whole embedded catalog in three blocks — AI
+  Frameworks, pool skills and bundles — each item with its name, its size, its file
+  count and its description **whole**, never truncated, at 80 columns and at 60.
+  The catalog comes from walking the content tree, so adding a skill is adding a
+  directory: no path is registered anywhere, and a directory outside the closed set
+  of type names is a named error carrying the offending path. The error model
+  starts here too: a wrong flag exits 2, and an unhandled exception becomes an
+  error panel and exit 1 — a traceback never reaches the user. ([#36](https://github.com/panlabs-tech/overpower/issues/36))
+- `overpower list` gains the three screens that answer the question preceding an
+  install — one per installable unit. `list --ai-framework matt-pocock` shows the
+  artifacts **inside** it, stacked, with the **type of each one as its prefix**
+  and their count on the head line, because a framework installs whole and *whole*
+  has to be readable before it is accepted; `list --bundle api-python` shows
+  exactly the pool artifacts the
+  manifest names, in the order it names them; `list --skill <name>` shows the
+  description **whole**, which is the extreme case at 517 characters and the
+  reason none of the three truncates — all of them re-wrap inside the frame at 80
+  columns and at 60, because a narrow terminal is where reading matters most. A
+  name outside the catalog exits **2** with the closed list in the message: the
+  list is closed, so the defect is in what was typed. ([#37](https://github.com/panlabs-tech/overpower/issues/37))
+- `overpower install --skill <a>,<b> --runtime <x> --runtime <y>` writes curated
+  pool skills into a repository. Comma and repeated flag are both accepted and
+  both accumulate, there is no positional, and there is **no default runtime**:
+  without a terminal and without `--runtime` the command exits 2, and a value
+  outside the closed table exits 2 naming the whole set. A named runtime whose
+  directory does not exist yet is created and written, never skipped. The command
+  prints a plan first — every path it will write and **who reads each one**, so a
+  selection that lands in one shared directory says so instead of promising a
+  runtime — asks for confirmation in a terminal, and runs without asking anywhere
+  else; `--yes` skips that confirmation and nothing else. `--dry-run` resolves
+  everything, prints the same plan, mirrors the exit code and leaves nothing
+  behind, not even an empty directory. Every landing is a **real copy**: under
+  `core.symlinks=false`, which git records into the clone, a link becomes a text
+  file and the equipment is broken for whoever cloned. Writing is unconditional
+  and reinstalling replaces rather than overlays, so no file from a previous
+  version survives; a failure part-way through leaves what it wrote and reports
+  how far it got and where it stopped, with exit 1. What the plan announces, the
+  real run announces and the disk carries are asserted to be the same set of
+  paths, on all nine cells of the matrix. ([#38](https://github.com/panlabs-tech/overpower/issues/38))
+- `overpower install` gains `--ai-framework` and `--bundle`, joining `--skill` as
+  independent selectors that a single line may freely mix — both accept comma and
+  repeated flag, accumulating, the same as `--skill` already does.
+  `--ai-framework <name>` writes the AI Framework's whole body: rule 1 forbids a
+  partial install, and there is no syntax to ask for a slice of one — a
+  framework's own artifact is not addressable through `--skill`, since it never
+  joined the pool. `--bundle <name>` expands to exactly the pool artifacts its
+  manifest names, and never a framework (ADR 0002). Mixing all three produces
+  **one** plan, in a fixed and documented order — framework, then bundle, then
+  individual artifact. An intra-command collision, where two selectors would write
+  the same destination, is not detected — it is decided: the order makes the
+  individual artifact, the most specific unit, always the last write, so the
+  content that survives a collided destination is the individual artifact's. ([#39](https://github.com/panlabs-tech/overpower/issues/39))
+- `overpower install` now has a scope. Inside a git repository the default stays
+  the repository, unchanged; **outside one, the command refuses and exits 2**
+  unless `--global`/`-g` says explicitly to write under the home directory —
+  "the git is the manifest" only holds where there is git, and nothing else on
+  the machine would audit what a silent write left behind. `--global` needs no
+  repository at all.
+
+  In global scope every selection climbs a ladder: the **first destination in
+  the runtime table's own order** receives a real copy, and every destination
+  after it becomes a **relative symlink** pointing at that copy — relative, so
+  the link survives `$HOME` moving and the machine being cloned. On Windows the
+  same rung is a **junction**, created through `_winapi.CreateJunction`, which
+  needs no privilege and works identically with or without it; the source
+  directory is validated before the call, because the API itself accepts a file
+  as target and creates unusable garbage in silence. Whenever a link or a
+  junction cannot be created — a filesystem with no reparse points, a network
+  share, an interpreter without parity — the write **degrades to a real copy
+  instead**, and the command says so as a warning while still exiting 0: nothing
+  is lost, the content is on disk either way.
+
+  Two refusals are new, both exit 3 — a correct invocation whose answer is no,
+  never a typo. A `--runtime` that names a value **in the table** but with no
+  destination in the requested scope (`eve` and `promptscript` have none in
+  global) is refused by name, distinct from a value outside the table entirely,
+  which still exits 2. And in global scope, `--force`/`-f` is the one gate a
+  project install never needed: a destination that **already exists** is
+  refused unless `--force` says to overwrite it — global scope has no `git
+  status` to reveal or undo a clobbered write, so nothing is written until the
+  whole plan is known to be collision-free or the overwrite was asked for by
+  name. Both refusals are detected before a single byte is written, and both
+  mirror through `--dry-run` exactly as the rest of the exit-code table already
+  does.
+
+  The plan now carries **mode** alongside path, and the identity that ties the
+  plan, the screen and the disk together grows with it: what the screen calls a
+  link has to be a link on disk, in every scope, on every platform the writer
+  runs on. ([#40](https://github.com/panlabs-tech/overpower/issues/40))
+- `overpower install` typed bare in a terminal now opens a wizard instead of
+  refusing with *"nothing to install"*. Four steps, in a fixed order: **artifacts,
+  then scope, then runtimes, then confirmation** — the order is not aesthetic,
+  the runtime probe depends on the scope already being known, so asking runtimes
+  first would probe the wrong root. The runtime step always asks, even when
+  detection pre-marks exactly one — pre-marking is a convenience, not a decision
+  made on the user's behalf. The universal group (`.agents/skills`) is shown
+  grouped and **never locked**: there is no canonical destination to lock in
+  project scope, and in global scope which selection becomes canonical is a
+  function of what gets picked, not a fact knowable before the pick. Its members
+  are the **19** runtimes that read that path, read off the path itself, so the
+  heading never gathers a runtime that lands somewhere else. In global
+  scope the two runtimes with no destination there (`eve`, `promptscript`) do
+  not appear on the screen at all — the wizard offers exactly what the runtime
+  table would accept, never what the next step would refuse. There is no step
+  asking symlink versus copy: that choice does not exist, scope alone decides it.
+
+  There is **no state file**, in any scope. Pre-checking a runtime's box comes
+  from probing the target root live: project scope probes the repository for an
+  existing destination, global scope probes `~` directly, and a repository that
+  carries no runtime directory at all falls back to probing `~` rather than
+  pre-checking nothing.
+
+  The wizard hands the rest of the program the same `Request` the flags build,
+  so the selection logic downstream is unchanged and stays tested over values,
+  never over keystrokes. Without a terminal, a bare invocation still exits 2
+  without ever touching the prompt library — no prompt library degrades alone
+  under no-TTY, so the check is the overpower's own, ahead of every call into it. ([#41](https://github.com/panlabs-tech/overpower/issues/41))
+- `overpower install` gains `--from <url>`, which points `--skill` at **any GitHub
+  repository, with no registration**: the vendored copy ages by construction, and
+  this is the escape hatch that does not wait for a curation refresh. It is
+  **exclusive** — with it, only the remote is consulted, which extinguishes the
+  question of precedence between embedded and remote instead of answering it — and
+  it holds for `--skill` only, because a skill is the one unit that exists in the
+  market while a bundle and an AI Framework only exist in a repository that already
+  knows the overpower. A line that names either of them alongside `--from` is
+  refused by name, exit 2, before anything is fetched.
+
+  **The URL is a search root, not an address.** The repository root, a subfolder
+  and the skill's own folder give the same result, and the deepest one only buys a
+  shorter walk. `tree/<ref>/<path>` pins a branch, a tag **or a full SHA** with no
+  field of our own, so reproducibility comes free with the address someone pasted.
+  The known limit is declared rather than papered over: a branch whose name
+  contains a `/` cannot be told from a ref plus a path without asking the server,
+  so the first segment is the ref.
+
+  Obtention has **two paths and one search**. The primary is `git` as transport —
+  `init`, `remote add`, `fetch --depth 1`, `checkout FETCH_HEAD` — reusing whatever
+  credential the local `git` already has; the fallback is the **anonymous
+  `codeload` tarball**, pure standard library, so that no third-party binary is a
+  *requirement* (axiom 1, as amended by ADR 0007). Neither side asks for a
+  credential of its own, and the subprocess runs under `LC_ALL=C` because the three
+  obtention failures all exit 128 and only their stderr tells them apart.
+
+  **The fallback fires on a failure to obtain, and never on "I did not find it"** —
+  the live bug measured in #25, where it re-fetched a whole repository to return an
+  identical answer. The two numbers are now distinct and both mirror through
+  `--dry-run`: **exit 1** means the search root could not be obtained, and the
+  transport's own error is passed through because it is the one that names the
+  problem; **exit 3** means it was obtained, searched, and the answer is no —
+  either the skill is not under the root, or more than one folder of that name is.
+
+  The scratch is a temporary directory, removed in the `finally` even on failure,
+  and **there is no cache**: remote content is fresh by decision. `--dry-run
+  --from` resolves the remote exactly as the real run does and still writes
+  nothing, because a dry run that does not fetch is a report about a different
+  installation. **Zero new dependencies.** ([#42](https://github.com/panlabs-tech/overpower/issues/42))
+- `overpower doctor` answers two questions in one output: how the terminal is,
+  and how what was installed is. The terminal half reports **TTY, colour, width
+  and `NO_COLOR`** — the four facts that explain a screen that came out strange
+  without a round trip. The integrity half reads the **whole runtime table in both
+  scopes**, because axiom 2 forbids a manifest in the target and the closed table
+  is therefore the only thing that knows where equipment can be; that is also why
+  there is no `--global`, since one flag switching between the halves would make
+  it two outputs. Outside a git repository the command still answers, unlike
+  `install`: the machine half is there and the terminal half never needed git.
+
+  Three checks, and each one pays a hole nothing else closes. **`core.symlinks=false`
+  breaking links** is the exact point where axiom 2 does not answer on its own —
+  git auto-detects the capability and records it into the clone, a committed link
+  checks out as an ordinary text file carrying its own target, and **`git status`
+  stays clean**; the git lies, and `doctor` is what contradicts it. Both places the
+  value can live are read, in git's own precedence order — the clone's own config
+  and the user's — because measured on a machine where links do work, the user's
+  config alone produces the identical broken checkout with the clone recording
+  nothing about links at all. A linked worktree is followed to where its shared
+  config actually lives. **A link that does not resolve** is invisible equipment: the
+  listing shows the name and there is nothing behind it. **Copies of one artifact
+  that disagree** is the payment of the debt taken on when project scope chose to
+  copy instead of link — that decision accepted losing the single point of truth
+  and named `doctor` as its mitigation.
+
+  **Exit 3 when it found something, 0 when it did not**, which is what makes it a
+  CI gate next to `--dry-run`: *"could not run"* and *"ran, and the answer is no"*
+  have to be distinguishable. The whole answer is phrased in **writes** rather than
+  in artifacts — one artifact occupies as many places as it landed in, and the
+  screen counts both — so the graft of v0.2, where an artifact costs a second
+  write possibly outside the repository, is a sum and not a rewrite. ([#43](https://github.com/panlabs-tech/overpower/issues/43))
+- The vendored content ships inside the wheel, in two sibling roots with opposite
+  invariants: `content/`, which lands whole in the target — the `matt-pocock` AI
+  Framework and one pool skill, `panlabs-python-standards` — and `catalog/`, which
+  never lands and carries only what the tree cannot know: the `api-python` bundle
+  and one description line per framework. No path is written anywhere. Attribution
+  travels in the package metadata, never in the target. ([#45](https://github.com/panlabs-tech/overpower/issues/45))
+
+### Changed
+
+- Everything the product says is English — the README that becomes the PyPI page,
+  the package description, and everything the command prints. pt-BR stays in
+  tickets, resolutions and ADRs. ([#14](https://github.com/panlabs-tech/overpower/issues/14))
+- The `0.0.x` series ends. `0.1.0` is the first version that installs anything, and
+  the notice saying the series is not the product leaves the README and the package
+  docstring with it. The README **is** the PyPI page, so it now describes the
+  surface that exists — the three commands, the three selectors, the runtime and
+  scope flags, and the exit code table — and it states `@latest` as a **correctness
+  requirement** rather than README style: `uvx` freezes the version on first use
+  with **no TTL**, and by rule 5 the version of the overpower *is* the version of
+  the catalog it embeds, so a bare `uvx overpower` serves a catalog that can never
+  age out. The curation step is written down next to the four development commands,
+  both halves of it — refreshing the vendored content against its upstream, and the
+  end-to-end test against the real GitHub under `OVERPOWER_NETWORK_TESTS=1`, which
+  runs in no CI job by decision. `Development Status` moves off `1 - Planning`,
+  which is the same claim as the notice and would have outlived it on the sidebar
+  of the page. ([#44](https://github.com/panlabs-tech/overpower/issues/44))
+
+
 ## [0.0.2] - 2026-08-05
 
 ### Fixed

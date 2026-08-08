@@ -9,7 +9,7 @@ name = "overpower"
 # from the VCS — measured in #2, `hatch-vcs` under `git clone --depth 1` (the
 # default of `actions/checkout`) fails to find the tag, warns, *succeeds*, and
 # publishes an invented version.
-version = "0.0.1"
+version = "0.1.0"
 description = "Installs curated AI Frameworks into a repository or a machine"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -25,7 +25,12 @@ license-files = ["LICENSE", "NOTICE", "licenses/*"]
 authors = [{ name = "Thiago Panini" }]
 keywords = ["ai", "agent", "skills", "claude", "cursor", "codex"]
 classifiers = [
-  "Development Status :: 1 - Planning",
+  # `1 - Planning` was true of the `0.0.x` probe and is the same claim the README
+  # notice made; both leave together in
+  # https://github.com/panlabs-tech/overpower/issues/44. It is `3 - Alpha` and
+  # not `4 - Beta` because the graft class of the domain exists in the vocabulary
+  # and is not exercised yet.
+  "Development Status :: 3 - Alpha",
   "Environment :: Console",
   "Intended Audience :: Developers",
   "Programming Language :: Python :: 3 :: Only",

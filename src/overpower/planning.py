@@ -45,19 +45,26 @@ composition.
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, assert_never
 
-from overpower.errors import BadInvocationError
-from overpower.runtimes import Scope, resolve_project_dir, runtimes_in
+from overpower.errors import BadInvocationError, RefusedError
+from overpower.runtimes import (
+    RUNTIMES_BY_KEY,
+    Scope,
+    resolve_global_dir,
+    resolve_project_dir,
+    runtimes_in,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
     from pathlib import Path
 
     from overpower.discovery import Artifact, ArtifactType, Bundle, Catalog, Framework
-    from overpower.runtimes import Runtime
+    from overpower.runtimes import Environment, Runtime
 
 
 class WriteMode(StrEnum):
@@ -144,6 +151,17 @@ class Landing:
         """Whether `place` is a folder, which is what earns a trailing separator."""
         return all(isinstance(write.destination, DirectoryTree) for write in self.writes)
 
+    @property
+    def mode(self) -> WriteMode:
+        """The mode every write of this landing shares.
+
+        Uniform by construction: mode is decided per *landing* — canonical or
+        rung of the ladder (https://github.com/panlabs-tech/overpower/issues/40)
+        — never per artifact, so every write inside one landing carries the same
+        one.
+        """
+        return self.writes[0].mode
+
 
 @dataclass(frozen=True)
 class Selection:
@@ -199,25 +217,51 @@ class Request:
     skills: tuple[str, ...] = ()
     runtimes: tuple[str, ...] = ()
     scope: Scope = Scope.PROJECT
+    force: bool = False
     dry_run: bool = False
     yes: bool = False
 
 
 class UnknownRuntimeError(BadInvocationError):
-    """A `--runtime` value outside the closed set.
+    """A `--runtime` value outside the closed table — not a typo of scope.
 
-    The message carries the whole set, and the length of it is the point: the
+    The message carries the whole table, and the length of it is the point: the
     table is closed, there is no `--dir` hatch in v0.1.0 and nothing else in the
     product lists the runtimes, so an error that only said *"unknown"* would
-    leave the caller with nowhere to look.
+    leave the caller with nowhere to look. A value that *is* in the table but has
+    no destination in the requested scope is a different defect —
+    `RuntimeUnavailableInScopeError`, ADR 0009 — because the text typed matches
+    something real; what is missing is not on this line.
     """
 
-    def __init__(self, key: str, scope: Scope, known: Iterable[str]) -> None:
-        """Name the value that missed, the scope it missed in, and the whole set."""
+    def __init__(self, key: str, known: Iterable[str]) -> None:
+        """Name the value that missed and the whole table."""
+        self.key = key
+        listed = ", ".join(sorted(known))
+        super().__init__(f"unknown runtime `{key}`; the table is: {listed}")
+
+
+class RuntimeUnavailableInScopeError(RefusedError):
+    """A `--runtime` value the table has, with no destination in this scope.
+
+    ADR 0009: `eve` and `promptscript` declare no global destination, so the set
+    `--runtime` accepts is a function of scope — 76 in project, 74 in global —
+    and asking for one of the missing two in global scope is a **valid**
+    invocation with a **negative** answer. The value exists, the flag exists,
+    nothing about the line is malformed; what does not exist is the
+    *destination*, and destination is a fact of the table, not of the command
+    line. That is the axis against `UnknownRuntimeError`: this one names a real
+    row, wrong scope.
+    """
+
+    def __init__(self, key: str, scope: Scope) -> None:
+        """Name the runtime, the scope that refused it, and the fix."""
         self.key = key
         self.scope = scope
-        listed = ", ".join(sorted(known))
-        super().__init__(f"unknown runtime `{key}` in {scope} scope; the set is: {listed}")
+        super().__init__(
+            f"`{key}` has no destination in {scope} scope; "
+            "install in the repository instead of the machine"
+        )
 
 
 class NoRuntimeSelectedError(BadInvocationError):
@@ -263,22 +307,27 @@ class UnknownSkillError(BadInvocationError):
         super().__init__(f"unknown skill `{name}`; the pool is: {listed}")
 
 
-class UnsupportedScopeError(BadInvocationError):
-    """A scope this version cannot plan for.
+class DestinationExistsError(RefusedError):
+    """A global destination that already occupies the path, asked for without `--force`.
 
-    The global scope lands by a different shape — one canonical copy and links
-    to the rest — and planning it as copy-everywhere would answer the wrong
-    question quietly. It arrives in
-    https://github.com/panlabs-tech/overpower/issues/40.
+    The `--force` trigger has exactly one condition: global scope, and the path
+    already there — https://github.com/panlabs-tech/overpower/issues/40. Project
+    scope has no such refusal (`overpower.writing` writes unconditionally, and
+    `git status` is the safety net); global scope has no git to reveal or undo an
+    overwrite, so an existing path is refused instead of clobbered, and the whole
+    command is refused before a single byte is written — detectable in advance,
+    the same reasoning ADR 0009 already used for the runtime-without-destination
+    case.
     """
 
-    def __init__(self, scope: Scope) -> None:
-        """Name the scope, so the refusal is not mistaken for a missing flag."""
-        self.scope = scope
-        super().__init__(f"the {scope} scope is not planned by this version")
+    def __init__(self, paths: Sequence[Path]) -> None:
+        """Name every colliding path and the flag that lifts the refusal."""
+        self.paths = tuple(paths)
+        listed = ", ".join(str(path) for path in self.paths)
+        super().__init__(f"already exists, use --force to overwrite: {listed}")
 
 
-def plan_for(request: Request, catalog: Catalog, root: Path) -> Plan:
+def plan_for(request: Request, catalog: Catalog, root: Path, environment: Environment) -> Plan:
     """The ordered writes `request` costs against `catalog`, landing under `root`.
 
     *What* before *where*, so a line missing both selectors is answered about
@@ -288,47 +337,89 @@ def plan_for(request: Request, catalog: Catalog, root: Path) -> Plan:
     fixed collision order (module docstring, https://github.com/panlabs-tech/overpower/issues/39)
     — and that order is what the writer executes, since `Plan.writes` flattens
     `selections` in place.
+
+    `environment` only feeds global-scope resolution (`overpower.runtimes`) —
+    it is unused and still required in project scope, because a function whose
+    shape changes with its own input is a harder one to call correctly.
     """
     if not (request.ai_frameworks or request.bundles or request.skills):
         raise NothingSelectedError
     frameworks = _selected_frameworks(request.ai_frameworks, catalog)
     bundles = _selected_bundles(request.bundles, catalog)
     skills = _selected_skills(request.skills, catalog)
-    landings = _landings(_selected_runtimes(request.runtimes, request.scope), request.scope, root)
-    return Plan(
+    runtimes = _selected_runtimes(request.runtimes, request.scope)
+    landings = _landings(runtimes, request.scope, root, environment)
+    plan = Plan(
         root=root,
         selections=(
-            *(_framework_selection(framework, landings) for framework in frameworks),
-            *(_bundle_selection(bundle, landings) for bundle in bundles),
-            *(_skill_selection(artifact, landings) for artifact in skills),
+            *(_framework_selection(framework, landings, request.scope) for framework in frameworks),
+            *(_bundle_selection(bundle, landings, request.scope) for bundle in bundles),
+            *(_skill_selection(artifact, landings, request.scope) for artifact in skills),
         ),
     )
+    _refuse_existing_without_force(plan, request)
+    return plan
 
 
-def _framework_selection(framework: Framework, places: Mapping[Path, tuple[str, ...]]) -> Selection:
+def _refuse_existing_without_force(plan: Plan, request: Request) -> None:
+    """Global scope only: any write destination already on disk, without `--force`.
+
+    Detectable before the first byte — `Path.exists()`, never a write — so the
+    whole command is refused rather than half of it silently skipped. Project
+    scope is not this function's concern: it writes unconditionally, by design
+    (`overpower.writing`).
+    """
+    if request.scope is not Scope.GLOBAL or request.force:
+        return
+    existing = sorted(
+        {write.destination.path for write in plan.writes if write.destination.path.exists()},
+    )
+    if existing:
+        raise DestinationExistsError(existing)
+
+
+def _framework_selection(
+    framework: Framework, places: Mapping[Path, tuple[str, ...]], scope: Scope
+) -> Selection:
     """The whole framework — rule 1 — every artifact it carries, in every selected place."""
-    return _grouped_selection(framework.name, framework.artifacts, places)
+    return _grouped_selection(framework.name, framework.artifacts, places, scope)
 
 
-def _bundle_selection(bundle: Bundle, places: Mapping[Path, tuple[str, ...]]) -> Selection:
+def _bundle_selection(
+    bundle: Bundle, places: Mapping[Path, tuple[str, ...]], scope: Scope
+) -> Selection:
     """Exactly what the bundle's manifest names (ADR 0002), in every selected place."""
-    return _grouped_selection(bundle.name, bundle.artifacts, places)
+    return _grouped_selection(bundle.name, bundle.artifacts, places, scope)
 
 
-def _skill_selection(artifact: Artifact, places: Mapping[Path, tuple[str, ...]]) -> Selection:
-    """One pool artifact, landing in every selected place, as a real copy in each."""
-    return _grouped_selection(artifact.name, (artifact,), places)
+def _skill_selection(
+    artifact: Artifact, places: Mapping[Path, tuple[str, ...]], scope: Scope
+) -> Selection:
+    """One pool artifact, landing in every selected place."""
+    return _grouped_selection(artifact.name, (artifact,), places, scope)
 
 
 def _grouped_selection(
-    name: str, artifacts: Sequence[Artifact], places: Mapping[Path, tuple[str, ...]]
+    name: str, artifacts: Sequence[Artifact], places: Mapping[Path, tuple[str, ...]], scope: Scope
 ) -> Selection:
     """One thing that was asked for, every artifact it carries, everywhere it lands.
 
     The shape serves a pool skill (one artifact), a bundle (the artifacts its
     manifest names) and a framework (every artifact it carries) alike: the unit
     differs, the landing arithmetic does not.
+
+    In project scope every landing is a real copy — #9 removed the canonical
+    there. In global scope the **first place in table order** is the canonical
+    — a real copy — and every subsequent place is a link pointing at it: the
+    escada https://github.com/panlabs-tech/overpower/issues/40 climbs, because
+    `~/` has no git to deduplicate and duplicating bytes there is a real cost.
+
+    `places` is never empty here: `plan_for` already refused an empty runtime
+    selection (`NoRuntimeSelectedError`) before a `Selection` is ever built, so
+    indexing the first entry for the canonical needs no guard.
     """
+    ordered = tuple(places.items())
+    canonical = ordered[0][0]
     return Selection(
         name=name,
         artifacts=tuple(artifact.type for artifact in artifacts),
@@ -337,35 +428,57 @@ def _grouped_selection(
                 place=place,
                 readers=readers,
                 writes=tuple(
-                    Write(
-                        source=artifact.path,
-                        destination=DirectoryTree(place / artifact.name),
-                        mode=WriteMode.COPY,
-                        files=artifact.files,
+                    _write_for(
+                        artifact, place, canonical, scope=scope, canonical_landing=index == 0
                     )
                     for artifact in artifacts
                 ),
             )
-            for place, readers in places.items()
+            for index, (place, readers) in enumerate(ordered)
         ),
     )
 
 
-def _selected_runtimes(keys: Sequence[str], scope: Scope) -> tuple[Runtime, ...]:
-    """The runtimes named, validated against the set the scope allows.
+def _write_for(
+    artifact: Artifact, place: Path, canonical: Path, *, scope: Scope, canonical_landing: bool
+) -> Write:
+    """One artifact's write into `place` — a real copy, or a rung of the ladder.
 
-    One implementation of that set — `runtimes_in` — so the validator and the
-    screen cannot disagree, which is the failure ADR 0009 closes one layer
-    earlier.
+    The canonical landing (project scope, always; global scope, the first place
+    in table order) copies from the catalog. Every other global landing links to
+    the canonical's *destination* — not the catalog source — because that is
+    the one thing on disk a link can actually point at.
+    """
+    destination = DirectoryTree(place / artifact.name)
+    if scope is Scope.PROJECT or canonical_landing:
+        return Write(
+            source=artifact.path, destination=destination, mode=WriteMode.COPY, files=artifact.files
+        )
+    mode = WriteMode.JUNCTION if sys.platform == "win32" else WriteMode.LINK
+    return Write(
+        source=canonical / artifact.name, destination=destination, mode=mode, files=artifact.files
+    )
+
+
+def _selected_runtimes(keys: Sequence[str], scope: Scope) -> tuple[Runtime, ...]:
+    """The runtimes named, validated against the closed table and against the scope.
+
+    Two different misses, two different codes. A key outside the 76-member
+    table is a typo — exit 2, `UnknownRuntimeError`. A key the table has, with
+    no destination in `scope`, is `runtimes_in(scope)` saying no — exit 3,
+    `RuntimeUnavailableInScopeError`, ADR 0009. One implementation of the scoped
+    set, `runtimes_in`, so the validator and the screen cannot disagree.
     """
     if not keys:
         raise NoRuntimeSelectedError
     allowed = {runtime.key: runtime for runtime in runtimes_in(scope)}
     chosen: dict[str, Runtime] = {}
     for key in keys:
+        if key not in RUNTIMES_BY_KEY:
+            raise UnknownRuntimeError(key, RUNTIMES_BY_KEY)
         runtime = allowed.get(key)
         if runtime is None:
-            raise UnknownRuntimeError(key, scope, allowed)
+            raise RuntimeUnavailableInScopeError(key, scope)
         chosen[key] = runtime
     # Back into table order: the order the plan lists places in is the order the
     # writer performs them, and the table is the only order both ends share.
@@ -412,7 +525,7 @@ def _selected_bundles(names: Sequence[str], catalog: Catalog) -> tuple[Bundle, .
 
 
 def _landings(
-    runtimes: Sequence[Runtime], scope: Scope, root: Path
+    runtimes: Sequence[Runtime], scope: Scope, root: Path, environment: Environment
 ) -> Mapping[Path, tuple[str, ...]]:
     """Each distinct place the selected runtimes read, mapped to all of its readers.
 
@@ -421,20 +534,25 @@ def _landings(
     honest about what a selection costs.
 
     Insertion order is the order of the runtime table, and that is what the plan
-    inherits: it is the only order the screen and the writer both share.
+    inherits: it is the only order the screen and the writer both share — and,
+    in global scope, the order that decides which place is canonical.
     """
     grouped: dict[Path, list[str]] = {}
     for runtime in runtimes:
-        grouped.setdefault(_place_of(runtime, scope, root), []).append(runtime.key)
+        grouped.setdefault(_place_of(runtime, scope, root, environment), []).append(runtime.key)
     return {place: tuple(readers) for place, readers in grouped.items()}
 
 
-def _place_of(runtime: Runtime, scope: Scope, root: Path) -> Path:
+def _place_of(runtime: Runtime, scope: Scope, root: Path, environment: Environment) -> Path:
     """Where `runtime` reads skills, in `scope`."""
     match scope:
         case Scope.PROJECT:
             return resolve_project_dir(runtime, root)
         case Scope.GLOBAL:
-            raise UnsupportedScopeError(scope)
+            place = resolve_global_dir(runtime, environment)
+            if place is None:  # pragma: no cover — `_selected_runtimes` already filtered by scope
+                message = f"`{runtime.key}` has no global destination, despite `runtimes_in`"
+                raise AssertionError(message)
+            return place
         case _ as unreachable:
             assert_never(unreachable)

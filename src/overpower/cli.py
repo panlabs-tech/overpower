@@ -40,10 +40,11 @@ from rich.console import Console
 from rich.text import Text
 
 from overpower.discovery import load_catalog
-from overpower.errors import BadInvocationError, OverpowerError
+from overpower.errors import BadInvocationError, OverpowerError, RefusedError
 from overpower.packaged import catalog_file, content_root
 from overpower.planning import Request, plan_for
-from overpower.runtimes import Scope
+from overpower.runtimes import Environment, Scope
+from overpower.scope import git_root
 from overpower.screens import (
     THEME,
     artifact_screen,
@@ -121,6 +122,25 @@ class TooManySelectorsError(BadInvocationError):
         self.flags = tuple(flags)
         given = " and ".join(self.flags)
         super().__init__(f"`list` shows one item at a time, and got {given}")
+
+
+class OutsideRepositoryError(BadInvocationError):
+    """The default scope needs a git repository, and there is none under `cwd`.
+
+    Axiom 2 — *"the git is the manifest"* — only holds where there is git.
+    Inside a repository a wrong scope costs a `git checkout` and `git status`
+    says so; outside one, nothing on the machine audits what was written, which
+    is the exact hole measured in `gh skill install`: it writes to
+    `./.claude/skills/` outside any repository and exits 0, despite its own
+    `--help` claiming *"inside the current git repository"*. `--global` names
+    the machine on purpose; there is no default that guesses between the two.
+    """
+
+    def __init__(self) -> None:
+        """Say what is missing and the one flag that supplies it."""
+        super().__init__(
+            "not inside a git repository: pass --global to write under the home directory"
+        )
 
 
 app = typer.Typer(
@@ -217,8 +237,8 @@ def _listed(
 
 
 @app.command()
-def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three selectors plus three
-    # mode flags land at six; splitting the signature would not shrink the surface it names.
+def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three selectors plus five
+    # mode flags land at eight; splitting the signature would not shrink the surface it names.
     *,
     ai_framework: Annotated[
         list[str] | None,
@@ -226,9 +246,9 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
             "--ai-framework",
             metavar="NAME",
             # No short flag, and the reason is `--force`: `-f` is spoken for by
-            # the mode flag this command will grow, and a selector that means
-            # `--force` on one line and `--ai-framework` on another is worse than
-            # typing it. Same call as `list`'s.
+            # the mode flag of this command, and a selector that means `--force`
+            # on one line and `--ai-framework` on another is worse than typing
+            # it. Same call as `list`'s.
             help="AI Frameworks to install, whole. Comma-separated, repeated, or both.",
         ),
     ] = None,
@@ -259,6 +279,22 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
             help="Runtimes to equip. Comma-separated, repeated, or both. No default.",
         ),
     ] = None,
+    global_: Annotated[
+        bool,
+        typer.Option(
+            "--global",
+            "-g",
+            help="Write under the home directory instead of the repository.",
+        ),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            "-f",
+            help="Overwrite a global destination that already exists.",
+        ),
+    ] = False,
     yes: Annotated[
         bool, typer.Option("--yes", "-y", help="Skip the confirmation, and nothing else.")
     ] = False,
@@ -269,19 +305,23 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
         typer.Option("--dry-run", help="Print the plan and write nothing."),
     ] = False,
 ) -> None:
-    """Install curated equipment into the current repository."""
+    """Install curated equipment into the current repository, or onto the machine."""
+    environment = Environment.from_process()
+    scope, root = _scope_and_root(global_=global_, environment=environment)
     request = Request(
         ai_frameworks=_accumulated(ai_framework),
         bundles=_accumulated(bundle),
         skills=_accumulated(skill),
         runtimes=_accumulated(runtime),
-        scope=Scope.PROJECT,
+        scope=scope,
+        force=force,
         dry_run=dry_run,
         yes=yes,
     )
     # Planned before anything is drawn, so a refusal costs no screen: a bad
-    # runtime is exit 2 with nothing written and nothing announced.
-    plan = plan_for(request, load_catalog(content_root(), catalog_file()), Path.cwd())
+    # runtime, or a global destination that already exists without --force, is
+    # exit 2 or exit 3 with nothing written and nothing announced.
+    plan = plan_for(request, load_catalog(content_root(), catalog_file()), root, environment)
 
     _print_banner()
     _out.print(plan_screen(plan))
@@ -301,6 +341,24 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
             (f"{report.writes} writes · {report.files} files", "op.dim"),
         )
     )
+    if report.degraded:
+        listed = ", ".join(str(path) for path in report.degraded)
+        _out.print(Text.assemble(("degraded to copy", "op.warn"), " ", (listed, "op.dim")))
+
+
+def _scope_and_root(*, global_: bool, environment: Environment) -> tuple[Scope, Path]:
+    """The scope this invocation writes in, and what its destinations hang off.
+
+    `--global` names the machine and needs no git at all. Otherwise the default
+    is project scope, and it needs one: axiom 2 — *"the git is the manifest"* —
+    only holds inside a repository, so outside one the scope has to be explicit
+    rather than guessed.
+    """
+    if global_:
+        return Scope.GLOBAL, environment.home
+    if git_root(Path.cwd()) is None:
+        raise OutsideRepositoryError
+    return Scope.PROJECT, Path.cwd()
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -320,6 +378,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Before the base class on purpose: this `except` order *is* the axis
         # between 1 and 2, and it is the only place the two are told apart.
         return _failed(str(wrong), ExitCode.BAD_INVOCATION)
+    except RefusedError as refused:
+        # Same reasoning, one rung down: before `OverpowerError` so 3 is told
+        # apart from 1 the same way 2 already is.
+        return _failed(str(refused), ExitCode.REFUSED)
     except OverpowerError as failure:
         return _failed(str(failure))
     except Exception as bug:  # noqa: BLE001 — the top handler catches everything by design

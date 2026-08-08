@@ -25,13 +25,15 @@ product breaks (ADR 0010).
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from overpower import cli, writing
 from overpower.discovery import ArtifactType
 from overpower.planning import DocumentKey, Landing, Plan, Selection, Write, WriteMode
-from overpower.writing import UnsupportedWriteError, execute
+from overpower.writing import UnsupportedWriteError, execute, points_elsewhere
 from tests.support.project import (
     AGENTS,
     CLAUDE,
@@ -40,6 +42,7 @@ from tests.support.project import (
     joined,
     landings_of,
     paths_in,
+    pinned,
     run,
     source,
     target,
@@ -47,7 +50,6 @@ from tests.support.project import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
 
 # --------------------------------------------------------------------------- #
@@ -367,3 +369,238 @@ def test_a_destination_that_is_a_document_key_is_refused_by_name(tmp_path: Path)
 
     with pytest.raises(UnsupportedWriteError):
         execute(plan)
+
+
+# --------------------------------------------------------------------------- #
+# #40: global scope climbs the canonical + link ladder
+# --------------------------------------------------------------------------- #
+
+
+def test_the_global_ladder_lands_a_canonical_copy_and_a_link_pointing_at_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`claude-code` precedes `cursor` in table order: it is the real copy.
+
+    `points_elsewhere` — the same predicate the removal trap uses — is what
+    makes the second half of this assertion true on every platform: a symlink
+    on POSIX, a junction on Windows, never `is_symlink()` alone.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, "alpha")
+    target(tmp_path, monkeypatch)
+
+    code, _ = run(
+        capsys,
+        "install",
+        "--skill",
+        "alpha",
+        "--runtime",
+        "claude-code,cursor",
+        "--global",
+        "--yes",
+    )
+
+    assert code == 0
+    canonical = tmp_path / CLAUDE / "alpha"
+    linked = tmp_path / ".cursor" / "skills" / "alpha"
+    assert canonical.is_dir()
+    assert not points_elsewhere(canonical)
+    assert (canonical / "SKILL.md").is_file()
+    assert points_elsewhere(linked)
+    assert (linked / "SKILL.md").is_file()
+    if sys.platform != "win32":
+        # relative, so the link survives $HOME moving and the machine cloning
+        # — a junction's target is always absolute (#19), so this half of the
+        # property is POSIX only.
+        assert not linked.readlink().is_absolute()
+
+
+def test_force_detaches_an_existing_link_before_writing_the_new_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """#9's removal trap, exercised on the write this issue adds: link, not tree.
+
+    `rmtree(ignore_errors=True)` over a symlink removes nothing and the
+    `copytree` that follows would write *through* it — here the reinstall has
+    to detach the old link first, or the second run corrupts the canonical it
+    points at.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, "alpha")
+    target(tmp_path, monkeypatch)
+    selectors = ("install", "--skill", "alpha", "--runtime", "claude-code,cursor", "--global")
+    run(capsys, *selectors, "--yes")
+    linked = tmp_path / ".cursor" / "skills" / "alpha"
+    assert points_elsewhere(linked)
+
+    code, _ = run(capsys, *selectors, "--force", "--yes")
+
+    assert code == 0
+    canonical = tmp_path / CLAUDE / "alpha"
+    assert canonical.is_dir()
+    assert not points_elsewhere(canonical)
+    assert points_elsewhere(linked)
+    assert (linked / "SKILL.md").is_file()
+
+
+def test_the_three_way_identity_holds_in_global_scope_including_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """#40: the plan now carries mode, and what the screen calls link has to be link on disk."""
+    # given
+    catalog_of(tmp_path, monkeypatch, "alpha", "beta")
+    monkeypatch.setattr(cli, "_out", pinned(tty=False))
+    dry_home = tmp_path / "dry"
+    real_home = tmp_path / "real"
+    dry_home.mkdir()
+    real_home.mkdir()
+    selectors = ("install", "--skill", "alpha,beta", "--runtime", "claude-code,cursor", "--global")
+
+    monkeypatch.setenv("HOME", str(dry_home))
+    monkeypatch.setenv("USERPROFILE", str(dry_home))
+    dry_code, dry_out = run(capsys, *selectors, "--dry-run")
+
+    monkeypatch.setenv("HOME", str(real_home))
+    monkeypatch.setenv("USERPROFILE", str(real_home))
+    real_code, real_out = run(capsys, *selectors, "--yes")
+
+    announced = paths_in(real_out)
+    assert paths_in(dry_out) == announced
+    assert landings_of(files_under(real_home), announced) == announced
+    assert list(dry_home.iterdir()) == []
+    assert dry_code == real_code == 0
+
+    # what the screen calls the non-canonical rung is what lands on disk:
+    # a link on POSIX, a junction on Windows — never a real copy either way.
+    rung = "junction" if sys.platform == "win32" else "link"
+    assert rung in joined(dry_out)
+    assert rung in joined(real_out)
+    for name in ("alpha", "beta"):
+        canonical = real_home / CLAUDE / name
+        linked = real_home / ".cursor" / "skills" / name
+        assert canonical.is_dir()
+        assert not points_elsewhere(canonical)
+        assert points_elsewhere(linked)
+        assert (linked / "SKILL.md").is_file()
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="the link rung is POSIX only; Windows takes the junction rung"
+)
+def test_a_symlink_that_cannot_be_created_degrades_to_a_copy_with_a_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Not reproducible on demand — FAT32, a network share, PyPy without parity.
+
+    ADR 0010 rules out a fabricated filesystem; this is not one. A single call
+    is stubbed at the exact seam `_land_link` isolates it behind, and everything
+    downstream — the resulting copy, the report, the warning — is real.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, "alpha")
+    target(tmp_path, monkeypatch)
+
+    def refuse(self: Path, link_target: str, *, target_is_directory: bool = False) -> None:
+        del self, link_target, target_is_directory
+        message = "symlinks not supported on this filesystem"
+        raise OSError(message)
+
+    monkeypatch.setattr(Path, "symlink_to", refuse)
+
+    code, output = run(
+        capsys,
+        "install",
+        "--skill",
+        "alpha",
+        "--runtime",
+        "claude-code,cursor",
+        "--global",
+        "--yes",
+    )
+
+    assert code == 0
+    assert "degraded to copy" in joined(output)
+    landed = tmp_path / ".cursor" / "skills" / "alpha"
+    assert not landed.is_symlink()
+    assert landed.is_dir()
+    assert (landed / "SKILL.md").is_file()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the junction rung is Windows only")
+def test_a_junction_that_cannot_be_created_degrades_to_a_copy_with_a_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The Windows twin of the POSIX symlink-fallback test above, same seam, same reasoning."""
+    # given
+    catalog_of(tmp_path, monkeypatch, "alpha")
+    target(tmp_path, monkeypatch)
+
+    def refuse(source: Path, destination: Path) -> None:
+        del source, destination
+        message = "junction creation blocked"
+        raise OSError(message)
+
+    monkeypatch.setattr(writing, "_create_junction", refuse)
+
+    code, output = run(
+        capsys,
+        "install",
+        "--skill",
+        "alpha",
+        "--runtime",
+        "claude-code,cursor",
+        "--global",
+        "--yes",
+    )
+
+    assert code == 0
+    assert "degraded to copy" in joined(output)
+    landed = tmp_path / ".cursor" / "skills" / "alpha"
+    assert not points_elsewhere(landed)
+    assert landed.is_dir()
+    assert (landed / "SKILL.md").is_file()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="a junction only exists on Windows")
+def test_the_global_ladder_lands_a_junction_on_windows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # given
+    catalog_of(tmp_path, monkeypatch, "alpha")
+    target(tmp_path, monkeypatch)
+
+    code, _ = run(
+        capsys,
+        "install",
+        "--skill",
+        "alpha",
+        "--runtime",
+        "claude-code,cursor",
+        "--global",
+        "--yes",
+    )
+
+    assert code == 0
+    canonical = tmp_path / CLAUDE / "alpha"
+    linked = tmp_path / ".cursor" / "skills" / "alpha"
+    assert canonical.is_dir()
+    assert not canonical.is_symlink()
+    assert linked.is_junction()
+    assert (linked / "SKILL.md").is_file()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="a junction only exists on Windows")
+def test_junction_creation_refuses_a_source_that_is_not_a_directory(tmp_path: Path) -> None:
+    """#19: `_winapi.CreateJunction` validates existence, not type, and creates garbage."""
+    from overpower.writing import (  # noqa: PLC0415 — direct unit test of the guard
+        _create_junction,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    source_file = tmp_path / "not-a-directory"
+    source_file.write_text("x", encoding="utf-8")
+    destination = tmp_path / "junction"
+
+    with pytest.raises(NotADirectoryError):
+        _create_junction(source_file, destination)
+
+    assert not destination.exists()

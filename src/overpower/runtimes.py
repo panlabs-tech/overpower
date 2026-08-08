@@ -30,7 +30,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, assert_never
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Mapping, Sequence
 
 UPSTREAM_REPOSITORY = "https://github.com/vercel-labs/skills"
 """Origin of the table. MIT, `LICENSE` at the root of the repository."""
@@ -525,3 +525,47 @@ def runtimes_in(scope: Scope) -> tuple[Runtime, ...]:
             return tuple(runtime for runtime in RUNTIMES if runtime.global_dir is not None)
         case _ as unreachable:
             assert_never(unreachable)
+
+
+def detected_runtimes(scope: Scope, root: Path, environment: Environment) -> frozenset[str]:
+    """Runtime keys whose destination already exists on disk — the wizard's pre-mark.
+
+    No state file survives an install (ADR 0008, https://github.com/panlabs-tech/overpower/issues/41):
+    versioning a schema, migrating it and handling its corruption do not pay for
+    themselves to save two taps of space. What stands in for memory is disk
+    itself.
+
+    Project scope probes `root`, the target repository — what is decided there
+    is what the *repository* carries, which is team property, and neither `~`
+    nor a memory of a past selection can see the team (ADR 0008). Global scope
+    probes `~` directly. When the project carries no runtime directory at
+    all — the common case, a repository that has never run the overpower — that
+    is zero signal from the repository, and the probe falls back to `~` rather
+    than pre-checking nothing.
+    """
+    candidates = runtimes_in(scope)
+    if scope is Scope.GLOBAL:
+        return _present_at(candidates, environment, lambda r: resolve_global_dir(r, environment))
+    found = _present_at(candidates, environment, lambda r: resolve_project_dir(r, root))
+    if found:
+        return found
+    return _present_at(candidates, environment, lambda r: resolve_global_dir(r, environment))
+
+
+def _present_at(
+    candidates: Sequence[Runtime],
+    environment: Environment,
+    resolve: Callable[[Runtime], Path | None],
+) -> frozenset[str]:
+    """The keys among `candidates` whose resolved destination already exists.
+
+    Through `environment.directory_exists` and never a bare `Path.is_dir()` —
+    the same single injection point `_resolve_anchor` already reads the
+    filesystem through, so this table stays testable without a sandboxed
+    `HOME` the way every other function here already is.
+    """
+    return frozenset(
+        runtime.key
+        for runtime in candidates
+        if (place := resolve(runtime)) is not None and environment.directory_exists(place)
+    )

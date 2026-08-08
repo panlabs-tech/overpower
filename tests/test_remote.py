@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import email.message
 import io
+import os
 import subprocess
+import sys
 import tarfile
 import urllib.error
 from typing import TYPE_CHECKING
@@ -189,11 +191,19 @@ def test_the_git_subprocess_runs_under_the_c_locale(
 
     Git's strings are translatable — 20 `git.mo` catalogues on the host that
     measured it — so the guard is what keeps the classification from depending on
-    the developer's locale. Asserted at the call site, not on a constant: every
-    argv the module runs receives exactly the environment whose `LC_ALL` is `C`.
+    the developer's locale.
+
+    The expected environment is **written out here** rather than read back off
+    the module: comparing the product against its own constant would assert
+    nothing. What it says is the whole policy — the parent's environment is
+    inherited, because *"the primary uses what `git` already has"* is the
+    credential surface, and exactly two keys are overridden. The mechanism of the
+    primary stays undoubled next door, against a real local remote; a spy is the
+    only instrument that can see what a subprocess was handed.
     """
     # given
     seen: list[object] = []
+    monkeypatch.setenv("OVERPOWER_INHERITED_PROBE", "carried through")
 
     def spy(*_args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
         seen.append(kwargs.get("env"))
@@ -203,9 +213,10 @@ def test_the_git_subprocess_runs_under_the_c_locale(
 
     remote.fetch_with_git("https://github.com/owner/repo.git", "main", tmp_path / "scratch")
 
-    assert remote.git_environment()["LC_ALL"] == "C"
-    assert seen
-    assert all(environment == remote.git_environment() for environment in seen)
+    expected = {**os.environ, "LC_ALL": "C", "GIT_TERMINAL_PROMPT": "0"}
+    assert expected["OVERPOWER_INHERITED_PROBE"] == "carried through"
+    assert seen == [expected] * len(seen)
+    assert len(seen) == 4
 
 
 # --------------------------------------------------------------------------- #
@@ -275,6 +286,56 @@ def test_a_failed_primary_falls_back_to_the_anonymous_tarball(
     assert (tree / "skills" / "alpha" / "SKILL.md").is_file()
 
 
+def test_a_primary_that_fails_outside_its_own_error_still_falls_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """*"Obtention failure"* is a class, not one exception: a scratch that cannot
+    be created is exactly as failed as a ref that does not exist.
+
+    Left uncaught it would reach the CLI's last resort and render as *"this is a
+    bug in the overpower"* — a diagnosis that is both wrong and unactionable —
+    with the fallback that could have recovered it never even tried.
+    """
+
+    # given
+    def broken(*_args: object, **_kwargs: object) -> Path:
+        message = "No space left on device"
+        raise OSError(message)
+
+    monkeypatch.setattr(remote, "fetch_with_git", broken)
+    payload = _tarball(tmp_path, git_remote.skill_files("alpha"))
+    monkeypatch.setattr(remote, "urlopen", _serving(payload))
+
+    tree = remote.obtain(remote.parse(ROOT_URL), tmp_path / "scratch")
+
+    assert (tree / "skills" / "alpha" / "SKILL.md").is_file()
+
+
+def test_a_git_directory_that_will_not_go_does_not_discard_an_obtained_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Shedding `.git` is hygiene, and hygiene must not throw away a checkout.
+
+    Failing here would send an already-delivered tree into a fallback that
+    re-downloads the whole repository to return the identical answer — the exact
+    defect #25 measured, arriving through a different door.
+    """
+    # given
+    local = git_remote.build(tmp_path / "origin", git_remote.skill_files("alpha"))
+
+    def immovable(path: Path) -> None:
+        if path.name == ".git":
+            message = "Device or resource busy"
+            raise OSError(message)
+        remote.discard(path)
+
+    monkeypatch.setattr(remote, "discard", immovable)
+
+    tree = remote.fetch_with_git(local.url, local.branch, tmp_path / "scratch")
+
+    assert (tree / "skills" / "alpha" / "SKILL.md").is_file()
+
+
 def test_when_both_paths_fail_the_transport_error_is_the_one_passed_through(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -296,51 +357,33 @@ def test_when_both_paths_fail_the_transport_error_is_the_one_passed_through(
     assert "couldn't find remote ref nope" in str(failure.value)
 
 
-def test_a_search_that_finds_nothing_never_calls_the_fallback(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """#25 measured this as a live bug: the fallback ran for *"the skill is not
-    there"*, re-fetched the whole repository and returned the same answer.
-
-    Obtention failure -> fallback, then exit 1 if it also fails. Obtained,
-    searched, not found -> exit 3, and the fallback is never called. The exit
-    codes themselves are asserted at the CLI, where the number is real.
-    """
-    # given
-    asked: list[object] = []
-
-    def fallback(*args: object, **_kwargs: object) -> object:
-        return asked.append(args)
-
-    _planting(monkeypatch, git_remote.skill_files("alpha"))
-    monkeypatch.setattr(remote, "fetch_tarball", fallback)
-
-    with pytest.raises(RefusedError), remote.catalog_from(ROOT_URL, ["beta"]):
-        pass  # pragma: no cover — the search raises before the block is entered
-
-    assert asked == []
-
-
 # --------------------------------------------------------------------------- #
 # the search, and the scratch
 # --------------------------------------------------------------------------- #
 
 
 @pytest.mark.parametrize(
-    "url",
+    "depth",
     [
-        pytest.param(ROOT_URL, id="repository root"),
-        pytest.param(f"{ROOT_URL}/tree/HEAD/skills", id="a subfolder"),
-        pytest.param(f"{ROOT_URL}/tree/HEAD/skills/alpha", id="the artifact's own folder"),
+        pytest.param("", id="repository root"),
+        pytest.param("/skills", id="a subfolder"),
+        pytest.param("/skills/alpha", id="the artifact's own folder"),
     ],
 )
 def test_the_three_depths_of_url_find_the_same_skill(
-    monkeypatch: pytest.MonkeyPatch, url: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, depth: str
 ) -> None:
-    """The URL is a search root, not an address: deeper only buys a shorter walk."""
-    _planting(monkeypatch, git_remote.skill_files("alpha", "beta"))
+    """The URL is a search root, not an address: deeper only buys a shorter walk.
 
-    with remote.catalog_from(url, ["alpha"]) as catalog:
+    Against a **real local remote**, through the real `git` subprocess — the
+    doubles table leaves the primary undoubled, and only the one argument that
+    cannot be a local path, the URL, is replaced.
+    """
+    # given
+    local = git_remote.build(tmp_path / "origin", git_remote.skill_files("alpha", "beta"))
+    monkeypatch.setattr(remote, "fetch_with_git", git_remote.instead_of_github(local))
+
+    with remote.catalog_from(f"{ROOT_URL}/tree/{local.branch}{depth}", ["alpha"]) as catalog:
         assert [artifact.name for artifact in catalog.pool] == ["alpha"]
         assert catalog.pool[0].description == "The alpha skill."
 
@@ -350,7 +393,7 @@ def test_a_skill_that_is_not_under_the_root_is_refused(monkeypatch: pytest.Monke
     _planting(monkeypatch, git_remote.skill_files("alpha"))
 
     with pytest.raises(RefusedError), remote.catalog_from(ROOT_URL, ["beta"]):
-        pass  # pragma: no cover — the search raises before the block is entered
+        pass  # unreachable: the search raises before the block is entered
 
 
 def test_two_skills_with_the_same_name_under_one_root_are_refused(
@@ -365,7 +408,7 @@ def test_two_skills_with_the_same_name_under_one_root_are_refused(
     _planting(monkeypatch, planted)
 
     with pytest.raises(RefusedError), remote.catalog_from(ROOT_URL, ["alpha"]):
-        pass  # pragma: no cover — the search raises before the block is entered
+        pass  # unreachable: the search raises before the block is entered
 
 
 def test_a_subpath_the_repository_does_not_have_is_refused(
@@ -375,7 +418,7 @@ def test_a_subpath_the_repository_does_not_have_is_refused(
     _planting(monkeypatch, git_remote.skill_files("alpha"))
 
     with pytest.raises(RefusedError), remote.catalog_from(f"{ROOT_URL}/tree/HEAD/nope", ["alpha"]):
-        pass  # pragma: no cover — the descent raises before the block is entered
+        pass  # unreachable: the descent raises before the block is entered
 
 
 def test_the_scratch_is_removed_even_when_the_search_fails(
@@ -392,7 +435,7 @@ def test_the_scratch_is_removed_even_when_the_search_fails(
     monkeypatch.setattr(remote, "fetch_with_git", planting)
 
     with pytest.raises(RefusedError), remote.catalog_from(ROOT_URL, ["beta"]):
-        pass  # pragma: no cover — the search raises before the block is entered
+        pass  # unreachable: the search raises before the block is entered
 
     assert scratches
     assert not any(scratch.exists() for scratch in scratches)
@@ -423,6 +466,26 @@ def test_a_scratch_carrying_a_real_git_directory_is_still_removed(tmp_path: Path
     local = git_remote.build(tmp_path / "origin", git_remote.skill_files("alpha"))
     scratch = tmp_path / "scratch"
     git_remote.git("clone", local.url, str(scratch), cwd=tmp_path)
+
+    remote.discard(scratch)
+
+    assert not scratch.exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a mode of 0 is not how Windows refuses")
+def test_a_directory_that_refuses_to_be_walked_is_still_removed(tmp_path: Path) -> None:
+    """The other half of the retry: on POSIX what refuses is a *directory*.
+
+    Setting `S_IWRITE` absolutely would strip read and execute and leave the walk
+    exactly as stuck as it was. Presumes an ordinary user, which every cell of
+    the matrix is — root would not be refused in the first place.
+    """
+    # given
+    scratch = tmp_path / "scratch"
+    locked = scratch / "locked"
+    locked.mkdir(parents=True)
+    (locked / "inside.txt").write_text("content", encoding="utf-8")
+    locked.chmod(0o000)
 
     remote.discard(scratch)
 
@@ -470,3 +533,21 @@ def test_a_pasted_github_url_serves_a_skill_from_the_real_github() -> None:
         assert catalog.pool[0].name == "wayfinder"
         assert catalog.pool[0].description
         assert catalog.pool[0].files > 0
+
+
+@pytest.mark.network
+@needs_network
+def test_the_real_codeload_serves_the_tarball_the_fallback_asks_for(tmp_path: Path) -> None:
+    """The fallback's own end-to-end proof, and it needs its own: the test above
+    exercises the primary and would stay green with codeload's URL shape wrong.
+
+    What it pins is the shape rather than the content — the direct `tar.gz/<ref>`
+    address answering without a redirect, and the single top directory the
+    unwrapping steps past.
+    """
+    source = remote.parse("https://github.com/mattpocock/skills")
+
+    tree = remote.fetch_tarball(source.tarball_url, tmp_path / "scratch")
+
+    assert sorted(found.parent.name for found in tree.rglob("SKILL.md"))
+    assert (tree / "skills").is_dir()

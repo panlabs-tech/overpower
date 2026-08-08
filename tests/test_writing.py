@@ -30,10 +30,11 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from overpower import cli, writing
+from overpower import cli, remote, writing
 from overpower.discovery import ArtifactType
 from overpower.planning import DocumentKey, Landing, Plan, Selection, Write, WriteMode
 from overpower.writing import UnsupportedWriteError, execute, points_elsewhere
+from tests.support import git_remote
 from tests.support.project import (
     AGENTS,
     CLAUDE,
@@ -115,6 +116,53 @@ def test_the_three_way_identity_holds_with_all_three_selectors_mixed(
         "alpha",
         "--runtime",
         "claude-code",
+    )
+
+    monkeypatch.chdir(dry_root)
+    dry_code, dry_out = run(capsys, *selectors, "--dry-run")
+    monkeypatch.chdir(real_root)
+    real_code, real_out = run(capsys, *selectors)
+
+    announced = paths_in(real_out)
+    assert paths_in(dry_out) == announced
+    assert landings_of(files_under(real_root), announced) == announced
+    assert list(dry_root.iterdir()) == []
+    assert dry_code == real_code == 0
+
+
+def test_the_identity_holds_for_a_skill_that_came_from_a_remote(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """#42: `--from` moves where the source comes from, and nothing about the identity.
+
+    Worth its own case because it is the first source that lives **outside the
+    package** — a scratch directory that exists only for the length of the
+    command — and because a dry run that resolved the remote differently from the
+    real run would be a report about a different installation. The embedded
+    catalog is made to explode, so this also proves the write path never reaches
+    for it.
+    """
+
+    # given
+    def unread(*_: object, **__: object) -> object:
+        message = "the embedded catalog was read while `--from` was given"
+        raise AssertionError(message)
+
+    dry_root = target(tmp_path, monkeypatch, "dry")
+    real_root = target(tmp_path, monkeypatch, "real")
+    monkeypatch.setattr(cli, "load_catalog", unread)
+    local = git_remote.build(tmp_path / "origin", git_remote.skill_files("alpha", "beta"))
+    monkeypatch.setattr(remote, "fetch_with_git", git_remote.instead_of_github(local))
+    selectors = (
+        "install",
+        "--from",
+        f"https://github.com/owner/repo/tree/{local.branch}",
+        "--skill",
+        "alpha,beta",
+        "--runtime",
+        "claude-code",
+        "--runtime",
+        "cursor",
     )
 
     monkeypatch.chdir(dry_root)

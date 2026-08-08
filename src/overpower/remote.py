@@ -62,7 +62,7 @@ import stat
 import subprocess
 import tarfile
 import tempfile
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -73,7 +73,7 @@ from overpower.discovery import SKILL_FILE, ArtifactType, Catalog, artifact_at
 from overpower.errors import BadInvocationError, OverpowerError, RefusedError
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator, Sequence
+    from collections.abc import Generator, Sequence
 
     from overpower.discovery import Artifact
 
@@ -284,7 +284,7 @@ def catalog_from(url: str, names: Sequence[str]) -> Generator[Catalog]:
         root = _search_root(obtain(source, scratch), source)
         yield Catalog(
             frameworks=(),
-            pool=tuple(_found(root, name, source) for name in dict.fromkeys(names)),
+            pool=tuple(_skill_called(name, root, source) for name in dict.fromkeys(names)),
             bundles=(),
         )
     finally:
@@ -301,10 +301,10 @@ def obtain(source: Source, scratch: Path) -> Path:
     """
     try:
         return fetch_with_git(source.remote_url, source.ref, scratch / _PRIMARY_DIR)
-    except ObtentionError as transport:
+    except (ObtentionError, OSError) as transport:
         try:
             return fetch_tarball(source.tarball_url, scratch / _FALLBACK_DIR)
-        except ObtentionError as anonymous:
+        except (ObtentionError, OSError) as anonymous:
             message = f"{transport} (the anonymous fallback did not recover it either: {anonymous})"
             raise ObtentionError(message) from transport
 
@@ -313,9 +313,7 @@ def fetch_with_git(remote_url: str, ref: str, into: Path) -> Path:
     """`init` + `remote add` + `fetch --depth 1` + `checkout FETCH_HEAD`, then no `.git`.
 
     One code path for a branch, a tag and a full SHA — which is precisely what
-    `clone --branch` cannot do. The `.git` goes because the search that follows
-    walks the tree looking for `SKILL.md`, and a directory of packed objects is
-    not part of the answer.
+    `clone --branch` cannot do.
 
     **The honest limit**, and it is the server's rather than ours: fetching an
     arbitrary SHA depends on the remote allowing it (`uploadpack.allowAnySHA1InWant`).
@@ -326,8 +324,22 @@ def fetch_with_git(remote_url: str, ref: str, into: Path) -> Path:
     _git("remote", "add", "origin", remote_url, cwd=into)
     _git("fetch", "--depth", "1", "origin", ref, cwd=into)
     _git("checkout", "-q", "FETCH_HEAD", cwd=into)
-    discard(into / ".git")
+    _shed_repository_metadata(into)
     return into
+
+
+def _shed_repository_metadata(tree: Path) -> None:
+    """Take `.git` out of the obtained tree — and never fail the obtention over it.
+
+    The removal is hygiene, not obtention: by the time it runs the checkout has
+    already delivered, and a tree in hand must not be thrown away — least of all
+    into a fallback that would download the whole repository again to return the
+    identical answer, which is the exact defect #25 measured. If it survives, the
+    only cost is a longer walk, because `.git` holds packed objects and refs and
+    no `SKILL.md`, and the scratch it sits in is removed either way.
+    """
+    with suppress(OSError):
+        discard(tree / ".git")
 
 
 def fetch_tarball(tarball_url: str, into: Path) -> Path:
@@ -348,7 +360,7 @@ def fetch_tarball(tarball_url: str, into: Path) -> Path:
     return _unwrapped(into)
 
 
-def git_environment() -> dict[str, str]:
+def _git_environment() -> dict[str, str]:
     """The environment every `git` subprocess receives, and why it is not `os.environ`.
 
     Inherited rather than replaced, because *"the primary uses what `git` already
@@ -369,23 +381,52 @@ def git_environment() -> dict[str, str]:
 def discard(path: Path) -> None:
     """Remove a tree, including one `git` wrote, and never mind if it is already gone.
 
-    Git writes its objects read-only. On POSIX that is harmless — the *directory*
-    is what governs an unlink — but on Windows `unlink` refuses a read-only file
-    outright, which is what turns an ordinary `rmtree` of a scratch checkout into
-    a `PermissionError`. The retry is what makes the promise *"the scratch is
-    removed even on failure"* true on all nine cells of the matrix.
+    Git writes its objects read-only. On POSIX that is usually harmless — the
+    *directory* is what governs an unlink — but on Windows `unlink` refuses a
+    read-only file outright, which turns an ordinary `rmtree` of a scratch
+    checkout into a `PermissionError`. So a refusal widens the owner's rights
+    over the whole tree and tries once more, which is what makes the promise
+    *"the scratch is removed even on failure"* true on all nine cells.
+
+    A second pass rather than `onexc`, and the reason is mechanical: the callback
+    receives the function that failed, and on POSIX `shutil.rmtree` uses the
+    file-descriptor walk, where that function is `os.open` with a `dir_fd` — not
+    something a retry can call with a path. Widening first and removing after
+    needs no assumption about which implementation is running.
     """
     if not path.exists():
         return
-    shutil.rmtree(path, onexc=_writable_then_retry)
+    try:
+        shutil.rmtree(path)
+    except OSError:
+        _grant_owner_full_rights(path)
+        shutil.rmtree(path)
 
 
-def _writable_then_retry(
-    action: Callable[..., object], failed: str, _failure: BaseException
-) -> None:
-    """Clear the read-only bit and try the same call once more."""
-    Path(failed).chmod(stat.S_IWRITE)
-    action(failed)
+def _grant_owner_full_rights(root: Path) -> None:
+    """Make every entry below `root` removable by the user about to remove it.
+
+    **Symlinks are skipped, and that is the point of the guard**: `chmod` follows
+    them, and a checkout of somebody else's repository may carry a link pointing
+    anywhere on the machine. Widening rights on a tree that is one call from
+    deletion costs nothing; widening them on whatever a link happens to name is a
+    different act entirely.
+    """
+    _widen(root)
+    # Top-down, and each name is widened *before* the walk descends into it —
+    # which is the documented order, and the only one that reaches inside a
+    # directory that currently refuses to be listed at all.
+    for base, directories, files in root.walk():
+        for name in (*directories, *files):
+            _widen(base / name)
+
+
+def _widen(entry: Path) -> None:
+    """Add the owner's rights to whatever `entry` already has, or leave it alone."""
+    if entry.is_symlink():
+        return
+    with suppress(OSError):
+        entry.chmod(entry.stat().st_mode | stat.S_IRWXU)
 
 
 def _git(*args: str, cwd: Path) -> None:
@@ -399,7 +440,7 @@ def _git(*args: str, cwd: Path) -> None:
         finished = subprocess.run(  # noqa: S603 — fixed argv, no shell; see _GIT above
             [_GIT, *args],
             cwd=cwd,
-            env=git_environment(),
+            env=_git_environment(),
             capture_output=True,
             text=True,
             check=False,
@@ -465,7 +506,7 @@ def _search_root(tree: Path, source: Source) -> Path:
     raise MissingSubpathError(source)
 
 
-def _found(root: Path, name: str, source: Source) -> Artifact:
+def _skill_called(name: str, root: Path, source: Source) -> Artifact:
     """The one skill folder called `name` under `root`, described by its own `SKILL.md`.
 
     The folder name is the artifact's name, exactly as it is for the embedded

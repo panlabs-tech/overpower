@@ -134,7 +134,7 @@ def skill_files(*names: str, under: str = "skills") -> dict[str, str]:
     one the test chose.
     """
     return {
-        f"{under}/{name}/SKILL.md" if under else f"{name}/SKILL.md": (
+        f"{under}/{name}/SKILL.md": (
             f"---\nname: {name}\ndescription: The {name} skill.\n---\n\n# {name}\n"
         )
         for name in names
@@ -151,8 +151,12 @@ def instead_of_github(local: LocalRemote) -> Callable[[str, str, Path], Path]:
     (`docs/agents/testing.md`, §3).
     """
 
+    # Bound now, not at call time: the caller's next move is to monkeypatch this
+    # very name, and a late lookup would find the replacement and recurse.
+    real = remote.fetch_with_git
+
     def fetch(_url: str, ref: str, into: Path) -> Path:
-        return remote.fetch_with_git(local.url, ref, into)
+        return real(local.url, ref, into)
 
     return fetch
 

@@ -45,6 +45,15 @@ relative to the target with a trailing separator — so this finds the announced
 set and nothing else. A runtime key carries no separator.
 """
 
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+"""The SGR sequences a console in a terminal writes around styled text.
+
+Colour only — cursor control never reaches these captures, because nothing in
+the product animates. `tests/support/screens.py` takes styles off through
+`export_text(styles=False)`; this is the same subtraction for the path that
+captures a stream instead of recording a screen.
+"""
+
 ANCHORS = (
     GIT_CONFIG_GLOBAL,
     *sorted(
@@ -223,12 +232,20 @@ def run(capsys: pytest.CaptureFixture[str], *argv: str) -> tuple[int, str]:
 
 
 def joined(output: str) -> str:
-    """The output with its frame and its re-wrapping undone.
+    """The output with its frame, its re-wrapping and its styling undone.
 
     A message is allowed to wrap; the assertion is about what it says, and that
     is only visible after joining the lines back up.
+
+    The styles come off for the same reason and only matter on one path: a test
+    that has to run **in a terminal** — the confirmation, the wizard — gets a
+    console that emits them, and `skill  fa` arrives there as `ESC[2mskill`,
+    `ESC[36mfa`, which is the same text with the answer hidden inside it. On the
+    piped console this is a no-op, and the *presence* of ANSI is asserted where
+    it belongs, against a real child in `test_cli.py`.
     """
-    lines = [line.strip().strip("│").strip() for line in output.splitlines()]
+    plain = ANSI.sub("", output)
+    lines = [line.strip().strip("│").strip() for line in plain.splitlines()]
     return " ".join(" ".join(line.split()) for line in lines if line)
 
 

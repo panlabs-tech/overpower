@@ -57,7 +57,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
     from pathlib import Path
 
-    from overpower.discovery import Artifact, ArtifactType, Bundle, Catalog, Framework
+    from overpower.discovery import Artifact, Bundle, Catalog, Framework
     from overpower.runtimes import Environment, Runtime
 
 
@@ -162,8 +162,16 @@ class Selection:
     """One thing the user asked for, and everywhere it lands."""
 
     name: str
-    artifacts: tuple[ArtifactType, ...]
-    """One entry per artifact this selection brings, so the screen can count and name them."""
+    artifacts: tuple[Artifact, ...]
+    """One entry per artifact this selection brings, so the screen can count and name them.
+
+    The artifacts themselves and not just their types, because the plan **names**
+    them (#58): it is the last gate before the write, and a gate that could only
+    count would ask someone to accept a set they cannot see. The type travels
+    inside each one, so the head line still says *"25 skills"* from the same
+    datum the stacked list below it is drawn from — one source, and therefore no
+    way for the count and the list to disagree.
+    """
 
     landings: tuple[Landing, ...]
 
@@ -416,7 +424,7 @@ def _grouped_selection(
     canonical = ordered[0][0]
     return Selection(
         name=name,
-        artifacts=tuple(artifact.type for artifact in artifacts),
+        artifacts=tuple(artifacts),
         landings=tuple(
             Landing(
                 place=place,

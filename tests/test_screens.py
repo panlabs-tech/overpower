@@ -269,29 +269,47 @@ Three names and a `(+16)` is what the reader gets instead.
 """
 
 
-def landing(place: str, readers: Sequence[str], name: str, files: int) -> Landing:
+def landing(place: str, readers: Sequence[str], carried: Sequence[Artifact]) -> Landing:
     return Landing(
         place=ROOT / place,
         readers=tuple(readers),
-        writes=(
+        writes=tuple(
             Write(
-                source=Path("content") / "pool" / "skills" / name,
-                destination=DirectoryTree(ROOT / place / name),
+                source=Path("content") / "pool" / "skills" / inside.name,
+                destination=DirectoryTree(ROOT / place / inside.name),
                 mode=WriteMode.COPY,
-                files=files,
-            ),
+                files=inside.files,
+            )
+            for inside in carried
         ),
     )
 
 
-def selected(name: str, files: int) -> Selection:
+def selected(name: str, carried: Sequence[Artifact]) -> Selection:
     return Selection(
         name=name,
-        artifacts=(ArtifactType.SKILL,),
+        artifacts=tuple(carried),
         landings=(
-            landing(".agents/skills", UNIVERSAL_READERS, name, files),
-            landing(".claude/skills", ("claude-code",), name, files),
+            landing(".agents/skills", UNIVERSAL_READERS, carried),
+            landing(".claude/skills", ("claude-code",), carried),
         ),
+    )
+
+
+def planned_framework() -> tuple[Artifact, ...]:
+    """What the framework selection of the recorded plan carries.
+
+    Its own artifacts and not `recorded_framework`'s, for one reason: **no name
+    may repeat across the two selections of the plan**. A name carried twice
+    would make *"this row belongs to that selection"* unassertable — the row
+    reads identically under either head line — and the plan is precisely the
+    screen where two selections stand next to each other. Three types and three
+    lengths still, so the type column is recorded padded to its widest member.
+    """
+    return (
+        artifact("code-reviewer", "Reviews a diff.", 1, 2_048, ArtifactType.AGENT),
+        artifact("tdd", "Red-green-refactor.", 2, 948, ArtifactType.SKILL),
+        artifact("setup-matt-pocock-skills", "Wires the repo.", 1, 6_144, ArtifactType.COMMAND),
     )
 
 
@@ -300,12 +318,23 @@ def recorded_plan() -> Plan:
 
     Two selections, so the blank line between them is recorded; two landings
     each, so the collapse of many runtimes into one path is recorded; and both
-    spellings of the file count — `8 files` and `1 file` — because those are the
+    spellings of the file count — `4 files` and `1 file` — because those are the
     formatting paths an edit could break in silence.
+
+    The first selection carries **three artifacts of three types**, which is what
+    the stacked list is for (#58): a plan that only ever showed one artifact per
+    selection would record neither the type column padded to its widest member
+    nor the case a reader opens the list *for* — a framework that installs whole.
+    The second carries one artifact of its own name, which is the pool skill, and
+    it is recorded because that repetition is a deliberate position rather than a
+    case the screen forgot.
     """
     return Plan(
         root=ROOT,
-        selections=(selected("panlabs-python-standards", 8), selected("grilling", 1)),
+        selections=(
+            selected("matt-pocock", planned_framework()),
+            selected("grilling", (artifact("grilling", "Grills a decision.", files=1, size=948),)),
+        ),
     )
 
 
@@ -335,6 +364,62 @@ def test_the_plan_names_who_reads_each_path(width: int) -> None:
     for reader in ("cursor", "codex", "github-copilot", "claude-code"):
         assert reader in joined
     assert "(+16)" in joined
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_plan_names_every_artifact_it_will_write(width: int) -> None:
+    """#58: the plan is the last gate before the write, so it says *which* ones.
+
+    The same stacked grid `list` draws — the type as the prefix, one artifact per
+    line — and asserted as the *whole* row rather than as a name found somewhere,
+    which is what makes the prefix part of the promise: a framework may mix
+    skill, command and agent, and a bare list of names would not say which is
+    which.
+    """
+    plan = recorded_plan()
+
+    rendered = rows(render(plan_screen(plan), width))
+
+    for selection in plan.selections:
+        stacked = [f"{inside.type} {inside.name}" for inside in selection.artifacts]
+        assert [row for row in rendered if row in stacked] == stacked
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_plan_lists_the_artifacts_between_the_selection_and_where_it_lands(
+    width: int,
+) -> None:
+    """Head line, then what it carries, then where it lands — in that order.
+
+    The order is the reading order of the decision: *what did I ask for*, *what
+    does that turn out to be*, *where does it go*. A list printed after the paths
+    would be a list read after the question it answers.
+    """
+    rendered = rows(render(plan_screen(recorded_plan()), width))
+
+    head = next(index for index, row in enumerate(rendered) if row.startswith("matt-pocock "))
+    listed = next(index for index, row in enumerate(rendered) if row == "agent code-reviewer")
+    place = next(index for index, row in enumerate(rendered) if row.startswith(".agents/skills/"))
+    assert head < listed < place
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_no_artifact_name_in_the_plan_is_cut_at_any_width(width: int) -> None:
+    """A name that cannot be read back is a name that cannot be typed back.
+
+    The stacked list is what `--skill <name>` is copied out of, so the property
+    is the one the catalog screen already holds for a description: it may wrap,
+    it may not be cut.
+    """
+    plan = recorded_plan()
+
+    rendered = render(plan_screen(plan), width)
+
+    joined = unwrapped(rendered)
+    for selection in plan.selections:
+        for inside in selection.artifacts:
+            assert inside.name in joined
+    assert "…" not in rendered
 
 
 @pytest.mark.parametrize("width", WIDTH_CASES)
@@ -468,6 +553,23 @@ def test_the_banner_names_the_version_that_arrived() -> None:
     rendered = render(banner("9.9.9", width=80), width=80)
 
     assert "9.9.9" in rendered
+
+
+@pytest.mark.parametrize(
+    "width",
+    [pytest.param(80, id="80cols"), pytest.param(60, id="60cols"), pytest.param(40, id="40cols")],
+)
+def test_the_banner_teaches_the_alias_at_every_width(width: int) -> None:
+    """#58: the tip travels with the banner, so it survives the narrow branch too.
+
+    40 columns is below `BANNER_WIDTH`, where the art is dropped for a single
+    line — and the shortcut is not art. The line is typed out here rather than
+    read off the module: what is promised is the shell line someone pastes, and
+    a constant asserted against itself promises nothing.
+    """
+    rendered = render(banner("0.1.0", width=width), width=width)
+
+    assert "alias op='overpower'" in " ".join(rendered.split())
 
 
 @pytest.mark.parametrize("width", WIDTH_CASES)

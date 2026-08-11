@@ -11,11 +11,13 @@ Three commands, and they answer three questions. `list` says what there is,
 `install` writes it, `doctor` says whether what was written is still what was
 written.
 
-Typed bare in a terminal, `overpower` opens the banner and the help and exits 0;
-under a pipe the banner stays behind and the help goes through alone, so `grep`
-and a file get something readable. `overpower --version` answers the version that
-arrived, read from the installed metadata rather than from a constant — which is
-what makes it evidence that the package landed intact.
+Typed bare in a terminal, `overpower` opens the banner and the help and exits 0,
+and `overpower --help` says the same thing; under a pipe the banner stays behind
+and the help goes through alone, so `grep` and a file get something readable. The
+banner also teaches the keyboard shortcut — [`alias op='overpower'`](#the-op-shortcut),
+which you type or do not — and it is behind the same gate. `overpower --version`
+answers the version that arrived, read from the installed metadata rather than
+from a constant — which is what makes it evidence that the package landed intact.
 
 ## Always `@latest`
 
@@ -91,17 +93,49 @@ Several runtimes read the same directory: nineteen of the seventy-six read
 reads it**, so a selection that lands in one shared place says that, instead of
 promising one installation per runtime.
 
+**The plan names every artifact it is about to write**, one per line with its
+type as the prefix — the same grid `list --ai-framework` draws, between the head
+line of a selection and the places it lands. It is the last gate before the
+write, so it says *which* ones rather than how many:
+
 ```
 $ overpower install --skill panlabs-python-standards --runtime claude-code,cursor,codex --dry-run
 
 ╭─ plan ───────────────────────────────────────────────────────────────────────╮
 │                                                                              │
 │  panlabs-python-standards  1 skill                                           │
+│                                                                              │
+│    skill  panlabs-python-standards                                           │
+│                                                                              │
 │    .claude/skills/  ← claude-code                                   8 files  │
 │    .agents/skills/  ← codex, cursor                                 8 files  │
 │                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
+
+A framework is where that matters: `--ai-framework matt-pocock` is two words on
+the line and 74 files on the disk, and the plan lists all 25 skills it carries
+(elided here with `…`; on screen every one of them is printed, and nothing is
+ever truncated).
+
+```
+╭─ plan ───────────────────────────────────────────────────────────────────────╮
+│                                                                              │
+│  matt-pocock  25 skills                                                      │
+│                                                                              │
+│    skill  ask-matt                                                           │
+│    skill  code-review                                                        │
+│     …                                                                        │
+│    skill  writing-for-agents                                                 │
+│                                                                              │
+│    .claude/skills/  ← claude-code                                  74 files  │
+│    .agents/skills/  ← cursor                                       74 files  │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+The same plan appears on all three ways in — `--dry-run`, the wizard's
+confirmation and a direct run — because there is one plan screen and not three.
 
 **`overpower install` typed bare in a terminal opens a wizard** instead of
 refusing: artifacts, then scope, then runtimes, then confirmation. The order is
@@ -217,15 +251,34 @@ A traceback never reaches the terminal: an unhandled exception becomes an error
 panel and exits **1**, saying it is a bug in the overpower and not in what was
 typed.
 
-## The `op` alias collides
+## The `op` shortcut
 
-`op` is the command of the [1Password CLI](https://developer.1password.com/docs/cli/).
-Aliasing `op=overpower` shadows it. If you use both, pick another alias — this
-is written down rather than left to be discovered:
+The banner teaches one line, and typing it is your call:
+
+```bash
+alias op='overpower'
+```
+
+**No executable named `op` is ever installed.** `[project.scripts]` declares one
+command, `overpower`, and that is deliberate: `op` is the command of the
+[1Password CLI](https://developer.1password.com/docs/cli/), which lives in
+`/usr/local/bin` — and measured on a developer machine, `~/.local/bin` sits at
+position **1** of the `PATH` against position **6** for it, so a second entry
+point would shadow a credential tool with no warning at all. `uv` only detects a
+collision between tools it manages itself, and when it does it refuses the
+**whole** package (`error: Executable already exists: op`), so even the honest
+failure costs you the `overpower` command too. Occupying the name is a decision
+for whoever knows their own machine, so the product prints the line and installs
+nothing. If you use 1Password, alias something else:
 
 ```bash
 alias opw='uvx overpower@latest'
 ```
+
+An alias is keyboard comfort and nothing more: it does not expand in a
+non-interactive shell, so `sh -c op` — which is how a Makefile invokes — answers
+`command not found`. That costs nothing, because the line a README, a Makefile
+and a CI write is `uvx overpower@latest …` anyway.
 
 ## Development
 

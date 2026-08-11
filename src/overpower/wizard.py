@@ -256,8 +256,9 @@ def runtime_choices(
     The heading carries the place, the lock and the count, because that is the
     whole of what the section buys: a pre-ticked line and a locked line differ
     by one tap of the space bar, and what the second one buys is the reader
-    understanding, without counting boxes, that one path equips twenty runtimes
-    at once.
+    understanding, without counting boxes, that one path equips every runtime
+    under it at once — which is also why the count is on the heading and not
+    left to be counted.
 
     Neither section is ever empty — the table has 55 distinct project paths, and
     the group has 19 and 6 members — so neither is guarded. The group being

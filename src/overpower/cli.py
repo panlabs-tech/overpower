@@ -49,7 +49,10 @@ from overpower.remote import catalog_from
 from overpower.runtimes import Environment, Scope
 from overpower.scope import git_root
 from overpower.screens import (
+    AI_FRAMEWORK_FLAG,
+    BUNDLE_FLAG,
     PROGRAM,
+    SKILL_FLAG,
     THEME,
     artifact_screen,
     banner,
@@ -228,7 +231,7 @@ def list_catalog(
     ai_framework: Annotated[
         str | None,
         typer.Option(
-            "--ai-framework",
+            AI_FRAMEWORK_FLAG,
             metavar="NAME",
             # No short flag, and the reason is `--force`: `-f` is spoken for by
             # the mode flag of `install`, and a selector that means `--force` on
@@ -238,15 +241,15 @@ def list_catalog(
     ] = None,
     skill: Annotated[
         str | None,
-        typer.Option("--skill", "-s", metavar="NAME", help="Show one pool skill, whole."),
+        typer.Option(SKILL_FLAG, "-s", metavar="NAME", help="Show one pool skill, whole."),
     ] = None,
     bundle: Annotated[
         str | None,
-        typer.Option("--bundle", "-b", metavar="NAME", help="Show what one bundle names."),
+        typer.Option(BUNDLE_FLAG, "-b", metavar="NAME", help="Show what one bundle names."),
     ] = None,
 ) -> None:
     """Show the catalog, or the content of one item of it."""
-    given = (("--ai-framework", ai_framework), ("--skill", skill), ("--bundle", bundle))
+    given = ((AI_FRAMEWORK_FLAG, ai_framework), (SKILL_FLAG, skill), (BUNDLE_FLAG, bundle))
     selected = [flag for flag, name in given if name is not None]
     if len(selected) > 1:
         # Before the catalog is read at all: the defect is in the *line*, so the
@@ -283,7 +286,7 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
     ai_framework: Annotated[
         list[str] | None,
         typer.Option(
-            "--ai-framework",
+            AI_FRAMEWORK_FLAG,
             metavar="NAME",
             # No short flag, and the reason is `--force`: `-f` is spoken for by
             # the mode flag of this command, and a selector that means `--force`
@@ -295,7 +298,7 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
     bundle: Annotated[
         list[str] | None,
         typer.Option(
-            "--bundle",
+            BUNDLE_FLAG,
             "-b",
             metavar="NAME",
             help="Bundles to expand into the pool artifacts they name. "
@@ -305,7 +308,7 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
     skill: Annotated[
         list[str] | None,
         typer.Option(
-            "--skill",
+            SKILL_FLAG,
             "-s",
             metavar="NAME",
             help="Pool skills to install. Comma-separated, repeated, or both.",
@@ -391,7 +394,7 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
     # and nothing else: the wizard is one gesture, not a question per absent flag.
     asking_scope = wizarding and not asked.runtimes and not global_
 
-    embedded: Catalog | None = None
+    already_read: Catalog | None = None
     if wizarding:
         # Resolved ahead of the banner and of every question: a line with
         # nowhere legal to write is refused with no screen at all, the same way
@@ -407,8 +410,8 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
         # read — *"only the remote is consulted"* speaks about that one step,
         # and `--from` requires `--skill`, hence a selection, hence no step.
         if not selected:
-            embedded = load_catalog(content_root(), catalog_file())
-        outcome = run_wizard(asked, embedded, environment, Path.cwd(), scoped)
+            already_read = load_catalog(content_root(), catalog_file())
+        outcome = run_wizard(asked, already_read, environment, Path.cwd(), scoped)
         if outcome is None:
             _out.print(Text("nothing was written", style="op.dim"))
             raise typer.Exit(ExitCode.CANNOT_RUN)
@@ -418,23 +421,17 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
         request = replace(asked, scope=scope)
 
     if from_ is None:
-        _perform(request, _embedded(embedded), root, environment, banner=not wizarding)
+        # Read here only when the wizard did not already need it: the tree is
+        # walked and every `SKILL.md` is read, so twice on one invocation is a
+        # real cost and not a tidiness point.
+        if already_read is None:
+            already_read = load_catalog(content_root(), catalog_file())
+        _perform(request, already_read, root, environment, banner=not wizarding)
         return
     # The scratch lives exactly as long as the block, which has to cover the
     # write as well as the plan: the sources of a remote install are inside it.
     with catalog_from(from_, request.skills) as catalog:
         _perform(request, catalog, root, environment, banner=not wizarding)
-
-
-def _embedded(catalog: Catalog | None) -> Catalog:
-    """The embedded catalog, read once even when the wizard already needed it.
-
-    The tree is walked and every `SKILL.md` is read, so reading it twice on one
-    invocation is a real cost and not a tidiness point.
-    """
-    if catalog is not None:
-        return catalog
-    return load_catalog(content_root(), catalog_file())
 
 
 def _refuse_a_line_from_cannot_answer(
@@ -456,7 +453,7 @@ def _refuse_a_line_from_cannot_answer(
     if from_ is None:
         return
     given = [
-        flag for flag, names in (("--ai-framework", frameworks), ("--bundle", bundles)) if names
+        flag for flag, names in ((AI_FRAMEWORK_FLAG, frameworks), (BUNDLE_FLAG, bundles)) if names
     ]
     if given:
         raise UnsupportedRemoteUnitError(given)

@@ -88,7 +88,10 @@ def run_wizard(
     """
     ai_frameworks, bundles, skills = asked.ai_frameworks, asked.bundles, asked.skills
     if not (ai_frameworks or bundles or skills):
-        picked = ask_artifacts(_read(catalog))
+        if catalog is None:  # pragma: no cover — `overpower.cli` decides the two together
+            message = "the artifacts step opened with no catalog to read"
+            raise AssertionError(message)
+        picked = ask_artifacts(catalog)
         if picked is None:
             return None
         ai_frameworks, bundles, skills = picked
@@ -119,14 +122,6 @@ def run_wizard(
         ),
         root,
     )
-
-
-def _read(catalog: Catalog | None) -> Catalog:
-    """The catalog the artifacts step reads, which the caller loads iff that step can open."""
-    if catalog is None:  # pragma: no cover — `overpower.cli` decides the two together
-        message = "the artifacts step opened with no catalog to read"
-        raise AssertionError(message)
-    return catalog
 
 
 def ask_artifacts(
@@ -221,11 +216,21 @@ def ask_runtimes(scope: Scope, root: Path, environment: Environment) -> tuple[st
         choices=runtime_choices(scope, detected_runtimes(scope, root, environment)),
         # The search is what makes a 76-row list navigable: measured on
         # questionary 2.1.1, `dev` reduces it to 2 rows, `copilot` to 1 and
-        # `claude` to 1, against 22 lines visible at 80x24. Its price is fixed
-        # in the library and paid here — `ValueError: Cannot use j/k keys with
-        # prefix filter search, since j/k can be part of the prefix.` The arrow
-        # keys and the Emacs pair survive; `j`/`k` are a binding this project
-        # never committed to.
+        # `claude` to 1, against 22 lines visible at 80x24. It costs two things,
+        # both fixed in the library and both taken knowingly.
+        #
+        # `j`/`k` stop navigating — `ValueError: Cannot use j/k keys with prefix
+        # filter search, since j/k can be part of the prefix.` The arrow keys and
+        # the Emacs pair survive, and `j`/`k` are a binding this project never
+        # committed to.
+        #
+        # And **the filter is of the list, not of one section**: `Separator`
+        # subclasses `Choice`, so a search hides the group headings along with
+        # whatever missed, and the locked rows are filtered like any other. It
+        # cannot be scoped from here. What it costs is the heading disappearing
+        # while its rows are still on screen — which is the second reason each
+        # locked row carries its own `always included` label rather than leaning
+        # on the heading for it.
         use_search_filter=True,
         use_jk_keys=False,
     ).ask()
@@ -278,9 +283,11 @@ def _locked(runtime: Runtime) -> questionary.Choice:
     `disabled` carries the reason and never `True`, and the difference is
     visible: measured in `questionary` 2.1.1, a boolean renders `- Amp` while a
     string renders `- Amp (always included)`. The heading says it once for the
-    section, and the row says it again because 19 members plus a heading is more
-    than a terminal shows at 80x24 — a reader who scrolled past the heading
-    would otherwise be looking at a line with no checkbox and no reason.
+    section and the row says it again, because there are two ways to be looking
+    at these rows without their heading: 19 members plus a heading is more than
+    a terminal shows at 80x24, and a search filters the heading away along with
+    whatever missed. Either way the alternative is a line with no checkbox and
+    no reason.
     """
     return questionary.Choice(runtime.display_name, value=runtime.key, disabled=ALWAYS_INCLUDED)
 

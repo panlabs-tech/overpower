@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 import questionary
+from questionary.prompts.common import InquirerControl
 
 from overpower import wizard
 from overpower.discovery import load_catalog
@@ -237,15 +238,21 @@ def test_ask_scope_outside_a_repository_has_one_answer_and_asks_nothing(
 # --------------------------------------------------------------------------- #
 
 
-def test_runtime_choices_are_scoped_and_only_the_universal_group_is_locked() -> None:
-    project_choices = _real_choices(wizard.runtime_choices(Scope.PROJECT, frozenset()))
-    global_choices = _real_choices(wizard.runtime_choices(Scope.GLOBAL, frozenset()))
+@pytest.mark.parametrize(
+    ("scope", "offered"),
+    [
+        pytest.param(Scope.PROJECT, 76, id="project"),
+        pytest.param(Scope.GLOBAL, 74, id="global"),
+    ],
+)
+def test_runtime_choices_are_scoped_and_only_the_universal_group_is_locked(
+    scope: Scope, offered: int
+) -> None:
+    choices = _real_choices(wizard.runtime_choices(scope, frozenset()))
 
-    assert len(project_choices) == 76
-    assert len(global_choices) == 74
-    for scope, choices in ((Scope.PROJECT, project_choices), (Scope.GLOBAL, global_choices)):
-        locked = {choice.value for choice in choices if choice.disabled is not None}
-        assert locked == {runtime.key for runtime in universal_runtimes(scope)}
+    assert len(choices) == offered
+    locked = {choice.value for choice in choices if choice.disabled is not None}
+    assert locked == {runtime.key for runtime in universal_runtimes(scope)}
 
 
 @pytest.mark.parametrize(
@@ -361,20 +368,35 @@ def _under(choices: list[questionary.Separator | questionary.Choice], heading: s
 
 
 def _in_table_order(scope: Scope, keys: set[str]) -> tuple[str, ...]:
-    """`keys`, in the order the table declares them — the order everything else uses."""
-    return tuple(runtime.key for runtime in runtimes_in(scope) if runtime.key in keys)
+    """`keys`, sorted by where the table declares each one.
+
+    Spelled as a **sort** and never as a filter over `runtimes_in(scope)`,
+    because the filter is the expression `ask_runtimes` itself returns: an
+    expectation built that way would agree with the product by construction
+    instead of by being right. It is the same refusal `commands_of` states in
+    `test_screens.py`.
+    """
+    order = [runtime.key for runtime in runtimes_in(scope)]
+    return tuple(sorted(keys, key=order.index))
 
 
 def test_ask_runtimes_answers_the_locked_group_plus_whatever_was_picked(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The lock is of the screen; the keys travel in the `Request` like any other."""
+    """The lock is of the screen; the keys travel in the `Request` like any other.
+
+    Two independent properties rather than one equality: **what** comes back, as
+    a set, and **that it is ordered** by the table — which is what the plan and
+    the writer both consume.
+    """
     monkeypatch.setattr(wizard.questionary, "checkbox", _answering(["claude-code"]))
     locked = {runtime.key for runtime in universal_runtimes(Scope.PROJECT)}
 
     result = wizard.ask_runtimes(Scope.PROJECT, tmp_path, _environment(tmp_path))
 
-    assert result == _in_table_order(Scope.PROJECT, locked | {"claude-code"})
+    assert result is not None
+    assert set(result) == locked | {"claude-code"}
+    assert result == _in_table_order(Scope.PROJECT, set(result))
 
 
 def test_ask_runtimes_with_nothing_picked_still_answers_the_locked_group(
@@ -437,6 +459,49 @@ def test_the_runtime_list_is_searchable_and_pays_for_it_with_the_j_and_k_keys(
     assert seen["use_jk_keys"] is False
 
 
+@pytest.mark.parametrize(
+    ("typed", "narrowed"),
+    [
+        pytest.param("laude", ["Claude Code"], id="prefix of nothing"),
+        pytest.param("copilot", ["GitHub Copilot"], id="second word"),
+        pytest.param("dev", ["Devin for Terminal", "Rovo Dev"], id="two survivors"),
+    ],
+)
+def test_typing_matches_in_the_middle_of_a_name_and_not_only_at_its_start(
+    typed: str, narrowed: list[str]
+) -> None:
+    """The half of the search a prefix filter would not have bought, over the real filter.
+
+    `InquirerControl` is the class `questionary.checkbox` builds internally and
+    `filtered_choices` is the code path a keystroke reaches, so this is the
+    product's own path minus the `Application` — which is exactly what lets the
+    property be asserted on all nine cells, since building the whole question
+    needs a console the Windows cells do not give a `pytest` child.
+
+    The three cases reproduce the measurement the ticket carries against
+    questionary 2.1.1 — 22 lines visible at 80x24, `dev` down to 2, `copilot` to
+    1 — and `laude` is the one that separates a substring match from a prefix
+    match, being the start of no name at all.
+    """
+    control = InquirerControl(wizard.runtime_choices(Scope.PROJECT, frozenset()))
+    control.search_filter = typed
+
+    assert [choice.title for choice in control.filtered_choices] == narrowed
+
+
+def test_a_search_that_matches_nothing_leaves_the_whole_list_standing() -> None:
+    """Measured: `questionary` falls back to every choice rather than to an empty screen."""
+    control = InquirerControl(wizard.runtime_choices(Scope.PROJECT, frozenset()))
+    control.search_filter = "zzz"
+
+    assert len(control.filtered_choices) == len(control.choices)
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="prompt_toolkit's Win32 output needs a real console screen buffer, "
+    "docs/agents/testing.md §2",
+)
 def test_the_real_questionary_builds_the_locked_and_searchable_list(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -447,6 +512,15 @@ def test_the_real_questionary_builds_the_locked_and_searchable_list(
     rejecting an initial selection that is not selectable — which a section of
     locked rows sitting at the top of the list walks straight into if the
     pointer is allowed to start on one.
+
+    **A third declared absence**, alongside the PTY test and the
+    unprivileged-symlink case: building the question builds a `prompt_toolkit`
+    `Application`, and its Win32 output raises `NoConsoleScreenBufferError` in a
+    process with no console screen buffer — which is what a `pytest` child on
+    the hosted runner is. Measured on the three Windows cells of the matrix; a
+    real Windows terminal has the buffer, so the product path is unaffected.
+    Switched on `sys.platform` and never on an environment variable, so the
+    requirement cannot go missing from the workflow.
     """
 
     def answered(_self: object) -> list[str]:

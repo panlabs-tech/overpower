@@ -224,13 +224,22 @@ def test_the_universal_place_is_spelled_against_the_root_of_its_scope() -> None:
     assert universal_place(Scope.GLOBAL) == "~/.agents/skills"
 
 
-def test_the_universal_group_and_the_rest_partition_the_scoped_table() -> None:
+@pytest.mark.parametrize(
+    ("scope", "total"),
+    [
+        pytest.param(Scope.PROJECT, 76, id="project"),
+        pytest.param(Scope.GLOBAL, 74, id="global"),
+    ],
+)
+def test_the_universal_group_and_the_rest_partition_the_scoped_table(
+    scope: Scope, total: int
+) -> None:
     """Nothing is offered twice and nothing is dropped: 19 + 57 in project, 6 + 68 in global."""
-    for scope, total in ((Scope.PROJECT, 76), (Scope.GLOBAL, 74)):
-        members = {r.key for r in universal_runtimes(scope)}
-        offered = {r.key for r in runtimes_in(scope)}
-        assert members <= offered
-        assert len(offered - members) == total - len(members)
+    members = {r.key for r in universal_runtimes(scope)}
+    offered = {r.key for r in runtimes_in(scope)}
+
+    assert members <= offered
+    assert len(offered - members) == total - len(members)
 
 
 # --- evidence --------------------------------------------------------------

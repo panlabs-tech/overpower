@@ -833,6 +833,10 @@ def test_the_wizard_opens_exactly_the_steps_the_line_did_not_fix(
     accepts is a function of the scope (ADR 0009), so the scope step exists to
     scope the runtime step. The wizard is one gesture, not a question per absent
     flag.
+
+    Whichever steps opened, the disk shows `.claude/skills/` and nothing beside
+    it — the wizard has no lock to add on this path, and ADR 0011's lock is of
+    the screen anyway.
     """
     # given
     project.catalog_of(tmp_path, monkeypatch, "alpha")
@@ -845,6 +849,7 @@ def test_the_wizard_opens_exactly_the_steps_the_line_did_not_fix(
     assert code == 0
     assert steps == opened
     assert (root / project.CLAUDE / "alpha" / "SKILL.md").is_file()
+    assert [child.name for child in root.iterdir()] == [".claude"]
 
 
 def test_global_on_the_line_answers_the_scope_step_and_the_wizard_asks_the_rest(
@@ -864,19 +869,39 @@ def test_global_on_the_line_answers_the_scope_step_and_the_wizard_asks_the_rest(
     assert (tmp_path / project.CLAUDE / "alpha" / "SKILL.md").is_file()
 
 
+@pytest.mark.parametrize(
+    "selector",
+    [
+        pytest.param(("--skill", "alpha"), id="--skill"),
+        pytest.param(("--ai-framework", "fw"), id="--ai-framework"),
+        pytest.param(("--bundle", "bun"), id="--bundle"),
+    ],
+)
 def test_a_partial_line_without_a_terminal_still_exits_two_with_the_message_of_today(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: CaptureFixture,
+    selector: tuple[str, str],
 ) -> None:
-    """No terminal, no wizard — and the refusal is the one that was always there."""
+    """No terminal, no wizard — and the refusal is word for word the one that was there.
+
+    The whole sentence and not a fragment of it: what the ticket promised is
+    that widening the wizard's trigger changes nothing off a terminal, and a
+    substring would still pass if the message had been rewritten around it.
+    """
     # given
-    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    project.catalog_of(
+        tmp_path, monkeypatch, "alpha", frameworks={"fw": ["fa"]}, bundles={"bun": ["alpha"]}
+    )
     root = project.target(tmp_path, monkeypatch)  # tty=False by default
     monkeypatch.setattr(cli, "run_wizard", _never_called)
 
-    code, output = project.run(capsys, "install", "--skill", "alpha")
+    code, output = project.run(capsys, "install", *selector)
 
     assert code == 2
-    assert "no --runtime" in project.joined(output)
+    assert "no --runtime, and there is no default destination to fall back on" in project.joined(
+        output
+    )
     assert list(root.iterdir()) == []
 
 

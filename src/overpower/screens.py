@@ -96,16 +96,27 @@ TAGLINE = "installs curated agent equipment"
 PROGRAM = "overpower"
 """The command someone types, and therefore the first word of every line `list` prints.
 
-It lives in the screens and not in `overpower.cli` — which imports it back — for
-one reason: the line printed here has to be a line the shell answers to, and two
-spellings of one word is exactly how those two stop being the same string.
+It lives in the screens and not in `overpower.cli` — which imports it back, and
+declares its own command with it — for one reason: the line printed here has to
+be a line the shell answers to, and two spellings of one word is exactly how
+those two stop being the same string.
 """
 
 AI_FRAMEWORK_FLAG = "--ai-framework"
 BUNDLE_FLAG = "--bundle"
 SKILL_FLAG = "--skill"
-"""`--skill` and not the artifact's own type: it is the only pool selector v0.1.0
-ships, and the day a command lands in the pool the CLI grows the flag first."""
+"""The three selectors, spelled once for the screen that prints them and the CLI
+that declares them.
+
+Same reasoning as `PROGRAM`, and the reason it is not laboured differently: a
+printed command is a promise that the flag inside it exists, so a rename that
+moved only the `typer.Option` would leave the catalog printing a line that no
+longer parses — green, because nothing compares two literals.
+
+`--skill` is the pool selector and not the artifact's own type: it is the only
+one v0.1.0 ships, and the day a command lands in the pool the CLI grows the flag
+before this line can name it.
+"""
 
 _KIB = 1024
 _MIB = 1024 * 1024
@@ -611,8 +622,11 @@ def _inspect(flag: str, name: str) -> str:
     return f"{PROGRAM} list {flag} {name}"
 
 
-def _entry(  # noqa: PLR0913 — the four facts of an item plus the two blocks that hang under
-    # it; folding any pair into a type would name a thing the screen does not have.
+def _entry(  # noqa: PLR0913 — the four facts of an item plus the two blocks that hang under it.
+    # The four do travel together, and `Artifact`, `Framework` and `Bundle` each carry them —
+    # but as three types with no declared kinship and with `files`/`size` a field on one and a
+    # property on the others, so unifying them means a `Protocol` invented for this one call.
+    # The clump is real and the cure costs more than it; taken knowingly, not missed.
     name: str,
     size: int,
     files: int,

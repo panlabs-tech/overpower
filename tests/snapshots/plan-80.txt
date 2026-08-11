@@ -1,10 +1,18 @@
 ╭─ plan ───────────────────────────────────────────────────────────────────────╮
 │                                                                              │
-│  panlabs-python-standards  1 skill                                           │
-│    .agents/skills/  ← cursor, codex, github-copilot (+16)           8 files  │
-│    .claude/skills/  ← claude-code                                   8 files  │
+│  matt-pocock  3 artifacts                                                    │
+│                                                                              │
+│    agent    code-reviewer                                                    │
+│    skill    tdd                                                              │
+│    command  setup-matt-pocock-skills                                         │
+│                                                                              │
+│    .agents/skills/  ← cursor, codex, github-copilot (+16)           4 files  │
+│    .claude/skills/  ← claude-code                                   4 files  │
 │                                                                              │
 │  grilling  1 skill                                                           │
+│                                                                              │
+│    skill  grilling                                                           │
+│                                                                              │
 │    .agents/skills/  ← cursor, codex, github-copilot (+16)            1 file  │
 │    .claude/skills/  ← claude-code                                    1 file  │
 │                                                                              │

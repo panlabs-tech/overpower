@@ -39,6 +39,7 @@ import questionary
 import typer
 from rich.console import Console
 from rich.text import Text
+from typer.core import TyperGroup
 
 from overpower.discovery import load_catalog
 from overpower.errors import BadInvocationError, OverpowerError, RefusedError
@@ -70,6 +71,16 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from rich.console import RenderableType
+
+    # typer 0.27 **vendors** click under `typer._click`, and the signature of its
+    # own `TyperGroup.format_help` is written in those types. Annotating the
+    # override with `click.Context` is rejected — correctly, they are different
+    # classes — so the annotation follows the base class rather than the package
+    # on PyPI. Type-only: nothing at runtime knows where typer keeps its copy,
+    # and the day it stops vendoring one this fails in `pyright` at the gate
+    # instead of in someone's terminal.
+    from typer._click.core import Context as ClickContext
+    from typer._click.formatting import HelpFormatter as ClickHelpFormatter
 
     from overpower.discovery import Catalog
 
@@ -186,7 +197,31 @@ class OutsideRepositoryError(BadInvocationError):
         )
 
 
+class _BannerGroup(TyperGroup):
+    """The root group, which draws the banner over the help it is about to format.
+
+    The banner lives here and nowhere else on this path, and that is what makes
+    the **two gestures of discovery** — a bare `overpower` and `overpower --help`
+    — the same screen (https://github.com/panlabs-tech/overpower/issues/8): click
+    answers `--help` from an eager option, *before* the callback below ever runs,
+    so a banner printed in the callback reaches the bare gesture and misses the
+    typed one. Formatting is the one moment both gestures pass through — the bare
+    branch reaches it through `ctx.get_help()` — so putting it here also means it
+    is printed exactly once on each, with no flag threaded between them.
+
+    Only the **root** group is reclassed, so `overpower list --help` and the other
+    two subcommand helps are untouched: a banner over every help screen would be
+    the product introducing itself to someone who is already inside it.
+    """
+
+    def format_help(self, ctx: ClickContext, formatter: ClickHelpFormatter) -> None:
+        """The banner, then whatever click and typer were going to draw anyway."""
+        _print_banner()
+        super().format_help(ctx, formatter)
+
+
 app = typer.Typer(
+    cls=_BannerGroup,
     name=PROGRAM,
     add_completion=False,
     # A bare `overpower` is not a usage error: it opens the banner and the help
@@ -215,7 +250,9 @@ def root(
         raise typer.Exit(ExitCode.OK)
 
     if ctx.invoked_subcommand is None:
-        _print_banner()
+        # No banner here: `get_help` reaches `_BannerGroup.format_help`, which draws
+        # it — the same one `--help` gets, printed once, from one place.
+        #
         # Typer's rich formatter prints the help to its own rich console and
         # returns nothing; the plain formatter returns the text instead. Both
         # paths are honoured, so the help does not depend on which is active.

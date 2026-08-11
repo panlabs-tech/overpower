@@ -305,6 +305,14 @@ def planned_framework() -> tuple[Artifact, ...]:
     reads identically under either head line — and the plan is precisely the
     screen where two selections stand next to each other. Three types and three
     lengths still, so the type column is recorded padded to its widest member.
+
+    **The recording pairs an `agent` and a `command` with `.claude/skills/`, and
+    that is today's product, not a claim about where they belong.** In v0.1.0 the
+    place is a function of (runtime, scope) alone — `runtimes._place_of` takes no
+    type — so this is exactly what the planner emits for a mixed framework. The
+    (type) half of rule 8 grows teeth when a destination table for the other types
+    exists; the day it does, this fixture is one of the things that has to move,
+    and it says so here rather than being read as an endorsement.
     """
     return (
         artifact("code-reviewer", "Reviews a diff.", 1, 2_048, ArtifactType.AGENT),
@@ -404,12 +412,14 @@ def test_the_plan_lists_the_artifacts_between_the_selection_and_where_it_lands(
 
 
 @pytest.mark.parametrize("width", WIDTH_CASES)
-def test_no_artifact_name_in_the_plan_is_cut_at_any_width(width: int) -> None:
+def test_every_artifact_name_in_the_plan_arrives_whole(width: int) -> None:
     """A name that cannot be read back is a name that cannot be typed back.
 
     The stacked list is what `--skill <name>` is copied out of, so the property
-    is the one the catalog screen already holds for a description: it may wrap,
-    it may not be cut.
+    is the one the catalog screen already holds for a description. At the two
+    recorded widths a name still fits on its line, so *whole* can be asserted as
+    the literal string; the widths where it stops fitting are the next test's,
+    because a name folded across two lines is not a name that was cut.
     """
     plan = recorded_plan()
 
@@ -419,6 +429,23 @@ def test_no_artifact_name_in_the_plan_is_cut_at_any_width(width: int) -> None:
     for selection in plan.selections:
         for inside in selection.artifacts:
             assert inside.name in joined
+
+
+@pytest.mark.parametrize(
+    "width",
+    [*WIDTH_CASES, pytest.param(40, id="40cols"), pytest.param(30, id="30cols")],
+)
+def test_no_artifact_name_in_the_plan_is_ellipsised_at_any_width(width: int) -> None:
+    """*"Em largura nenhuma"* (#58), so the two recorded widths are not the test.
+
+    Measured before `_contents` folded: at 40 columns the plan printed
+    `skill improve-codebase-archite…`, and neither recorded width could see it —
+    every name of the catalog fits on its line at 60. The narrow widths are here
+    because they are the ones where a grid decides between wrapping and cutting,
+    and cutting is what turns a plan into a name nobody can type back.
+    """
+    rendered = render(plan_screen(recorded_plan()), width)
+
     assert "…" not in rendered
 
 

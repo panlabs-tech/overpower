@@ -195,7 +195,7 @@ class OutsideRepositoryError(BadInvocationError):
         )
 
 
-class _Discovery(TyperGroup):
+class _BannerGroup(TyperGroup):
     """The root group, which draws the banner over the help it is about to format.
 
     The banner lives here and nowhere else on this path, and that is what makes
@@ -219,7 +219,7 @@ class _Discovery(TyperGroup):
 
 
 app = typer.Typer(
-    cls=_Discovery,
+    cls=_BannerGroup,
     name=PROGRAM,
     add_completion=False,
     # A bare `overpower` is not a usage error: it opens the banner and the help
@@ -248,7 +248,7 @@ def root(
         raise typer.Exit(ExitCode.OK)
 
     if ctx.invoked_subcommand is None:
-        # No banner here: `get_help` reaches `_Discovery.format_help`, which draws
+        # No banner here: `get_help` reaches `_BannerGroup.format_help`, which draws
         # it — the same one `--help` gets, printed once, from one place.
         #
         # Typer's rich formatter prints the help to its own rich console and

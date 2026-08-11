@@ -176,10 +176,9 @@ def test_the_alias_hint_follows_the_terminal_like_the_banner(
 def test_the_package_installs_exactly_one_executable() -> None:
     """#58: the tip is an alias and never a second entry point.
 
-    `op` is the 1Password CLI, and a second `[project.scripts]` entry would
-    shadow it out of `~/.local/bin` with no warning — measured position 1 of the
-    `PATH` against position 6 for `/usr/local/bin`. Read off the installed
-    metadata rather than off `pyproject.toml`, for the reason `_version` reads it
+    Why the name is not occupied is measured once, on `screens.SHORTCUT`, and not
+    repeated here. What this asserts is the consequence, read off the **installed
+    metadata** rather than off `pyproject.toml` — the reason `_version` reads it
     there: what ships is what the `dist-info` says, not what the source declares.
     """
     entry_points = metadata.distribution("overpower").entry_points
@@ -409,12 +408,19 @@ def test_the_exit_codes_are_the_four_the_model_declares() -> None:
     "argv",
     [
         pytest.param([], id="bare"),
+        pytest.param(["--help"], id="help"),
         pytest.param(["list"], id="list"),
         pytest.param(["list", "--ai-framework", "matt-pocock"], id="list-framework"),
     ],
 )
 def test_piped_output_carries_no_ansi(argv: list[str]) -> None:
-    """Measured in #12: the three piped captures carry zero `ESC` bytes."""
+    """Measured in #12: the three piped captures carry zero `ESC` bytes.
+
+    `--help` joined them with #58, which is when it started going through the
+    banner at all: the root help is now formatted by a group that draws one, so
+    the gesture that used to be pure click output is a gesture this property has
+    to cover.
+    """
     result = piped(*argv)
 
     assert result.returncode == 0
@@ -435,13 +441,13 @@ def test_the_alias_hint_is_suppressed_without_a_tty(argv: list[str]) -> None:
 
     The in-process half proves the terminal side; this one proves the pipe side
     the way a user meets it — `overpower --help > file`, where a line of advice
-    is noise the file has to carry forever.
+    is noise the file has to carry forever. The ANSI of the same output is next
+    door and stays there: one property per test, and this one is the hint.
     """
     result = piped(*argv)
 
     assert result.returncode == 0
     assert b"alias op=" not in result.stdout
-    assert b"\x1b" not in result.stdout
 
 
 def test_the_doctor_screen_carries_no_ansi_under_a_pipe(tmp_path: Path) -> None:

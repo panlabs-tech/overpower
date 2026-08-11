@@ -639,19 +639,27 @@ def _contents(artifacts: Sequence[Artifact]) -> RenderableType:
     """The artifacts an item carries, one per line, type first.
 
     The type column is dim and the name is cyan, so a line reads as *what kind*
-    then *which one* without either rank being carried by colour alone. Neither
-    column is `no_wrap`: a name longer than the terminal has to wrap, because a
-    clipped name is a name that cannot be typed back into `install`.
+    then *which one* without either rank being carried by colour alone.
+
+    **`fold` on both columns, never the default `ellipsis`.** Measured at 40
+    columns before it was set: the plan printed `skill improve-codebase-archite…`
+    — a name that cannot be typed back into `--skill`, which is the one thing
+    this grid may not do. Leaving `no_wrap` off is not enough, and that is the
+    trap: it lets rich *try* to wrap, and a name is a single unbreakable word, so
+    what it does instead is crop. `fold` is what breaks the word across lines
+    rather than cutting it, and it is the same call the plan's own path column
+    already makes for the same reason.
 
     **One function, two screens.** `list` draws it for the content of an item and
     the plan draws it for what a selection will write (#58), and they are the
     same grid because the plan is checked against `list` by whoever reads both —
     two grids would be two places for the truncation rule to be forgotten, which
     is the same argument that keeps the four `list` screens one `_entry` apart.
+    The measurement above is what that buys: one word fixed both screens.
     """
     stacked = Table.grid(padding=(0, 2))
-    stacked.add_column()
-    stacked.add_column()
+    stacked.add_column(overflow="fold")
+    stacked.add_column(overflow="fold")
     for artifact in artifacts:
         stacked.add_row(Text(artifact.type, style="op.dim"), Text(artifact.name, style="op.key"))
     return stacked

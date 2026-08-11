@@ -3,6 +3,9 @@
 │  matt-pocock                                           199.4 KiB · 74 files  │
 │    Agent skills for real engineering: specs, tickets, TDD, review.           │
 │                                                                              │
+│      overpower install --ai-framework matt-pocock                            │
+│      overpower list --ai-framework matt-pocock                               │
+│                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 
 ╭─ Pool skills  installs alone ────────────────────────────────────────────────╮
@@ -10,8 +13,12 @@
 │  grilling                                                    948 B · 1 file  │
 │    Grills a decision until it gets sharp.                                    │
 │                                                                              │
+│      overpower install --skill grilling                                      │
+│                                                                              │
 │  heavy-reference                                         2.00 MiB · 3 files  │
 │    A reference big enough to read in MiB.                                    │
+│                                                                              │
+│      overpower install --skill heavy-reference                               │
 │                                                                              │
 │  panlabs-python-standards                               229.0 KiB · 8 files  │
 │    A description long enough to wrap at both recorded widths, written out    │
@@ -22,11 +29,16 @@
 │    somewhere else. It also carries an em dash — and a colon, so the parser   │
 │    and the renderer are both exercised on something other than plain words.  │
 │                                                                              │
+│      overpower install --skill panlabs-python-standards                      │
+│                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 
 ╭─ Bundles  lists pool artifacts only ─────────────────────────────────────────╮
 │                                                                              │
 │  api-python                                             229.0 KiB · 8 files  │
 │    Equipment for working on a Python API.                                    │
+│                                                                              │
+│      overpower install --bundle api-python                                   │
+│      overpower list --bundle api-python                                      │
 │                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯

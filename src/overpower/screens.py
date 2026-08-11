@@ -93,6 +93,20 @@ BANNER_WIDTH = 50
 
 TAGLINE = "installs curated agent equipment"
 
+PROGRAM = "overpower"
+"""The command someone types, and therefore the first word of every line `list` prints.
+
+It lives in the screens and not in `overpower.cli` — which imports it back — for
+one reason: the line printed here has to be a line the shell answers to, and two
+spellings of one word is exactly how those two stop being the same string.
+"""
+
+AI_FRAMEWORK_FLAG = "--ai-framework"
+BUNDLE_FLAG = "--bundle"
+SKILL_FLAG = "--skill"
+"""`--skill` and not the artifact's own type: it is the only pool selector v0.1.0
+ships, and the day a command lands in the pool the CLI grows the flag first."""
+
 _KIB = 1024
 _MIB = 1024 * 1024
 
@@ -131,7 +145,16 @@ def catalog_screen(catalog: Catalog) -> RenderableType:
             "AI Frameworks",
             "installs whole",
             [
-                _entry(framework.name, framework.size, framework.files, framework.description)
+                _entry(
+                    framework.name,
+                    framework.size,
+                    framework.files,
+                    framework.description,
+                    commands=(
+                        _install(AI_FRAMEWORK_FLAG, framework.name),
+                        _inspect(AI_FRAMEWORK_FLAG, framework.name),
+                    ),
+                )
                 for framework in catalog.frameworks
             ],
         ),
@@ -139,7 +162,13 @@ def catalog_screen(catalog: Catalog) -> RenderableType:
             "Pool skills",
             "installs alone",
             [
-                _entry(artifact.name, artifact.size, artifact.files, artifact.description)
+                _entry(
+                    artifact.name,
+                    artifact.size,
+                    artifact.files,
+                    artifact.description,
+                    commands=(_install(SKILL_FLAG, artifact.name),),
+                )
                 for artifact in catalog.pool
             ],
         ),
@@ -147,7 +176,16 @@ def catalog_screen(catalog: Catalog) -> RenderableType:
             "Bundles",
             "lists pool artifacts only",
             [
-                _entry(bundle.name, bundle.size, bundle.files, bundle.description)
+                _entry(
+                    bundle.name,
+                    bundle.size,
+                    bundle.files,
+                    bundle.description,
+                    commands=(
+                        _install(BUNDLE_FLAG, bundle.name),
+                        _inspect(BUNDLE_FLAG, bundle.name),
+                    ),
+                )
                 for bundle in catalog.bundles
             ],
         ),
@@ -175,7 +213,10 @@ def framework_screen(framework: Framework) -> RenderableType:
                 framework.size,
                 framework.files,
                 framework.description,
-                framework.artifacts,
+                contents=framework.artifacts,
+                # Only the line that installs. Printing `list --ai-framework
+                # matt-pocock` inside the output of that very command is a no-op.
+                commands=(_install(AI_FRAMEWORK_FLAG, framework.name),),
             )
         ],
     )
@@ -190,7 +231,16 @@ def bundle_screen(bundle: Bundle) -> RenderableType:
     return _block(
         "Bundle",
         "lists pool artifacts only",
-        [_entry(bundle.name, bundle.size, bundle.files, bundle.description, bundle.artifacts)],
+        [
+            _entry(
+                bundle.name,
+                bundle.size,
+                bundle.files,
+                bundle.description,
+                contents=bundle.artifacts,
+                commands=(_install(BUNDLE_FLAG, bundle.name),),
+            )
+        ],
     )
 
 
@@ -209,7 +259,15 @@ def artifact_screen(artifact: Artifact) -> RenderableType:
     return _block(
         f"Pool {artifact.type}",
         "installs alone",
-        [_entry(artifact.name, artifact.size, artifact.files, artifact.description)],
+        [
+            _entry(
+                artifact.name,
+                artifact.size,
+                artifact.files,
+                artifact.description,
+                commands=(_install(SKILL_FLAG, artifact.name),),
+            )
+        ],
     )
 
 
@@ -543,19 +601,40 @@ def _block(title: str, note: str, entries: Sequence[RenderableType]) -> Panel:
     )
 
 
-def _entry(
+def _install(flag: str, name: str) -> str:
+    """The line that installs one item, exactly as it has to be typed back."""
+    return f"{PROGRAM} install {flag} {name}"
+
+
+def _inspect(flag: str, name: str) -> str:
+    """The line that opens one item — only the two units that carry something to open."""
+    return f"{PROGRAM} list {flag} {name}"
+
+
+def _entry(  # noqa: PLR0913 — the four facts of an item plus the two blocks that hang under
+    # it; folding any pair into a type would name a thing the screen does not have.
     name: str,
     size: int,
     files: int,
     description: str,
+    *,
     contents: Sequence[Artifact] = (),
+    commands: Sequence[str] = (),
 ) -> RenderableType:
     """Name and weight on the head line, the whole description indented under it.
 
+    `commands` is what closes the journey the catalog opens: the lines to copy,
+    a blank line under the description and indented one step past it. **Bare** —
+    no `$` and no label column, both measured and refused. A `$` makes the
+    selected line paste back broken; a label column does not fit, because at 60
+    columns the panel body is 54 characters and `overpower install --skill
+    panlabs-python-standards` indented already occupies exactly that. The words
+    `install` and `list` inside the command are the label.
+
     `contents` is what turns the same entry into a detail screen: the artifacts
-    the item carries, stacked under the description with a blank line between.
-    An item that carries none — a pool artifact — renders exactly as it does on
-    the catalog screen, which is the point of it being one function.
+    the item carries, stacked with a blank line between. An item that carries
+    none — a pool artifact — renders exactly as it does on the catalog screen,
+    which is the point of it being one function.
     """
     head = Table.grid(padding=(0, 1), expand=True)
     head.add_column(ratio=1)
@@ -570,9 +649,29 @@ def _entry(
         # — and the continuation is where a 517-character description lives.
         Padding(Text(description, style="op.dim"), (0, 0, 0, 2)),
     ]
+    if commands:
+        body.append(Padding(_commands(commands), (1, 0, 0, 4)))
     if contents:
         body.append(Padding(_contents(contents), (1, 0, 0, 2)))
     return Group(*body)
+
+
+def _commands(commands: Sequence[str]) -> RenderableType:
+    """The lines to copy, one per row, folded rather than cut.
+
+    `fold`, never the default `ellipsis`, for the same reason a planned path
+    folds: a truncated command is a command nobody can type back, and that is
+    the whole of what these lines are for.
+
+    They are **not** gated on being in a terminal, unlike the banner: the banner
+    is a courtesy and a command is a datum, so `overpower list | grep <name>` has
+    to hand back the line to copy.
+    """
+    stacked = Table.grid()
+    stacked.add_column(overflow="fold")
+    for command in commands:
+        stacked.add_row(Text(command, style="op.key"))
+    return stacked
 
 
 def _contents(artifacts: Sequence[Artifact]) -> RenderableType:

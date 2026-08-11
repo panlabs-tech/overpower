@@ -18,15 +18,17 @@ from __future__ import annotations
 
 import io
 import os
+import shlex
 import subprocess
 import sys
+from dataclasses import replace
 from importlib import metadata
 from typing import TYPE_CHECKING
 
 import pytest
 from rich.console import Console
 
-from overpower import cli, remote
+from overpower import cli, remote, wizard
 from overpower.discovery import load_catalog
 from overpower.errors import OverpowerError
 from overpower.packaged import catalog_file, content_root
@@ -43,6 +45,13 @@ if TYPE_CHECKING:
     from overpower.runtimes import Environment
 
     CaptureFixture = pytest.CaptureFixture[str]
+
+    Wizard = Callable[
+        [Request, Catalog | None, Environment, Path, tuple[Scope, Path] | None],
+        tuple[Request, Path],
+    ]
+    """The shape `overpower.cli` calls: the request as the flags left it in, the
+    same request with its gaps filled out."""
 
 RUN = "import sys; from overpower.cli import main; sys.exit(main())"
 """The console script, one line: `project.scripts` is `overpower.cli:main`."""
@@ -440,6 +449,25 @@ def test_the_list_screen_survives_a_pipe_whole() -> None:
     assert b"panlabs-python-standards" in result.stdout
 
 
+def test_the_lines_to_copy_survive_a_pipe() -> None:
+    """The banner is a courtesy and is gated on `isatty()`; a command is a datum.
+
+    `overpower list | grep <name>` has to hand back the line to type, so the two
+    are asserted against the same child: the art is gone and the commands are
+    not.
+    """
+    catalog = load_catalog(content_root(), catalog_file())
+
+    result = piped("list")
+
+    assert result.returncode == 0
+    assert b"_____" not in result.stdout
+    assert b"overpower install --skill panlabs-python-standards" in result.stdout
+    for framework in catalog.frameworks:
+        assert f"overpower install --ai-framework {framework.name}".encode() in result.stdout
+        assert f"overpower list --ai-framework {framework.name}".encode() in result.stdout
+
+
 # --------------------------------------------------------------------------- #
 # the install surface: the confirmation, and the two flags that steer past it
 # --------------------------------------------------------------------------- #
@@ -603,21 +631,73 @@ def test_global_needs_no_git_repository_at_all(
 # --------------------------------------------------------------------------- #
 
 
-def _stub_wizard(
-    request: Request, root: Path
-) -> Callable[[Catalog, Environment, Path], tuple[Request, Path]]:
-    """A `run_wizard` replacement that hands back a fixed outcome.
+def _stub_wizard(filled: Request, root: Path) -> Wizard:
+    """A `run_wizard` replacement that fills the gaps and touches nothing else.
 
-    Named and explicitly typed rather than a lambda closing over `request` and
+    It `replace`s rather than returning `filled` whole, and that mirrors the
+    contract instead of merely satisfying it: `--dry-run`, `--force` and `--yes`
+    are not wizard steps, so they arrive inside the request the wizard is handed
+    and leave inside the request it answers.
+
+    Named and explicitly typed rather than a lambda closing over `filled` and
     `root`: `pytest.MonkeyPatch.setattr`'s string-keyed overload types `value`
     as `object`, so an unannotated lambda parameter stays `Unknown` under
     `pyright --strict` with nothing to infer it from.
     """
 
-    def wizard(_catalog: Catalog, _environment: Environment, _cwd: Path) -> tuple[Request, Path]:
-        return request, root
+    def wizard(
+        asked: Request,
+        _catalog: Catalog | None,
+        _environment: Environment,
+        _cwd: Path,
+        _scoped: tuple[Scope, Path] | None,
+    ) -> tuple[Request, Path]:
+        return (
+            replace(
+                asked,
+                ai_frameworks=filled.ai_frameworks,
+                bundles=filled.bundles,
+                skills=filled.skills,
+                runtimes=filled.runtimes,
+                scope=filled.scope,
+            ),
+            root,
+        )
 
     return wizard
+
+
+def _wizard_steps(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    scope: Scope = Scope.PROJECT,
+    runtimes: tuple[str, ...] = ("claude-code",),
+) -> list[str]:
+    """Stub the three seams of the wizard and record, in order, which ones opened.
+
+    The seams and not `run_wizard`: what this ticket decides is *which steps a
+    line opens*, and a stub of the whole wizard cannot see that.
+    """
+    opened: list[str] = []
+
+    def ask_artifacts(
+        _catalog: Catalog,
+    ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+        opened.append("artifacts")
+        return ((), (), ("alpha",))
+
+    def ask_scope(cwd: Path, environment: Environment) -> tuple[Scope, Path]:
+        opened.append("scope")
+        return scope, (cwd if scope is Scope.PROJECT else environment.home)
+
+    def ask_runtimes(_scope: Scope, _root: Path, _environment: Environment) -> tuple[str, ...]:
+        opened.append("runtimes")
+        return runtimes
+
+    monkeypatch.setattr(wizard, "ask_artifacts", ask_artifacts)
+    monkeypatch.setattr(wizard, "ask_scope", ask_scope)
+    monkeypatch.setattr(wizard, "ask_runtimes", ask_runtimes)
+    return opened
 
 
 def _never_called(*_args: object, **_kwargs: object) -> object:
@@ -680,7 +760,13 @@ def test_the_wizard_being_abandoned_writes_nothing(
 ) -> None:
     """Backing out of the wizard is the same shape as declining the confirmation."""
 
-    def abandoned(_catalog: Catalog, _environment: Environment, _cwd: Path) -> None:
+    def abandoned(
+        _asked: Request,
+        _catalog: Catalog | None,
+        _environment: Environment,
+        _cwd: Path,
+        _scoped: tuple[Scope, Path] | None,
+    ) -> None:
         return None
 
     # given
@@ -712,6 +798,162 @@ def test_the_wizard_request_still_takes_its_mode_flags_from_the_command_line(
     assert code == 0
     assert "dry run" in project.joined(output)
     assert list(root.iterdir()) == []
+
+
+# --------------------------------------------------------------------------- #
+# #57: the trigger is the gap, and the wizard opens only what the flags left open
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    ("argv", "opened"),
+    [
+        pytest.param(("install",), ["artifacts", "scope", "runtimes"], id="bare"),
+        pytest.param(
+            ("install", "--skill", "alpha"), ["scope", "runtimes"], id="no runtime on the line"
+        ),
+        pytest.param(
+            ("install", "--runtime", "claude-code"), ["artifacts"], id="no selection on the line"
+        ),
+        pytest.param(
+            ("install", "--skill", "alpha", "--runtime", "claude-code"), [], id="complete"
+        ),
+    ],
+)
+def test_the_wizard_opens_exactly_the_steps_the_line_did_not_fix(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: CaptureFixture,
+    argv: tuple[str, ...],
+    opened: list[str],
+) -> None:
+    """The trigger stops being *"nothing was selected"* and becomes *"this cannot be planned"*.
+
+    Giving `--runtime` takes the scope question with it: the list `--runtime`
+    accepts is a function of the scope (ADR 0009), so the scope step exists to
+    scope the runtime step. The wizard is one gesture, not a question per absent
+    flag.
+    """
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    root = project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    steps = _wizard_steps(monkeypatch)
+
+    code, _ = project.run(capsys, *argv, "--yes")
+
+    assert code == 0
+    assert steps == opened
+    assert (root / project.CLAUDE / "alpha" / "SKILL.md").is_file()
+
+
+def test_global_on_the_line_answers_the_scope_step_and_the_wizard_asks_the_rest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """A boolean flag that *is* there is a decision; only its absence is *"did not say"*."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    steps = _wizard_steps(monkeypatch)
+
+    code, _ = project.run(capsys, "install", "--global", "--yes")
+
+    assert code == 0
+    assert steps == ["artifacts", "runtimes"]
+    assert (tmp_path / project.CLAUDE / "alpha" / "SKILL.md").is_file()
+
+
+def test_a_partial_line_without_a_terminal_still_exits_two_with_the_message_of_today(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """No terminal, no wizard — and the refusal is the one that was always there."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    root = project.target(tmp_path, monkeypatch)  # tty=False by default
+    monkeypatch.setattr(cli, "run_wizard", _never_called)
+
+    code, output = project.run(capsys, "install", "--skill", "alpha")
+
+    assert code == 2
+    assert "no --runtime" in project.joined(output)
+    assert list(root.iterdir()) == []
+
+
+def test_yes_in_a_terminal_suppresses_the_confirmation_and_no_wizard_step(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """`--yes` skips the confirmation and nothing else — #8, unchanged by the wider trigger."""
+    # given
+    asked: list[str] = []
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    steps = _wizard_steps(monkeypatch)
+    monkeypatch.setattr(cli, "_confirmed", lambda: bool(asked.append("asked")))
+
+    code, _ = project.run(capsys, "install", "--skill", "alpha", "--yes")
+
+    assert code == 0
+    assert steps == ["scope", "runtimes"]
+    assert asked == []
+
+
+def test_the_line_the_list_prints_installs_when_it_is_pasted_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The journey the ticket closes, taken end to end and in one process.
+
+    The line is not typed here: it is read back off the screen `list` drew, so
+    the two halves cannot drift apart. Its first word being `overpower` is the
+    assertion that the line is bare — a `$` in front would land there instead.
+
+    The catalog is read off a pipe and the line is pasted into a terminal, which
+    is both the honest gesture and the one that keeps the parsing simple: under
+    a pipe there is no ANSI to strip out of the row before splitting it.
+    """
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    root = project.target(tmp_path, monkeypatch)  # tty=False: the catalog goes through a pipe
+
+    listed_code, listed = project.run(capsys, "list")
+    line = next(row for row in _rows(listed) if row.startswith("overpower install"))
+    project.terminal(monkeypatch)
+    steps = _wizard_steps(monkeypatch)
+    code, output = project.run(capsys, *shlex.split(line)[1:], "--yes")
+
+    assert listed_code == 0
+    assert line == "overpower install --skill alpha"
+    assert shlex.split(line)[0] == "overpower"
+    assert code == 0
+    assert steps == ["scope", "runtimes"]
+    assert "plan" in project.joined(output)
+    assert (root / project.CLAUDE / "alpha" / "SKILL.md").is_file()
+
+
+def _rows(output: str) -> list[str]:
+    """The screen as rows, with the frame off and every run of spaces collapsed."""
+    return [" ".join(line.strip().strip("│").split()) for line in output.splitlines()]
+
+
+def test_a_flag_line_that_names_one_runtime_writes_only_that_runtime_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """ADR 0011: the lock is of the screen and never of the plan.
+
+    A lock that were a planning rule would make this line write two trees, and
+    the flag would stop saying what it does — which is what the command line
+    being the manifest (#8) rests on.
+    """
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    root = project.target(tmp_path, monkeypatch)
+
+    code, _ = project.run(capsys, "install", "--skill", "alpha", "--runtime", "claude-code")
+
+    assert code == 0
+    assert (root / project.CLAUDE / "alpha" / "SKILL.md").is_file()
+    assert [child.name for child in root.iterdir()] == [".claude"]
 
 
 # --------------------------------------------------------------------------- #
@@ -884,14 +1126,15 @@ def test_a_dry_run_resolves_the_remote_and_still_writes_nothing(
     assert list(root.iterdir()) == []
 
 
-def test_from_in_a_terminal_installs_instead_of_opening_the_wizard(
+def test_a_complete_from_line_in_a_terminal_installs_without_a_wizard_step(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:
-    """#41 and #42 meet here: a `--from` line is never a bare invocation.
+    """Not because it is `--from`, but because the line names both halves of a plan.
 
-    The wizard is driven by the embedded catalog, which is exactly what *"only
-    the remote is consulted"* forbids — so the two features cannot both be right
-    on one line, and this is which of them wins.
+    That distinction is what #57 changed: the exclusion used to be of the whole
+    wizard, and is now of the **artifacts step** alone — the only step that
+    consults a catalog, and therefore the only one *"only the remote is
+    consulted"* has anything to say about.
     """
     # given
     root = project.target(tmp_path, monkeypatch)
@@ -907,6 +1150,32 @@ def test_from_in_a_terminal_installs_instead_of_opening_the_wizard(
     )
 
     assert code == 0
+    assert (root / project.CLAUDE / "alpha" / "SKILL.md").is_file()
+
+
+def test_a_from_line_missing_the_runtime_opens_scope_and_runtimes_and_never_the_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """Neither of those two steps touches a catalog, so neither can consult the wrong one.
+
+    The artifacts step is kept out by construction rather than by a condition:
+    a `--from` line has to name `--skill` before anything is fetched, so the
+    selection is never empty and the step it would open never opens.
+    `cli.load_catalog` exploding is what proves the embedded catalog stayed shut.
+    """
+    # given
+    root = project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    monkeypatch.setattr(
+        remote, "fetch_with_git", git_remote.planting(git_remote.skill_files("alpha"))
+    )
+    steps = _wizard_steps(monkeypatch)
+
+    code, _ = project.run(capsys, "install", "--from", REMOTE, "--skill", "alpha", "--yes")
+
+    assert code == 0
+    assert steps == ["scope", "runtimes"]
     assert (root / project.CLAUDE / "alpha" / "SKILL.md").is_file()
 
 

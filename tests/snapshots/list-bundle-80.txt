@@ -3,6 +3,8 @@
 │  api-python                              2 artifacts · 235.6 KiB · 12 files  │
 │    Equipment for working on a Python API.                                    │
 │                                                                              │
+│      overpower install --bundle api-python                                   │
+│                                                                              │
 │    skill  tdd                                                                │
 │    skill  panlabs-python-standards                                           │
 │                                                                              │

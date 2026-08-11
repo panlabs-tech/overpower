@@ -3,6 +3,8 @@
 │  matt-pocock                                3 artifacts · 8.9 KiB · 4 files  │
 │    Agent skills for real engineering: specs, tickets, TDD, review.           │
 │                                                                              │
+│      overpower install --ai-framework matt-pocock                            │
+│                                                                              │
 │    agent    code-reviewer                                                    │
 │    skill    grilling                                                         │
 │    command  setup-matt-pocock-skills                                         │

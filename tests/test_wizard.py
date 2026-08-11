@@ -20,6 +20,8 @@ import os
 import select
 import sys
 import time
+from dataclasses import replace
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -27,13 +29,20 @@ import questionary
 
 from overpower import wizard
 from overpower.discovery import load_catalog
+from overpower.packaged import catalog_file, content_root
 from overpower.planning import Request
-from overpower.runtimes import RUNTIMES, UNIVERSAL_PROJECT_DIR, Environment, Scope, runtimes_in
+from overpower.runtimes import (
+    RUNTIMES,
+    UNIVERSAL_PROJECT_DIR,
+    Environment,
+    Scope,
+    runtimes_in,
+    universal_runtimes,
+)
 from tests.support.project import catalog_of
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
     from overpower.discovery import Catalog
 
@@ -228,13 +237,61 @@ def test_ask_scope_outside_a_repository_has_one_answer_and_asks_nothing(
 # --------------------------------------------------------------------------- #
 
 
-def test_runtime_choices_are_scoped_and_never_disabled() -> None:
+def test_runtime_choices_are_scoped_and_only_the_universal_group_is_locked() -> None:
     project_choices = _real_choices(wizard.runtime_choices(Scope.PROJECT, frozenset()))
     global_choices = _real_choices(wizard.runtime_choices(Scope.GLOBAL, frozenset()))
 
     assert len(project_choices) == 76
     assert len(global_choices) == 74
-    assert all(choice.disabled is None for choice in (*project_choices, *global_choices))
+    for scope, choices in ((Scope.PROJECT, project_choices), (Scope.GLOBAL, global_choices)):
+        locked = {choice.value for choice in choices if choice.disabled is not None}
+        assert locked == {runtime.key for runtime in universal_runtimes(scope)}
+
+
+@pytest.mark.parametrize(
+    ("scope", "members"),
+    [pytest.param(Scope.PROJECT, 19, id="project"), pytest.param(Scope.GLOBAL, 6, id="global")],
+)
+def test_the_universal_group_is_an_unselectable_section_in_both_scopes(
+    scope: Scope, members: int
+) -> None:
+    """ADR 0011: *always included*, not a line to tick — and its size follows the scope."""
+    choices = wizard.runtime_choices(scope, frozenset())
+
+    grouped = _under(choices, "Universal")
+    assert len(grouped) == members
+    locked = [c for c in _real_choices(choices) if c.value in grouped]
+    assert all(choice.disabled for choice in locked)
+
+
+@pytest.mark.parametrize(
+    ("scope", "place"),
+    [
+        pytest.param(Scope.PROJECT, ".agents/skills", id="project"),
+        pytest.param(Scope.GLOBAL, "~/.agents/skills", id="global"),
+    ],
+)
+def test_the_universal_heading_names_the_place_of_its_own_scope(scope: Scope, place: str) -> None:
+    """The defect ADR 0011 corrects: the global screen used to announce the *project* path.
+
+    Eighteen names under `~/.agents/skills` would claim that folder equips the
+    eighteen. It equips six.
+    """
+    choices = wizard.runtime_choices(scope, frozenset())
+
+    headings = [c.line for c in choices if isinstance(c, questionary.Separator)]
+    assert any(f"Universal ({place})" in heading for heading in headings)
+
+
+def test_the_universal_heading_says_it_is_always_included_and_counts_its_members() -> None:
+    """*Always included* and a number is what the reader gets instead of counting boxes."""
+    choices = wizard.runtime_choices(Scope.PROJECT, frozenset())
+
+    heading = next(
+        c.line for c in choices if isinstance(c, questionary.Separator) and "Universal" in c.line
+    )
+    assert "always included" in heading
+    assert "19 runtimes" in heading
 
 
 def test_runtime_choices_pre_check_exactly_what_was_detected() -> None:
@@ -244,11 +301,14 @@ def test_runtime_choices_pre_check_exactly_what_was_detected() -> None:
     assert checked == {"claude-code"}
 
 
-def test_runtime_choices_group_the_universal_set_under_one_heading() -> None:
-    choices = wizard.runtime_choices(Scope.PROJECT, frozenset())
+def test_a_locked_runtime_is_never_pre_checked_because_it_is_not_a_choice() -> None:
+    """Detection pre-marks a decision; a locked line has none to pre-mark."""
+    detected = frozenset({"cursor", "claude-code"})
 
-    separators = [c for c in choices if isinstance(c, questionary.Separator)]
-    assert any("Universal" in separator.line for separator in separators)
+    choices = _real_choices(wizard.runtime_choices(Scope.PROJECT, detected))
+
+    checked = {choice.value for choice in choices if choice.checked}
+    assert checked == {"claude-code"}  # `cursor` reads `.agents/skills`, so it is locked
 
 
 def test_the_universal_heading_covers_exactly_the_runtimes_that_read_that_path() -> None:
@@ -270,7 +330,7 @@ def test_the_universal_heading_covers_exactly_the_runtimes_that_read_that_path()
 
     grouped = _under(choices, "Universal")
     assert grouped == reads_the_path
-    assert len(grouped) == len(RUNTIMES) - len(_under(choices, "Other"))
+    assert len(grouped) == len(RUNTIMES) - len(_under(choices, "Additional agents"))
 
 
 def test_no_runtime_is_grouped_under_a_path_it_does_not_read() -> None:
@@ -300,14 +360,50 @@ def _under(choices: list[questionary.Separator | questionary.Choice], heading: s
     return keys
 
 
-def test_ask_runtimes_returns_the_pick_as_a_tuple(
+def _in_table_order(scope: Scope, keys: set[str]) -> tuple[str, ...]:
+    """`keys`, in the order the table declares them — the order everything else uses."""
+    return tuple(runtime.key for runtime in runtimes_in(scope) if runtime.key in keys)
+
+
+def test_ask_runtimes_answers_the_locked_group_plus_whatever_was_picked(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(wizard.questionary, "checkbox", _answering(["claude-code", "cursor"]))
+    """The lock is of the screen; the keys travel in the `Request` like any other."""
+    monkeypatch.setattr(wizard.questionary, "checkbox", _answering(["claude-code"]))
+    locked = {runtime.key for runtime in universal_runtimes(Scope.PROJECT)}
 
     result = wizard.ask_runtimes(Scope.PROJECT, tmp_path, _environment(tmp_path))
 
-    assert result == ("claude-code", "cursor")
+    assert result == _in_table_order(Scope.PROJECT, locked | {"claude-code"})
+
+
+def test_ask_runtimes_with_nothing_picked_still_answers_the_locked_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR 0011: the wizard can no longer produce an empty runtime selection."""
+    monkeypatch.setattr(wizard.questionary, "checkbox", _answering([]))
+
+    result = wizard.ask_runtimes(Scope.PROJECT, tmp_path, _environment(tmp_path))
+
+    assert result == tuple(runtime.key for runtime in universal_runtimes(Scope.PROJECT))
+
+
+def test_a_locked_key_that_comes_back_in_the_pick_is_not_named_twice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """It can happen: `questionary` points at row 0 of the filtered list, disabled or not.
+
+    So the union is taken through a set rather than by concatenation, and
+    `cursor` — which reads `.agents/skills` and is therefore locked in project
+    scope — arrives once.
+    """
+    monkeypatch.setattr(wizard.questionary, "checkbox", _answering(["cursor"]))
+
+    result = wizard.ask_runtimes(Scope.PROJECT, tmp_path, _environment(tmp_path))
+
+    assert result is not None
+    assert result == tuple(runtime.key for runtime in universal_runtimes(Scope.PROJECT))
+    assert result.count("cursor") == 1
 
 
 def test_ask_runtimes_returns_none_on_interruption(
@@ -316,6 +412,52 @@ def test_ask_runtimes_returns_none_on_interruption(
     monkeypatch.setattr(wizard.questionary, "checkbox", _answering(None))
 
     assert wizard.ask_runtimes(Scope.PROJECT, tmp_path, _environment(tmp_path)) is None
+
+
+def test_the_runtime_list_is_searchable_and_pays_for_it_with_the_j_and_k_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The price is fixed in the library, so it is asserted as a pair and not one flag.
+
+    `ValueError: Cannot use j/k keys with prefix filter search, since j/k can be
+    part of the prefix.`
+    """
+    seen: dict[str, object] = {}
+
+    def fake_checkbox(_message: str, choices: object, **kwargs: object) -> _Answered:
+        seen.update(kwargs)
+        seen["choices"] = choices
+        return _Answered([])
+
+    monkeypatch.setattr(wizard.questionary, "checkbox", fake_checkbox)
+
+    wizard.ask_runtimes(Scope.PROJECT, tmp_path, _environment(tmp_path))
+
+    assert seen["use_search_filter"] is True
+    assert seen["use_jk_keys"] is False
+
+
+def test_the_real_questionary_builds_the_locked_and_searchable_list(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only `.ask()` is stubbed, so the question itself is built by the real library.
+
+    Two refusals fire at construction and nowhere else, and both are exactly
+    what this ticket walked into: the `ValueError` above, and `InquirerControl`
+    rejecting an initial selection that is not selectable — which a section of
+    locked rows sitting at the top of the list walks straight into if the
+    pointer is allowed to start on one.
+    """
+
+    def answered(_self: object) -> list[str]:
+        return ["claude-code"]
+
+    monkeypatch.setattr(questionary.Question, "ask", answered)
+
+    result = wizard.ask_runtimes(Scope.PROJECT, tmp_path, _environment(tmp_path))
+
+    assert result is not None
+    assert "claude-code" in result
 
 
 # --------------------------------------------------------------------------- #
@@ -331,9 +473,16 @@ def _fixed_runtimes(_scope: Scope, _root: Path, _environment: Environment) -> tu
     return ("claude-code",)
 
 
-def test_run_wizard_builds_the_same_request_type_the_flags_would(
+def test_run_wizard_builds_the_same_request_the_equivalent_flag_line_would(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Proven over values, which is the whole point of the seam being a Stub.
+
+    The literal on the right is the request
+    `install --ai-framework fw --runtime claude-code` builds, spelled out rather
+    than derived, so the two are compared and not merely observed to agree.
+    """
+
     def picked_framework(
         _catalog: Catalog,
     ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
@@ -347,13 +496,89 @@ def test_run_wizard_builds_the_same_request_type_the_flags_would(
     monkeypatch.setattr(wizard, "ask_runtimes", _fixed_runtimes)
     environment = Environment.from_process()
 
-    outcome = wizard.run_wizard(catalog, environment, tmp_path)
+    outcome = wizard.run_wizard(Request(), catalog, environment, tmp_path, None)
 
     assert outcome is not None
     request, root = outcome
     assert isinstance(request, Request)
     assert request == Request(ai_frameworks=("fw",), runtimes=("claude-code",), scope=Scope.PROJECT)
     assert root == tmp_path
+
+
+def test_run_wizard_carries_the_mode_flags_of_the_line_through_untouched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--dry-run`, `--force` and `--yes` are not steps, and nothing here may drop them.
+
+    Asserted against the real `run_wizard` and not against a stub of it: a
+    version that built a fresh `Request` instead of replacing into the one it
+    was handed would lose all three in silence, and only this side of the seam
+    can see that.
+    """
+    # given
+    content = catalog_of(tmp_path, monkeypatch, "alpha")
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    monkeypatch.setattr(wizard, "ask_scope", _project_scope)
+    monkeypatch.setattr(wizard, "ask_runtimes", _fixed_runtimes)
+    asked = Request(skills=("alpha",), force=True, dry_run=True, yes=True)
+
+    outcome = wizard.run_wizard(asked, catalog, Environment.from_process(), tmp_path, None)
+
+    assert outcome is not None
+    request, _ = outcome
+    assert request == replace(asked, runtimes=("claude-code",), scope=Scope.PROJECT)
+
+
+@pytest.mark.parametrize(
+    ("asked", "scoped", "opened"),
+    [
+        pytest.param(Request(), None, ["artifacts", "scope", "runtimes"], id="bare"),
+        pytest.param(
+            Request(skills=("alpha",)), None, ["scope", "runtimes"], id="no runtime on the line"
+        ),
+        pytest.param(
+            Request(runtimes=("claude-code",)),
+            (Scope.PROJECT, Path()),
+            ["artifacts"],
+            id="no selection on the line",
+        ),
+    ],
+)
+def test_run_wizard_opens_only_the_steps_the_request_left_open(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    asked: Request,
+    scoped: tuple[Scope, Path] | None,
+    opened: list[str],
+) -> None:
+    """The same table the CLI is asserted against, one layer in and over values."""
+    # given
+    content = catalog_of(tmp_path, monkeypatch, "alpha")
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    steps: list[str] = []
+
+    def picked_skill(
+        _catalog: Catalog,
+    ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+        steps.append("artifacts")
+        return ((), (), ("alpha",))
+
+    def scope_step(cwd: Path, environment: Environment) -> tuple[Scope, Path]:
+        steps.append("scope")
+        return _project_scope(cwd, environment)
+
+    def runtime_step(scope: Scope, root: Path, environment: Environment) -> tuple[str, ...]:
+        steps.append("runtimes")
+        return _fixed_runtimes(scope, root, environment)
+
+    monkeypatch.setattr(wizard, "ask_artifacts", picked_skill)
+    monkeypatch.setattr(wizard, "ask_scope", scope_step)
+    monkeypatch.setattr(wizard, "ask_runtimes", runtime_step)
+
+    outcome = wizard.run_wizard(asked, catalog, Environment.from_process(), tmp_path, scoped)
+
+    assert outcome is not None
+    assert steps == opened
 
 
 @pytest.mark.parametrize(
@@ -384,7 +609,7 @@ def test_run_wizard_returns_none_when_any_step_is_abandoned(
     monkeypatch.setattr(wizard, "ask_runtimes", _fixed_runtimes)
     monkeypatch.setattr(wizard, stage, abandoned)
 
-    assert wizard.run_wizard(catalog, Environment.from_process(), tmp_path) is None
+    assert wizard.run_wizard(Request(), catalog, Environment.from_process(), tmp_path, None) is None
 
 
 # --------------------------------------------------------------------------- #
@@ -407,12 +632,15 @@ def capture(request, catalog, root, environment):
     return planning.Plan(root=root, selections=())
 
 cli.plan_for = capture
-sys.exit(cli.main(["install", "--yes"]))
+sys.exit(cli.main(["install", "--yes"] + sys.argv[2:]))
 """
 """Runs inside the child. Captures the `Request` the real `questionary` under
 the PTY produced as `key=value` lines — no `json`, which `TID251` reserves for
 `overpower.jsonio` — then hands back an empty `Plan` so the process exits
-clean without writing anything: the test is about the seam, not `execute`."""
+clean without writing anything: the test is about the seam, not `execute`.
+
+Everything past the capture path is appended to the command line, which is what
+lets the same child drive both the bare invocation and a partial one."""
 
 
 def _parsed(text: str) -> dict[str, str]:
@@ -420,7 +648,7 @@ def _parsed(text: str) -> dict[str, str]:
     return dict(line.split("=", 1) for line in text.splitlines() if line)
 
 
-def _drive(cwd: Path, home: Path, captured: Path, keys: str) -> None:
+def _drive(cwd: Path, home: Path, captured: Path, keys: str, *flags: str) -> None:
     """Fork a PTY, run the real `install`, and feed it `keys` as the screens ask for them.
 
     Adapted from the throwaway PTY driver of #12
@@ -434,7 +662,7 @@ def _drive(cwd: Path, home: Path, captured: Path, keys: str) -> None:
     pid, fd = pty.fork()
     if pid == 0:  # pragma: no cover — runs in the child, a separate process
         os.chdir(cwd)
-        argv = [sys.executable, "-c", _CHILD_SCRIPT, str(captured)]
+        argv = [sys.executable, "-c", _CHILD_SCRIPT, str(captured), *flags]
         os.execvpe(sys.executable, argv, env)  # noqa: S606 — replaces this forked child, not a shell
 
     sent = 0
@@ -463,14 +691,12 @@ def test_the_real_wizard_under_a_pty_produces_the_expected_request(tmp_path: Pat
 
     Against the real shipped catalog — one AI Framework, one pool skill, one
     bundle — so the first artifact choice is deterministic without pinning a
-    curated name that a refresh could rename. Runtimes are equally
-    deterministic off the runtime table itself: the universal group is shown
-    first, and its first member in table order is `amp`.
-
-    It used to expect `aider-desk` here, and that expectation was the defect
-    seen from the other side: `aider-desk` reads `.aider-desk/skills`, and it
-    only came first while the group was built from `in_universal_list` and
-    therefore held 74 of the 76 rows.
+    curated name that a refresh could rename. Runtimes are equally deterministic
+    off the runtime table itself: the universal group is shown first and every
+    row of it is locked, so the pointer opens on the first row of *Additional
+    agents*, which in table order is `aider-desk`. What comes back is therefore
+    the locked group plus that one — and both halves are computed from the table
+    here rather than typed, so a refresh moves them together.
     """
     # given
     cwd = tmp_path / "project"
@@ -489,4 +715,51 @@ def test_the_real_wizard_under_a_pty_produces_the_expected_request(tmp_path: Pat
     assert data["bundles"] == ""
     assert data["skills"] == ""
     assert data["scope"] == "project"
-    assert data["runtimes"] == "amp"
+    assert data["runtimes"] == ",".join(_locked_plus_the_first_additional(Scope.PROJECT))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="pty is POSIX only, docs/agents/testing.md §7")
+def test_the_real_wizard_under_a_pty_opens_only_the_gap_a_partial_line_leaves(
+    tmp_path: Path,
+) -> None:
+    """The other half of the same wiring: the line the catalog prints, pasted back.
+
+    `install --ai-framework <name>` names what to install and no runtime, so
+    two screens open and the artifacts one does not — and the proof that it did
+    not is the framework arriving **unchanged**, since the only thing that could
+    have replaced it is a pick made on a screen that never ran.
+
+    Two keystrokes drive it, against three for the bare line, and that
+    difference *is* the assertion: the same keys sent to the old wizard would
+    have answered the artifacts screen instead.
+    """
+    # given
+    framework = load_catalog(content_root(), catalog_file()).frameworks[0]
+    cwd = tmp_path / "project"
+    cwd.mkdir()
+    (cwd / ".git").mkdir()
+    home = tmp_path / "home"
+    home.mkdir()
+    captured = tmp_path / "captured.txt"
+    keys = "\r \r"  # scope: default — runtimes: toggle, submit
+
+    _drive(cwd, home, captured, keys, "--ai-framework", framework.name)
+
+    assert captured.exists(), "the child never reached plan_for within the deadline"
+    data = _parsed(captured.read_text(encoding="utf-8"))
+    assert data["ai_frameworks"] == framework.name
+    assert data["skills"] == ""
+    assert data["bundles"] == ""
+    assert data["scope"] == "project"
+    assert data["runtimes"] == ",".join(_locked_plus_the_first_additional(Scope.PROJECT))
+
+
+def _locked_plus_the_first_additional(scope: Scope) -> tuple[str, ...]:
+    """What one tap of the space bar on an untouched runtime screen produces.
+
+    The locked group is in whatever the pick was; the pointer starts on the
+    first selectable row, which is the first member of *Additional agents*.
+    """
+    locked = {runtime.key for runtime in universal_runtimes(scope)}
+    first = next(runtime.key for runtime in runtimes_in(scope) if runtime.key not in locked)
+    return _in_table_order(scope, locked | {first})

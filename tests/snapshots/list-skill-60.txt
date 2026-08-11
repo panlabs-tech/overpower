@@ -12,4 +12,6 @@
 │    — and a colon, so the parser and the renderer are     │
 │    both exercised on something other than plain words.   │
 │                                                          │
+│      overpower install --skill panlabs-python-standards  │
+│                                                          │
 ╰──────────────────────────────────────────────────────────╯

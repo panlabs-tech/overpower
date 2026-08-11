@@ -49,6 +49,7 @@ from overpower.remote import catalog_from
 from overpower.runtimes import Environment, Scope
 from overpower.scope import git_root
 from overpower.screens import (
+    PROGRAM,
     THEME,
     artifact_screen,
     banner,
@@ -68,8 +69,6 @@ if TYPE_CHECKING:
     from rich.console import RenderableType
 
     from overpower.discovery import Catalog
-
-PROGRAM = "overpower"
 
 ABORTED = 130
 """What Ctrl-C costs before it reaches here — the shell's `128 + SIGINT`.
@@ -368,55 +367,74 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
     _refuse_a_line_from_cannot_answer(from_, frameworks, bundles, skills)
 
     environment = Environment.from_process()
-    # The same condition `NothingSelectedError` checks: nothing on any of the
-    # three artifact selectors. In a terminal the wizard is the branch that
-    # replaces that error rather than a case competing with it
-    # (https://github.com/panlabs-tech/overpower/issues/41); without a
-    # terminal the flag path below still reaches that same error, so a bare
-    # invocation off a pipe exits 2 without ever touching `questionary`.
-    #
-    # `--from` is never the wizard's line: a wizard driven by the embedded
-    # catalog is exactly what *"only the remote is consulted"* forbids. The
-    # guard above already makes that true — it proved the line names a skill,
-    # so the third clause is false anyway — and the first clause says the rule
-    # here rather than leaving it to be re-derived. It is what a later
-    # relaxation of the guard would have to walk past on purpose.
-    wizarding = from_ is None and _out.is_terminal and not (frameworks or bundles or skills)
-
-    if wizarding:
-        # The banner first: a human about to answer three questions reads it
-        # as context, unlike the flag path below, where a screen ahead of a
-        # refusal would be the product answering before it knew.
-        _print_banner()
-        catalog = load_catalog(content_root(), catalog_file())
-        outcome = run_wizard(catalog, environment, Path.cwd())
-        if outcome is None:
-            _out.print(Text("nothing was written", style="op.dim"))
-            raise typer.Exit(ExitCode.CANNOT_RUN)
-        wizard_request, root = outcome
-        request = replace(wizard_request, force=force, dry_run=dry_run, yes=yes)
-        _perform(request, catalog, root, environment, banner=False)
-        return
-
-    scope, root = _scope_and_root(global_=global_, environment=environment)
-    request = Request(
+    asked = Request(
         ai_frameworks=frameworks,
         bundles=bundles,
         skills=skills,
         runtimes=_accumulated(runtime),
-        scope=scope,
         force=force,
         dry_run=dry_run,
         yes=yes,
     )
+    selected = bool(frameworks or bundles or skills)
+    # **The trigger is the gap, not the empty line**
+    # (https://github.com/panlabs-tech/overpower/issues/57): there is a
+    # terminal, and what was typed does not add up to a plan — no selection, or
+    # no runtime. Without a terminal the flag path below reaches the same two
+    # errors it always did, so a partial invocation off a pipe exits 2 without
+    # ever touching `questionary`.
+    wizarding = _out.is_terminal and not (selected and asked.runtimes)
+    # The scope step exists to **scope the runtime step** — the set `--runtime`
+    # accepts is a function of it (ADR 0009) — so a line that fixes the runtimes
+    # fixes the scope question along with them, and `--global` fixes it outright.
+    # The accepted consequence is that `--runtime` alone opens the artifacts step
+    # and nothing else: the wizard is one gesture, not a question per absent flag.
+    asking_scope = wizarding and not asked.runtimes and not global_
+
+    embedded: Catalog | None = None
+    if wizarding:
+        # Resolved ahead of the banner and of every question: a line with
+        # nowhere legal to write is refused with no screen at all, the same way
+        # the flag path refuses from behind `plan_for`.
+        scoped = None if asking_scope else _scope_and_root(global_=global_, environment=environment)
+        # The banner next: a human about to answer questions reads it as
+        # context, unlike the flag path below, where a screen ahead of a
+        # refusal would be the product answering before it knew.
+        _print_banner()
+        # The artifacts step is the only one that consults a catalog, and a line
+        # that already names something never opens it. That is what lets a
+        # `--from` line reach the wizard without the embedded catalog ever being
+        # read — *"only the remote is consulted"* speaks about that one step,
+        # and `--from` requires `--skill`, hence a selection, hence no step.
+        if not selected:
+            embedded = load_catalog(content_root(), catalog_file())
+        outcome = run_wizard(asked, embedded, environment, Path.cwd(), scoped)
+        if outcome is None:
+            _out.print(Text("nothing was written", style="op.dim"))
+            raise typer.Exit(ExitCode.CANNOT_RUN)
+        request, root = outcome
+    else:
+        scope, root = _scope_and_root(global_=global_, environment=environment)
+        request = replace(asked, scope=scope)
 
     if from_ is None:
-        _perform(request, load_catalog(content_root(), catalog_file()), root, environment)
+        _perform(request, _embedded(embedded), root, environment, banner=not wizarding)
         return
     # The scratch lives exactly as long as the block, which has to cover the
     # write as well as the plan: the sources of a remote install are inside it.
     with catalog_from(from_, request.skills) as catalog:
-        _perform(request, catalog, root, environment)
+        _perform(request, catalog, root, environment, banner=not wizarding)
+
+
+def _embedded(catalog: Catalog | None) -> Catalog:
+    """The embedded catalog, read once even when the wizard already needed it.
+
+    The tree is walked and every `SKILL.md` is read, so reading it twice on one
+    invocation is a real cost and not a tidiness point.
+    """
+    if catalog is not None:
+        return catalog
+    return load_catalog(content_root(), catalog_file())
 
 
 def _refuse_a_line_from_cannot_answer(

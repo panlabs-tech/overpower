@@ -27,6 +27,8 @@ from overpower.runtimes import (
     resolve_global_dir,
     resolve_project_dir,
     runtimes_in,
+    universal_place,
+    universal_runtimes,
 )
 
 if TYPE_CHECKING:
@@ -153,6 +155,91 @@ def test_every_runtime_offered_in_a_scope_has_somewhere_to_land() -> None:
     assert all(resolve_global_dir(r, env) is not None for r in runtimes_in(Scope.GLOBAL))
     root = REPO
     assert all(resolve_project_dir(r, root).is_absolute() for r in runtimes_in(Scope.PROJECT))
+
+
+# --- the universal group, which is a function of the scope as well ----------
+#
+# ADR 0011. The group is what the wizard locks as *always included*, so its
+# membership is not a taxonomy question: the heading names a place, and its
+# members are whoever reads that place **in that scope** — nineteen in project,
+# six in global.
+
+
+def test_the_universal_group_in_project_scope_is_everyone_who_reads_that_path() -> None:
+    reads_it = [r.key for r in RUNTIMES if r.project_dir.relative == UNIVERSAL_PROJECT_DIR]
+
+    grouped = [r.key for r in universal_runtimes(Scope.PROJECT)]
+
+    assert grouped == reads_it
+    assert len(grouped) == 19
+
+
+def test_the_universal_group_in_global_scope_is_the_six_that_read_it_under_the_home() -> None:
+    """The correction ADR 0011 buys: the other thirteen land somewhere of their own.
+
+    `codex` goes to `~/.codex/skills`, `cursor` to `~/.cursor/skills`, `amp` to
+    `~/.config/agents/skills`. A heading claiming those three read
+    `~/.agents/skills` is the *"screen says one thing, disk says another"* class
+    ADR 0008 exists to refuse, arriving through the screen.
+    """
+    grouped = [r.key for r in universal_runtimes(Scope.GLOBAL)]
+
+    assert grouped == ["cline", "dexto", "kimi-code-cli", "loaf", "warp", "zed"]
+
+
+@pytest.mark.parametrize(
+    "scope",
+    [pytest.param(Scope.PROJECT, id="project"), pytest.param(Scope.GLOBAL, id="global")],
+)
+def test_the_universal_heading_names_a_place_every_member_reads(scope: Scope) -> None:
+    """The property the whole group exists for, asserted over membership and not over a count."""
+    env = environment()
+
+    members = universal_runtimes(scope)
+
+    places = {
+        resolve_project_dir(r, REPO) if scope is Scope.PROJECT else resolve_global_dir(r, env)
+        for r in members
+    }
+    root = REPO if scope is Scope.PROJECT else HOME
+    assert places == {root / ".agents" / "skills"}
+
+
+@pytest.mark.parametrize(
+    "scope",
+    [pytest.param(Scope.PROJECT, id="project"), pytest.param(Scope.GLOBAL, id="global")],
+)
+def test_the_universal_group_is_never_empty_in_either_scope(scope: Scope) -> None:
+    """ADR 0011's consequence: the wizard can no longer produce an empty runtime selection.
+
+    `NoRuntimeSelectedError` therefore becomes reachable only through the flag
+    path, which was always what it was for.
+    """
+    assert universal_runtimes(scope)
+
+
+def test_the_universal_place_is_spelled_against_the_root_of_its_scope() -> None:
+    """The heading has to say where it writes, and the two roots are not the same word."""
+    assert universal_place(Scope.PROJECT) == ".agents/skills"
+    assert universal_place(Scope.GLOBAL) == "~/.agents/skills"
+
+
+@pytest.mark.parametrize(
+    ("scope", "total"),
+    [
+        pytest.param(Scope.PROJECT, 76, id="project"),
+        pytest.param(Scope.GLOBAL, 74, id="global"),
+    ],
+)
+def test_the_universal_group_and_the_rest_partition_the_scoped_table(
+    scope: Scope, total: int
+) -> None:
+    """Nothing is offered twice and nothing is dropped: 19 + 57 in project, 6 + 68 in global."""
+    members = {r.key for r in universal_runtimes(scope)}
+    offered = {r.key for r in runtimes_in(scope)}
+
+    assert members <= offered
+    assert len(offered - members) == total - len(members)
 
 
 # --- evidence --------------------------------------------------------------

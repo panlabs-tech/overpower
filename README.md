@@ -42,7 +42,29 @@ uvx overpower@latest list
 
 Every item arrives with its size, its file count and its description **whole** —
 never truncated, at 80 columns and at 60, because the description is what the
-decision to install is made on.
+decision to install is made on. Under each description sits **the line that
+installs it**, and — for an AI Framework and a bundle, the two units that carry
+something to open — the line that opens it:
+
+```
+╭─ Bundles  lists pool artifacts only ─────────────────────╮
+│                                                          │
+│  api-python                         229.0 KiB · 8 files  │
+│    Equipment for working on a Python API.                │
+│                                                          │
+│      overpower install --bundle api-python               │
+│      overpower list --bundle api-python                  │
+│                                                          │
+╰──────────────────────────────────────────────────────────╯
+```
+
+The line is **bare**: no `$` in front, which makes a selected line paste back
+broken, and no label column, which does not fit — the words `install` and `list`
+inside the command are the label. It wraps rather than truncates, because a
+command cut at the terminal edge is a command nobody can type back, and it
+**survives a pipe**: the banner is a courtesy and is gated on `isatty()`, but a
+command is a datum, so `overpower list | grep <name>` hands back the line to
+copy.
 
 One selector opens one item, and each takes one name:
 
@@ -137,19 +159,61 @@ ever truncated).
 The same plan appears on all three ways in — `--dry-run`, the wizard's
 confirmation and a direct run — because there is one plan screen and not three.
 
-**`overpower install` typed bare in a terminal opens a wizard** instead of
-refusing: artifacts, then scope, then runtimes, then confirmation. The order is
-mechanical, not aesthetic — the runtime step probes the target root, so it cannot
-be asked before the scope is known. It builds the same request the flags do.
+The wizard shows those nineteen as a locked section — `Universal
+(.agents/skills)  always included  19 runtimes` — rather than as nineteen lines
+to tick, because one pre-ticked line and one locked line differ by a tap of the
+space bar, and what the second buys is seeing that a single path equips every
+runtime under it at once. **In global scope the group is six**, not nineteen: only
+`cline`, `dexto`, `kimi-code-cli`, `loaf`, `warp` and `zed` read
+`~/.agents/skills`, while Codex reads `~/.codex/skills`, Cursor
+`~/.cursor/skills` and Amp `~/.config/agents/skills`. A heading that named a
+folder its members do not read would be the screen lying about the disk.
+
+**The lock is of the screen and never of the plan.** The wizard puts the locked
+keys into the request it builds, exactly like a key somebody ticked; the flag
+stays literal, so `overpower install --runtime claude-code` writes
+`.claude/skills/` and nothing else. The list of *Additional agents* filters as
+you type, matching in the middle of a word — `dev` cuts it to two rows — which
+costs the `j`/`k` navigation keys, because the library cannot offer both.
+
+### The wizard opens for whatever the line is missing
+
+**In a terminal, a line that does not add up to a plan opens a wizard** instead
+of refusing — a missing selection, a missing runtime, or both. It opens only the
+steps the flags left open, in a fixed order: artifacts, then scope, then
+runtimes, then confirmation. The order is mechanical, not aesthetic — the runtime
+step probes the target root, so it cannot be asked before the scope is known —
+and what comes out is the same request the equivalent flag line would build.
+
+| line, in a terminal, inside a git repository | steps that open |
+| --- | --- |
+| `install` | artifacts · scope · runtimes · plan |
+| `install --ai-framework matt-pocock` | scope · runtimes · plan |
+| `install --runtime cursor` | artifacts · plan |
+| `install --bundle api-python --runtime cursor` | the plan, straight away |
+| `install --from <url> --skill <name>` | scope · runtimes · plan |
+| no TTY, no `--runtime` | none — exit 2 |
+
+Giving `--runtime` takes the scope question with it, because the set `--runtime`
+accepts is a function of the scope, so the scope step exists to scope the runtime
+step. `--global` answers it outright; its *absence* is "did not say", never
+"chose the project". The wizard is one gesture, not a question per absent flag.
+
+`--from` no longer keeps the whole wizard away: only the **artifacts** step
+consults a catalog, and a `--from` line names `--skill` before anything is
+fetched, so that step never opens and the embedded catalog is never read.
+`--yes` skips no step at all — it skips the final confirmation and nothing else.
 
 ### Scope
 
 Inside a git repository the default is the repository. **Outside one a flag line
 refuses, exit 2**, unless `--global`/`-g` says explicitly to write under the home
 directory: *the git is the manifest* only holds where there is git, and nothing
-else on the machine would audit what a silent write left behind. The wizard
-reaches the same explicitness from the other side — outside a repository it does
-not ask a question that has one legal answer, and goes global without the step.
+else on the machine would audit what a silent write left behind. Where the wizard
+asks the question it reaches the same explicitness from the other side — outside
+a repository it does not ask a question that has one legal answer, and goes
+global without the step. Where it does not ask — because `--runtime` was given —
+the flag rule applies unchanged, and outside a repository the line exits 2.
 
 In project scope every landing is a **real copy**. Under `core.symlinks=false` —
 a value git detects and records into the clone — a committed link checks out as

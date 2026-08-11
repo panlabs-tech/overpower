@@ -62,10 +62,11 @@ Não existe categoria *"roda numa célula só"*, e não existe marcador `slow`. 
 
 Teste que não pode rodar numa plataforma **chaveia por `sys.platform`**, nunca por variável de ambiente. A preocupação da régua (§2) é que a exigência suma do workflow e o CI fique verde skipando tudo; `sys.platform` não pode ser esquecido no YAML.
 
-Duas ausências ficam registradas como **conhecidas**, não como cobertura:
+Três ausências ficam registradas como **conhecidas**, não como cobertura:
 
 - o caso **sem privilégio de symlink** no Windows não é reproduzível na CI hospedada — o `actions/runner-images` liga **Developer Mode** e põe o usuário em `Administrators` ([#19](https://github.com/panlabs-tech/overpower/issues/19)). A máquina do dev é o único lugar onde ele aparece;
-- **PyPy não tem `CreateJunction`**, e não está na matriz.
+- **PyPy não tem `CreateJunction`**, e não está na matriz;
+- **construir uma pergunta do `questionary` não roda nas células Windows.** Medido em [#57](https://github.com/panlabs-tech/overpower/issues/57): a construção monta um `Application` do `prompt_toolkit`, e a saída Win32 dele levanta `NoConsoleScreenBufferError` num processo sem console screen buffer — que é o que um filho do `pytest` no runner hospedado é. Um terminal Windows de verdade tem o buffer, então o caminho do produto não é afetado; o que fica sem cobertura ali é a asserção de que a biblioteca aceita os argumentos que o wizard passa.
 
 ## 3. `git` roda de verdade, e o remoto é local
 

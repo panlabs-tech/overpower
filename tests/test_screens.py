@@ -93,6 +93,34 @@ def descriptions_of(catalog: Catalog) -> list[str]:
     ]
 
 
+def commands_of(catalog: Catalog) -> list[str]:
+    """Every line the catalog screen owes, spelled out rather than built from the product.
+
+    The literals are the assertion: a helper that composed them out of
+    `overpower.screens`' own pieces would agree with the screen by construction
+    and could only ever prove that the screen agrees with itself.
+    """
+    return [
+        *(
+            line
+            for framework in catalog.frameworks
+            for line in (
+                f"overpower install --ai-framework {framework.name}",
+                f"overpower list --ai-framework {framework.name}",
+            )
+        ),
+        *(f"overpower install --skill {artifact.name}" for artifact in catalog.pool),
+        *(
+            line
+            for bundle in catalog.bundles
+            for line in (
+                f"overpower install --bundle {bundle.name}",
+                f"overpower list --bundle {bundle.name}",
+            )
+        ),
+    ]
+
+
 def unwrapped(rendered: str) -> str:
     """The screen with its frame and its re-wrapping undone.
 
@@ -525,6 +553,91 @@ def test_every_artifact_appears_with_its_size_and_its_file_count(width: int) -> 
     for pool_artifact in catalog.pool:
         assert pool_artifact.name in joined
         assert f"{human(pool_artifact.size)} · {pool_artifact.files} file" in joined
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_catalog_screen_prints_the_line_that_installs_every_item(width: int) -> None:
+    """The journey closes here: what `list` shows, it also says how to ask for.
+
+    An AI Framework and a bundle carry something to open, so each of them gets
+    the inspection line as well; a pool skill has no artifact inside it to list,
+    so one line is the whole of it.
+    """
+    catalog = shipped()
+
+    joined = unwrapped(render(catalog_screen(catalog), width))
+
+    for command in commands_of(catalog):
+        assert command in joined
+
+
+def test_a_pool_skill_is_not_offered_a_line_that_lists_what_is_inside_it() -> None:
+    """There is nothing inside a skill to list, so the second line would be a dead end."""
+    catalog = shipped()
+
+    joined = unwrapped(render(catalog_screen(catalog), 80))
+
+    for pool_artifact in catalog.pool:
+        assert f"overpower list --skill {pool_artifact.name}" not in joined
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_no_printed_command_carries_a_shell_prompt(width: int) -> None:
+    """Measured: with a `$` in front, the selected line pastes back broken.
+
+    Asserted per row rather than over the whole screen, because a `$` inside a
+    description is data and says nothing about this property.
+    """
+    rendered = render(catalog_screen(shipped()), width)
+
+    assert [row for row in rows(rendered) if row.startswith("$")] == []
+
+
+def test_no_printed_command_wraps_or_carries_a_label_at_eighty_columns() -> None:
+    """One row, and the row *is* the command — which is what the two refusals buy.
+
+    A wrapped command loses the half below the fold, and a label column costs
+    the width that made it fit: measured at 60 columns the panel body is 54
+    characters and `overpower install --skill panlabs-python-standards`
+    indented already occupies exactly that. The words `install` and `list`
+    inside the command are the label.
+    """
+    catalog = shipped()
+
+    printed = rows(render(catalog_screen(catalog), 80))
+
+    for command in commands_of(catalog):
+        assert command in printed
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_framework_screen_prints_only_the_line_that_installs_it(width: int) -> None:
+    """Printing `list --ai-framework <name>` inside the output of that very command is a no-op."""
+    framework = shipped().frameworks[0]
+
+    joined = unwrapped(render(framework_screen(framework), width))
+
+    assert f"overpower install --ai-framework {framework.name}" in joined
+    assert f"overpower list --ai-framework {framework.name}" not in joined
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_bundle_screen_prints_only_the_line_that_installs_it(width: int) -> None:
+    bundle = shipped().bundles[0]
+
+    joined = unwrapped(render(bundle_screen(bundle), width))
+
+    assert f"overpower install --bundle {bundle.name}" in joined
+    assert f"overpower list --bundle {bundle.name}" not in joined
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_skill_screen_prints_the_line_that_installs_it(width: int) -> None:
+    skill = shipped().pool[0]
+
+    joined = unwrapped(render(artifact_screen(skill), width))
+
+    assert f"overpower install --skill {skill.name}" in joined
 
 
 def test_the_section_title_is_not_dim() -> None:

@@ -52,6 +52,9 @@ Shared by 19 of the 76 rows, which makes it the largest single destination and
 not, despite the name, a path that covers everyone: measured 2026-08-06, Claude
 Code 2.1.223 does not discover skills here, and Codex does not read
 `.claude/skills`. Full coverage costs two writes, always.
+
+The same folder name serves both scopes — see `universal_place` — but the set
+of runtimes that read it does not: 19 in project, 6 in global (ADR 0011).
 """
 
 
@@ -561,6 +564,66 @@ def runtimes_in(scope: Scope) -> tuple[Runtime, ...]:
             return RUNTIMES
         case Scope.GLOBAL:
             return tuple(runtime for runtime in RUNTIMES if runtime.global_dir is not None)
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+def universal_place(scope: Scope) -> str:
+    """How the shared place is spelled in `scope` — what the group's heading names.
+
+    Two spellings of one folder name, because the two roots are not the same
+    word: a project path hangs off the repository and reads `.agents/skills`, a
+    global one hangs off the home and reads `~/.agents/skills`. A heading that
+    could only say one of them would be a heading that lies in the other scope.
+    """
+    match scope:
+        case Scope.PROJECT:
+            return UNIVERSAL_PROJECT_DIR
+        case Scope.GLOBAL:
+            return f"~/{UNIVERSAL_PROJECT_DIR}"
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+def universal_runtimes(scope: Scope) -> tuple[Runtime, ...]:
+    """The runtimes that read the universal place **in `scope`** — 19 in project, 6 in global.
+
+    The group is what the wizard shows as *always included* (ADR 0011), so its
+    membership is not a taxonomy: the heading names a place, and a member is
+    whoever reads **that** place in **that** scope. Measured, the 18 members the
+    project group has in global scope land in 11 distinct directories, and only
+    six of them in `~/.agents/skills` — `codex` goes to `~/.codex/skills`,
+    `cursor` to `~/.cursor/skills`, `amp` to `~/.config/agents/skills`. Naming
+    them under one heading is the *"the screen says one thing and the result is
+    another"* class ADR 0008 exists to refuse, arriving through the screen
+    instead of through the write.
+
+    Same shape as `runtimes_in`, and for the same reason: **one implementation**,
+    consumed both by the screen that locks the group and by the `Request` the
+    wizard builds out of it, so the two cannot disagree about who is in it.
+    """
+    return tuple(runtime for runtime in runtimes_in(scope) if _reads_universally(runtime, scope))
+
+
+def _reads_universally(runtime: Runtime, scope: Scope) -> bool:
+    """Whether `runtime` reads the universal place in `scope`.
+
+    Read off the table rather than off a resolved path, and that is deliberate:
+    the anchor is what decides it — `~/.agents/skills` is a `HomeAnchor`, while
+    `amp`'s `~/.config/agents/skills` is an `EnvironmentAnchor` that the machine
+    can move — so membership stays a fact of the transcription, answerable
+    without a filesystem or a home directory.
+    """
+    match scope:
+        case Scope.PROJECT:
+            return runtime.project_dir.relative == UNIVERSAL_PROJECT_DIR
+        case Scope.GLOBAL:
+            global_dir = runtime.global_dir
+            return (
+                global_dir is not None
+                and isinstance(global_dir.anchor, HomeAnchor)
+                and global_dir.relative == UNIVERSAL_PROJECT_DIR
+            )
         case _ as unreachable:
             assert_never(unreachable)
 

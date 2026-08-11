@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING
 import pytest
 from rich.console import Console
 
-from overpower import cli, remote
+from overpower import cli, remote, wizard
 from overpower.discovery import load_catalog
 from overpower.errors import OverpowerError
 from overpower.packaged import catalog_file, content_root
@@ -143,6 +143,48 @@ def test_the_banner_follows_the_terminal_and_nothing_else(
     assert cli.main(["list"]) == 0
 
     assert ("_____" in sink.getvalue()) is expected
+
+
+@pytest.mark.parametrize("argv", [pytest.param([], id="bare"), pytest.param(["--help"], id="help")])
+@pytest.mark.parametrize(
+    ("terminal", "expected"),
+    [pytest.param(True, True, id="tty"), pytest.param(False, False, id="pipe")],
+)
+def test_the_alias_hint_follows_the_terminal_like_the_banner(
+    monkeypatch: pytest.MonkeyPatch, argv: list[str], *, terminal: bool, expected: bool
+) -> None:
+    """#58: the two gestures of discovery, and the one gate both of them share.
+
+    `--help` is on the list because it did not use to carry the banner at all:
+    click answers it before the callback runs, so the banner had to move to
+    where the help screen is *formatted* for the two gestures to say the same
+    thing. Asserted in both directions, because a courtesy that leaks into a
+    pipe is what the gate exists to stop.
+    """
+    sink = io.StringIO()
+    monkeypatch.setattr(
+        cli,
+        "_out",
+        Console(file=sink, theme=THEME, width=80, force_terminal=terminal, highlight=False),
+    )
+
+    assert cli.main(argv) == 0
+
+    assert ("alias op='overpower'" in " ".join(sink.getvalue().split())) is expected
+
+
+def test_the_package_installs_exactly_one_executable() -> None:
+    """#58: the tip is an alias and never a second entry point.
+
+    Why the name is not occupied is measured once, on `screens.SHORTCUT`, and not
+    repeated here. What this asserts is the consequence, read off the **installed
+    metadata** rather than off `pyproject.toml` — the reason `_version` reads it
+    there: what ships is what the `dist-info` says, not what the source declares.
+    """
+    entry_points = metadata.distribution("overpower").entry_points
+
+    installed = [point.name for point in entry_points if point.group == "console_scripts"]
+    assert installed == ["overpower"]
 
 
 def test_the_list_command_shows_the_three_blocks(capsys: pytest.CaptureFixture[str]) -> None:
@@ -366,12 +408,19 @@ def test_the_exit_codes_are_the_four_the_model_declares() -> None:
     "argv",
     [
         pytest.param([], id="bare"),
+        pytest.param(["--help"], id="help"),
         pytest.param(["list"], id="list"),
         pytest.param(["list", "--ai-framework", "matt-pocock"], id="list-framework"),
     ],
 )
 def test_piped_output_carries_no_ansi(argv: list[str]) -> None:
-    """Measured in #12: the three piped captures carry zero `ESC` bytes."""
+    """Measured in #12: the three piped captures carry zero `ESC` bytes.
+
+    `--help` joined them with #58, which is when it started going through the
+    banner at all: the root help is now formatted by a group that draws one, so
+    the gesture that used to be pure click output is a gesture this property has
+    to cover.
+    """
     result = piped(*argv)
 
     assert result.returncode == 0
@@ -384,6 +433,21 @@ def test_the_banner_is_suppressed_without_a_tty() -> None:
 
     assert result.returncode == 0
     assert b"_____" not in result.stdout
+
+
+@pytest.mark.parametrize("argv", [pytest.param([], id="bare"), pytest.param(["--help"], id="help")])
+def test_the_alias_hint_is_suppressed_without_a_tty(argv: list[str]) -> None:
+    """#58, measured against the real binary: under a pipe the tip is not there.
+
+    The in-process half proves the terminal side; this one proves the pipe side
+    the way a user meets it — `overpower --help > file`, where a line of advice
+    is noise the file has to carry forever. The ANSI of the same output is next
+    door and stays there: one property per test, and this one is the hint.
+    """
+    result = piped(*argv)
+
+    assert result.returncode == 0
+    assert b"alias op=" not in result.stdout
 
 
 def test_the_doctor_screen_carries_no_ansi_under_a_pipe(tmp_path: Path) -> None:
@@ -464,6 +528,54 @@ def test_the_confirmation_is_asked_in_a_terminal_and_declining_writes_nothing(
 
     assert code == 1
     assert list(root.iterdir()) == []
+
+
+def test_the_plan_names_its_artifacts_on_all_three_ways_in(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """#58: `--dry-run`, the wizard's confirmation and a direct run are one screen.
+
+    Two screens of plan would be two places for the rule to be forgotten, and
+    `--dry-run` is the audit — the one screen that may never say less than the
+    run it audits. The three are asserted against the same expected rows and not
+    against each other, so a change that emptied all three could not pass by
+    agreeing with itself.
+
+    A framework, because it is the case the list exists for: `--ai-framework fw`
+    is two words on the line and two artifacts on the disk, and the names of
+    those two appear nowhere else in what was typed.
+    """
+
+    def picked_framework(
+        _catalog: Catalog,
+    ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+        return (("fw",), (), ())
+
+    def project_scope(cwd: Path, _environment: Environment) -> tuple[Scope, Path]:
+        return Scope.PROJECT, cwd
+
+    def fixed_runtimes(_scope: Scope, _root: Path, _environment: Environment) -> tuple[str, ...]:
+        return ("claude-code",)
+
+    # given
+    project.catalog_of(tmp_path, monkeypatch, frameworks={"fw": ["fa", "fb"]})
+    project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    monkeypatch.setattr(wizard, "ask_artifacts", picked_framework)
+    monkeypatch.setattr(wizard, "ask_scope", project_scope)
+    monkeypatch.setattr(wizard, "ask_runtimes", fixed_runtimes)
+    monkeypatch.setattr(cli, "_confirmed", lambda: False)
+    selectors = ("install", "--ai-framework", "fw", "--runtime", "claude-code")
+
+    dry_code, dry_out = project.run(capsys, *selectors, "--dry-run")
+    wizard_code, wizard_out = project.run(capsys, "install")
+    real_code, real_out = project.run(capsys, *selectors, "--yes")
+
+    assert (dry_code, wizard_code, real_code) == (0, 1, 0)
+    for output in (dry_out, wizard_out, real_out):
+        joined = project.joined(output)
+        assert "skill fa" in joined
+        assert "skill fb" in joined
 
 
 def test_yes_skips_the_confirmation_and_nothing_else(

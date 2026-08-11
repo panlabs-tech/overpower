@@ -54,7 +54,7 @@ if TYPE_CHECKING:
 
     from rich.console import Console, ConsoleOptions, RenderableType, RenderResult
 
-    from overpower.discovery import Artifact, ArtifactType, Bundle, Catalog, Framework
+    from overpower.discovery import Artifact, Bundle, Catalog, Framework
     from overpower.inspection import Diagnosis, Finding, Terminal
     from overpower.planning import Destination, Landing, Plan, Selection
 
@@ -93,6 +93,27 @@ BANNER_WIDTH = 50
 
 TAGLINE = "installs curated agent equipment"
 
+SHORTCUT = "alias op='overpower'"
+"""The keyboard comfort the banner teaches, and the reason it is only a hint.
+
+**No second executable is installed for it** (#58), and that is measured rather
+than tasteful: `op` is the binary of the 1Password CLI, in `/usr/local/bin`, and
+on the machine this was measured on `~/.local/bin` sits at position **1** of the
+`PATH` against position **6** for it — a second `[project.scripts]` entry would
+shadow a credential tool with no warning at all. `uv` only detects a collision
+between tools it manages itself, and when it does it refuses the **whole**
+package (`error: Executable already exists: op`), so even the honest half of that
+trade fails. Occupying the name is a decision for whoever knows their own
+machine, so the product says the line and types nothing.
+
+Measured and accepted as its limit: a shell alias does not expand in a
+non-interactive shell — `sh -c op`, which is how a Makefile invokes, answers
+`command not found` and exit 127. That costs nothing, because by rule 5 the
+version of the overpower is the version of its catalog and the line a README, a
+Makefile and a CI write is `uvx overpower@latest …` regardless. The alias is
+keyboard comfort, and that is all it claims to be.
+"""
+
 _KIB = 1024
 _MIB = 1024 * 1024
 
@@ -106,17 +127,34 @@ the path it belongs to.
 
 
 def banner(version: str, width: int) -> RenderableType:
-    """The opening screen: the art, the tagline and the version that arrived.
+    """The opening screen: the art, the tagline, the version, and the shortcut.
 
     Whether it is *shown* is not decided here — it is a terminal question, and
     the CLI gates it on `isatty()`.
+
+    The shortcut line **travels with the banner** rather than carrying a gate of
+    its own, and both branches draw it: it is courtesy for exactly the same
+    reason the art is, so it is shown exactly where the art would be shown and
+    hidden wherever the art is hidden. A second gate would be a second place for
+    *"not under a pipe"* to be forgotten — and the art is what a narrow terminal
+    drops, not the one line someone came to copy.
     """
     if width < BANNER_WIDTH:
-        return Text.assemble(("overpower ", "op.brand"), (version, "op.dim"), "\n")
+        return Group(Text.assemble(("overpower ", "op.brand"), (version, "op.dim")), _shortcut())
     return Group(
         Text(BANNER, style="op.brand"),
-        Text.assemble("  ", (TAGLINE, "op.dim"), "   ", (f"v{version}", "op.key"), "\n"),
+        Text.assemble("  ", (TAGLINE, "op.dim"), "   ", (f"v{version}", "op.key")),
+        _shortcut(),
     )
+
+
+def _shortcut() -> Text:
+    """`  atalho   alias op='overpower'` — the label dim, the line to paste in ink.
+
+    The two ranks are the ones the `doctor` already uses for a label and its
+    value, and they are what let the eye skip the word and take the line.
+    """
+    return Text.assemble("  ", ("atalho", "op.dim"), "   ", (SHORTCUT, "op.key"), "\n")
 
 
 def catalog_screen(catalog: Catalog) -> RenderableType:
@@ -458,7 +496,28 @@ def _plan_panel(plan: Plan, arrow: str) -> Panel:
 
 
 def _planned(selection: Selection, root: Path, arrow: str) -> RenderableType:
-    """What one selection brings, and every place it lands."""
+    """What one selection brings, **named artifact by artifact**, and every place it lands.
+
+    The stacked list is `_contents` — the same function the detail screens of
+    `list` draw, and the same one on purpose (#58): the plan is the last gate
+    before 148 files land in a repository that is not ours, and a gate that
+    summarised *"25 skills"* would ask someone to accept a set they have to leave
+    the screen to read. Fidelity to `list` is the property that was chosen, over
+    fitting on one screen: the plan of `matt-pocock` goes from 8 lines to 34 and
+    scrolls at 24 rows, and it is a plan that can be read whole, which a gate has
+    to be. The measured alternatives all cost more than they saved — a
+    three-column grid needs 91 characters and a two-column one 62, so neither
+    fits the widths this screen is recorded at, and a wrapped run of names fits
+    but drops the type prefix that a framework of mixed types is read by.
+
+    It is drawn for **every** selection, including a pool skill that carries one
+    artifact of its own name. The repetition is the rule staying one rule: the
+    head line names what was *asked for* and the row names what *lands*, and the
+    two coincide only by accident of the pool. A screen that hid the row when the
+    names matched would be a second shape of plan, and the reason there is one
+    plan function at all is that `--dry-run`, the wizard's confirmation and a
+    direct run must not be able to disagree.
+    """
     places = Table.grid(padding=(0, 1), expand=True)
     # `fold`, never the default `ellipsis`: a truncated path is the one thing
     # this screen may not do, and a narrow terminal is where it would happen.
@@ -478,6 +537,7 @@ def _planned(selection: Selection, root: Path, arrow: str) -> RenderableType:
         )
     return Group(
         Text.assemble((selection.name, "op.key"), "  ", (_carries(selection.artifacts), "op.dim")),
+        Padding(_contents(selection.artifacts), (1, 0, 1, 2)),
         Padding(places, (0, 0, 0, 2)),
     )
 
@@ -520,13 +580,13 @@ def _readers(keys: Sequence[str]) -> str:
     return f"{shown} (+{rest})" if rest > 0 else shown
 
 
-def _carries(artifacts: Sequence[ArtifactType]) -> str:
+def _carries(artifacts: Sequence[Artifact]) -> str:
     """`22 skills`, or `4 artifacts` when a selection mixes types.
 
     A framework may mix skill, command and agent — the type comes from the tree
     (rule 8) — so the noun is data and not a constant.
     """
-    kinds = set(artifacts)
+    kinds = {artifact.type for artifact in artifacts}
     noun = str(next(iter(kinds))) if len(kinds) == 1 else "artifact"
     return f"{len(artifacts)} {_plural(noun, len(artifacts))}"
 
@@ -579,13 +639,27 @@ def _contents(artifacts: Sequence[Artifact]) -> RenderableType:
     """The artifacts an item carries, one per line, type first.
 
     The type column is dim and the name is cyan, so a line reads as *what kind*
-    then *which one* without either rank being carried by colour alone. Neither
-    column is `no_wrap`: a name longer than the terminal has to wrap, because a
-    clipped name is a name that cannot be typed back into `install`.
+    then *which one* without either rank being carried by colour alone.
+
+    **`fold` on both columns, never the default `ellipsis`.** Measured at 40
+    columns before it was set: the plan printed `skill improve-codebase-archite…`
+    — a name that cannot be typed back into `--skill`, which is the one thing
+    this grid may not do. Leaving `no_wrap` off is not enough, and that is the
+    trap: it lets rich *try* to wrap, and a name is a single unbreakable word, so
+    what it does instead is crop. `fold` is what breaks the word across lines
+    rather than cutting it, and it is the same call the plan's own path column
+    already makes for the same reason.
+
+    **One function, two screens.** `list` draws it for the content of an item and
+    the plan draws it for what a selection will write (#58), and they are the
+    same grid because the plan is checked against `list` by whoever reads both —
+    two grids would be two places for the truncation rule to be forgotten, which
+    is the same argument that keeps the four `list` screens one `_entry` apart.
+    The measurement above is what that buys: one word fixed both screens.
     """
     stacked = Table.grid(padding=(0, 2))
-    stacked.add_column()
-    stacked.add_column()
+    stacked.add_column(overflow="fold")
+    stacked.add_column(overflow="fold")
     for artifact in artifacts:
         stacked.add_row(Text(artifact.type, style="op.dim"), Text(artifact.name, style="op.key"))
     return stacked

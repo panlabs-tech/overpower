@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 from overpower import cli, remote, writing
-from overpower.discovery import ArtifactType
+from overpower.discovery import Artifact, ArtifactType
 from overpower.planning import DocumentKey, Landing, Plan, Selection, Write, WriteMode
 from overpower.writing import UnsupportedWriteError, execute, points_elsewhere
 from tests.support import git_remote
@@ -394,6 +394,14 @@ def test_a_destination_that_is_a_document_key_is_refused_by_name(tmp_path: Path)
     in the v0.1.0 catalog can produce one — there is no MCP server and no hook.
     """
     # given
+    grafted = Artifact(
+        type=ArtifactType.SKILL,
+        name="probe",
+        path=tmp_path / "source",
+        description="The graft that has no operation yet.",
+        files=1,
+        size=1,
+    )
     write = Write(
         source=tmp_path / "source",
         destination=DocumentKey(path=tmp_path / ".mcp.json", key="probe"),
@@ -405,7 +413,7 @@ def test_a_destination_that_is_a_document_key_is_refused_by_name(tmp_path: Path)
         selections=(
             Selection(
                 name="probe",
-                artifacts=(ArtifactType.SKILL,),
+                artifacts=(grafted,),
                 landings=(
                     Landing(
                         place=tmp_path / ".mcp.json", readers=("claude-code",), writes=(write,)

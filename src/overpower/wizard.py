@@ -228,6 +228,7 @@ def ask_artifacts(
             choices=choices,
             qmark=_QMARK,
             instruction=_NO_INSTRUCTION,
+            style=QUESTIONARY_STYLE,
         ).ask()
     if picked is None:
         return None
@@ -282,11 +283,12 @@ def ask_scope(cwd: Path, environment: Environment, console: Console) -> tuple[Sc
         picked = questionary.select(
             _SCOPE_QUESTION,
             choices=[
-                questionary.Choice("This repository", value=Scope.PROJECT),
-                questionary.Choice("This machine (~/), every project", value=Scope.GLOBAL),
+                questionary.Choice("This project", value=Scope.PROJECT),
+                questionary.Choice("Global", value=Scope.GLOBAL),
             ],
             qmark=_QMARK,
             instruction=_NO_SELECT_INSTRUCTION,
+            style=QUESTIONARY_STYLE,
         ).ask()
     if picked is None:
         return None
@@ -344,6 +346,7 @@ def ask_runtimes(scope: Scope, root: Path, environment: Environment) -> tuple[st
             # only the one heading over rows that are all choosable.
             use_search_filter=True,
             use_jk_keys=False,
+            style=QUESTIONARY_STYLE,
         ).ask()
     if picked is None:
         return None
@@ -419,10 +422,19 @@ def _hint_block(hint: str) -> Callable[[], StyleAndTextTuples]:
     `questionary` puts it and where it wrapped: measured at 80 columns, the
     runtime question plus the default hint ran to 103 characters and broke
     `enter confirm` across two lines inside a fixed-height window.
+
+    **A blank rail line separates it from the question above** (#67): with the
+    hint on the very next line, the question and its navigation hint read as
+    one crowded block. `locked_block()` is unchanged — its own hint follows a
+    heading it just drew, not a question, so the two read as one group
+    already and were never reported as crowded.
     """
 
     def block() -> StyleAndTextTuples:
-        return [("class:instruction", f"{RAIL}  {hint}")]
+        return [
+            ("class:separator", f"{RAIL}\n"),
+            ("class:instruction", f"{RAIL}  {hint}"),
+        ]
 
     return block
 
@@ -468,6 +480,41 @@ Padded rather than measured against the terminal: the rule lives inside a
 `prompt_toolkit` control, which is drawn before the width is known here, and a
 heading that stops three characters short at 80 columns costs nothing while a
 heading that overruns at 60 costs a wrapped line inside a fixed-height window.
+"""
+
+QUESTIONARY_STYLE = questionary.Style(
+    [
+        # `qmark` shipped as the library's own default blue-grey
+        # (`fg:#5f819d`), unrelated to the rest of the product's palette.
+        # `ansimagenta`, not a raw hex: `prompt_toolkit` writes the eight ANSI
+        # names as the basic SGR codes (`\x1b[35m` here), the same codes
+        # Rich's own "magenta" resolves from — the closest a `questionary`
+        # `Style` gets to literally sharing ink with `op.brand`, rather than
+        # merely approximating its hex.
+        ("qmark", "fg:ansimagenta bold"),
+        ("question", "bold"),
+        # `op.key`'s ink, in place of the library default `fg:#FF9D00 bold`
+        # (orange), for the text that carries meaning: the picked answer, and
+        # the row a select's pointer sits on. `highlighted`/`selected` are the
+        # classes that colour that row's own text — `pointer` alone only
+        # reaches the `»` glyph in front of it (`questionary.prompts.common`).
+        ("answer", "fg:ansicyan bold"),
+        ("pointer", "fg:ansicyan"),
+        ("highlighted", "fg:ansicyan"),
+        ("selected", "fg:ansicyan"),
+        # `op.dim`'s own attribute — SGR-2, faint — in place of the library's
+        # default of no styling at all, for the frame around that meaning: the
+        # rail, the locked rows, the navigation hint.
+        ("separator", "dim"),
+        ("disabled", "dim"),
+        ("instruction", "dim"),
+    ]
+)
+"""The prompts' palette, harmonized with `screens.THEME` (#67).
+
+Built once, module level, and passed to every `questionary` prompt in the
+CLI — `cli._confirmed()` imports this rather than building its own, so no
+prompt is left in the library's own colours.
 """
 
 _QMARK = f"{ACTIVE_MARK} "

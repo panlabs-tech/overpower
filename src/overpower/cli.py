@@ -70,7 +70,7 @@ from overpower.screens import (
     railed,
     summary_screen,
 )
-from overpower.wizard import run_wizard
+from overpower.wizard import QUESTIONARY_STYLE, run_wizard
 from overpower.writing import execute
 
 if TYPE_CHECKING:
@@ -756,7 +756,9 @@ def _confirmed() -> bool:
     gesture as declining and is treated as one.
     """
     return bool(
-        questionary.confirm("Write these paths?", default=True, qmark=f"{ACTIVE_MARK} ").ask()
+        questionary.confirm(
+            "Write these paths?", default=True, qmark=f"{ACTIVE_MARK} ", style=QUESTIONARY_STYLE
+        ).ask()
     )
 
 

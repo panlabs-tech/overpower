@@ -1,12 +1,18 @@
 # Changelog
 
 The format is [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
-project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) —
+including §4, so while the version is `0.x` a break does not promote the first
+digit. There is one deliberate addition to the six sections of Keep a Changelog:
+**Breaking**, which the spec has no room for and a consumer needs first.
+
+The type of each fragment is also what decides the version. See
+[ADR 0012](docs/adr/0012-o-bump-e-ato-do-autor-e-o-portao-o-ensina.md).
 
 Entries are not written by hand. Each pull request that changes behaviour drops
 a fragment into `changelog.d/`, named `<issue>.<type>.md` — where `<type>` is one
-of `added`, `changed`, `deprecated`, `removed`, `fixed`, `security` — and the
-release assembles them:
+of `breaking`, `added`, `changed`, `deprecated`, `removed`, `fixed`, `security` —
+and the release assembles them:
 
 ```bash
 uv run towncrier build --version "$(uv version --short)"
@@ -16,6 +22,90 @@ The issue link comes free from the filename, which turns this file into a
 navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
+
+## [0.2.0] - 2026-08-11
+
+### Added
+
+- The banner teaches the keyboard shortcut: `atalho   alias op='overpower'`, under
+  the tagline, on both gestures of discovery — a bare `overpower` and `overpower
+  --help`, which now carries the banner too. It is gated on `isatty()` for the same
+  reason the banner is, so a pipe and a file still get clean output. **No second
+  executable is installed**: `[project.scripts]` still declares one command,
+  because `op` is the binary of the 1Password CLI and a second entry point would
+  shadow a credential tool out of a `~/.local/bin` that sits ahead of it on the
+  `PATH` — with `uv` refusing the whole package if it noticed at all. Occupying the
+  name is a decision for whoever knows their own machine. ([#58](https://github.com/panlabs-tech/overpower/issues/58))
+
+### Changed
+
+- The journey the catalog opens now closes: **`overpower list` prints the line that
+  installs each item**, and that line, pasted back, works. Under every description
+  sits the install command — plus the inspection command for an AI Framework and a
+  bundle, the two units that carry something to open — bare, with no `$` and no
+  label column, wrapping rather than truncating, and present under a pipe as well,
+  because the banner is a courtesy and a command is a datum.
+
+  **The wizard's trigger stops being the empty line and becomes the gap.** In a
+  terminal, a line that does not add up to a plan — no selection, no runtime, or
+  both — opens the wizard on exactly the steps the flags left open, in the order
+  artifacts, scope, runtimes, confirmation. `install --ai-framework matt-pocock`
+  asks scope and runtimes; `install --runtime cursor` asks artifacts; giving
+  `--runtime` takes the scope question with it, because the set `--runtime` accepts
+  is a function of the scope. `--from` no longer keeps the whole wizard away: only
+  the artifacts step consults a catalog, and a `--from` line names `--skill` before
+  anything is fetched, so that step never opens and the embedded catalog is never
+  read. Without a TTY nothing changes — the same two refusals, the same exit 2.
+
+  **The universal group is a locked section again, and its composition follows the
+  scope.** It is shown as *always included* rather than as lines to tick, and it
+  holds the 19 runtimes that read `.agents/skills` in project scope against the 6
+  that read `~/.agents/skills` in global — which corrects a screen that used to
+  announce the project path to 18 runtimes of which 12 land somewhere else. The
+  lock is of the screen and never of the plan: `install --runtime claude-code` on
+  the flag line still writes `.claude/skills/` and nothing else. The *Additional
+  agents* list now filters as you type, matching in the middle of a word, which
+  costs the `j`/`k` navigation keys because the library cannot offer both. ([#57](https://github.com/panlabs-tech/overpower/issues/57))
+- The plan **names every artifact it is about to write**, instead of counting them.
+  Between the head line of a selection and the places it lands, `install` now
+  stacks the artifacts the same way `list --ai-framework` does — the type as the
+  prefix, one per line, one shared function — so the last gate before 148 files
+  land in a repository says *which* 25 skills those are without anyone leaving the
+  screen. It is the same plan on all three ways in: `--dry-run`, the wizard's
+  confirmation and a direct run. Fidelity to `list` was chosen over fitting on one
+  screen: the `matt-pocock` plan goes from 8 lines to 34 and scrolls at 24 rows,
+  and the measured alternatives all cost more — a three-column grid needs 91
+  characters and a two-column one 62, so neither fits the widths this screen is
+  recorded at, and a wrapped run of names fits but drops the type prefix that a
+  framework of mixed types is read by. ([#58](https://github.com/panlabs-tech/overpower/issues/58))
+- **Release cadence now follows implementation.** A new version comes out of every
+  pull request that changes what goes inside the wheel, instead of out of somebody
+  remembering to move a literal: a required check, `release-ready`, refuses the
+  pull request without the bump and prints the computed level and the two commands
+  in the failure itself. The level comes from the types of the fragments in
+  `changelog.d/` — the same ones that assemble this file — so the version and the
+  release notes cannot disagree. While the project is `0.x` a break does not
+  promote the first digit, and reaching `1.0.0` stays an explicit act. There is a
+  seventh fragment type, `breaking`, because Keep a Changelog has no section for a
+  break and `changed` was carrying both meanings at once.
+
+  This is the first version where that holds, and it exists because it did **not**
+  hold before: after `v0.1.0`, three pull requests merged into `main` without a
+  bump, the tagger found the tag already there, wrote a notice and went green all
+  three times — nothing published, no error anywhere, and the only symptom was a
+  `pip install --upgrade` that brought nothing back. The tagger now fails loudly in
+  that case. The sections below are the work that had been dammed up behind it. ([#62](https://github.com/panlabs-tech/overpower/issues/62))
+
+### Fixed
+
+- An artifact name is no longer cropped on a narrow terminal. The stacked list of
+  `list --ai-framework` — and now of the plan, which shares the same grid — used
+  rich's default overflow, so at 40 columns it printed
+  `skill improve-codebase-architec…`: a name nobody can type back into `--skill`.
+  It folds across lines instead, at every width. Leaving `no_wrap` off was not
+  enough and that was the trap — it lets rich *try* to wrap, and a name is a single
+  unbreakable word, so what it did instead was crop. ([#58](https://github.com/panlabs-tech/overpower/issues/58))
+
 
 ## [0.1.0] - 2026-08-08
 

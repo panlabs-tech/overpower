@@ -391,16 +391,37 @@ uv run pytest --snapshot-update tests/test_screens.py
 
 ### Releasing
 
-The version is a literal in `pyproject.toml`, moved by hand:
+**Publishing is merging.** A merge into `main` that moves the version creates the
+tag and dispatches the release; one that does not moves nothing. Nobody has to
+remember the bump, because a required check refuses the pull request without it —
+and the failing check prints the level and the commands:
 
 ```bash
-uv version --bump patch      # or minor / major
-uv run towncrier build --version "$(uv version --short)"
+uv version --bump <patch|minor|major>                      # moves pyproject.toml + uv.lock
+uv run towncrier build --version "$(uv version --short)"   # consumes changelog.d/
 ```
 
-Merging that into `main` is what publishes: the tagger workflow creates `v<X>`
-and dispatches the release. A merge that does not move the version publishes
-nothing.
+The check is `release-ready`, and it only asks when the pull request changes what
+lands in the **wheel** — `src/`, `README.md`, `NOTICE`, `LICENSE`, `licenses/`, or
+the `[project]` table of `pyproject.toml`. A change confined to `docs/`, `tests/`,
+`.github/` or a `[tool.*]` table merges publishing nothing.
+
+The level is not a judgement call. It comes from the types of the fragments in
+`changelog.d/`, which are the same ones that build the CHANGELOG:
+
+| fragment type | level while `0.x` | level at `≥ 1.0` |
+| --- | --- | --- |
+| `breaking` · `removed` | minor | major |
+| `added` · `changed` · `deprecated` | minor | minor |
+| `fixed` · `security` | patch | patch |
+
+While the project is `0.x` a break does not promote — SemVer §4, nothing is
+stable yet. Reaching `1.0.0` stays an explicit act: a pull request carrying
+`uv version 1.0.0` passes, because the check asks for a **floor** and not for
+equality. Over-bumping is always allowed; under-bumping is refused.
+
+The reasoning, the three rejected designs and the measurements behind them are in
+[ADR 0012](docs/adr/0012-o-bump-e-ato-do-autor-e-o-portao-o-ensina.md).
 
 ## Curation
 
@@ -424,7 +445,9 @@ reference, which `NOTICE` records per origin. A refresh is:
    upstream licence file moved.
 4. Run the four development commands, plus the network test below.
 5. **Bump the version.** By rule 5 the version of the overpower *is* the version
-   of the catalog, so a refresh nobody can install is not a refresh.
+   of the catalog, so a refresh nobody can install is not a refresh. This step is
+   no longer on your memory: `src/overpower/content/` is inside the wheel, so
+   `release-ready` refuses the pull request until it happens.
 
 ### Tests that touch the real GitHub
 

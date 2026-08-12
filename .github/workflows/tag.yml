@@ -5,7 +5,13 @@
 # "Every merge publishes" does not survive this repository's own history —
 # measured, 2 of 10 commits changed the version, and the other 8 would have
 # called `uv publish` on a version PyPI already has, which it refuses. So the
-# version bump is the signal, and it is manual (`uv version --bump`).
+# version bump is the signal.
+#
+# The bump is written by the author of the pull request, never by a workflow,
+# and the `release-ready` check in `ci.yml` is what makes it non-optional —
+# docs/adr/0012-o-bump-e-ato-do-autor-e-o-portao-o-ensina.md. That check also
+# turns the third branch below from "unlikely" into "unreachable except by
+# bypass", which is why it is an error and not a notice.
 #
 # THE DISPATCH IS NOT DECORATION. In GitHub's own words: "With the exception of
 # `workflow_dispatch` and `repository_dispatch`, other `GITHUB_TOKEN`-triggered
@@ -48,16 +54,32 @@ jobs:
       # a re-run, for a revert and for a merge that brings the bump in from an
       # older commit; the tag answers "has this version been released", which is
       # the question.
+      #
+      # THREE BRANCHES, AND THE THIRD ONE IS WHY THIS FILE CHANGED. It used to
+      # have two, and "tag exists" alone printed a `::notice::` and went green.
+      # Measured: after v0.1.0 three pull requests merged without moving the
+      # version, this step ran three times, went green three times, and nothing
+      # was published — the failure surfaced only as a `pip install --upgrade`
+      # that brought nothing back. Splitting on *where the tag points* separates
+      # the benign case (a re-run of this very workflow, whose idempotency the
+      # paragraph above declares as a property) from the one that means main
+      # advanced without a bump.
       - name: Has this version already been tagged?
         id: state
         env:
           VERSION: ${{ steps.declared.outputs.version }}
         run: |
-          if git rev-parse -q --verify "refs/tags/v${VERSION}" >/dev/null; then
-            echo "::notice::v${VERSION} is already tagged; nothing to release"
+          # `^{commit}` dereferences an annotated tag; without it the comparison
+          # against HEAD would be tag-object against commit and never match.
+          if ! tagged="$(git rev-parse -q --verify "refs/tags/v${VERSION}^{commit}")"; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          elif [ "$tagged" = "$(git rev-parse HEAD)" ]; then
+            echo "::notice::v${VERSION} already points at this commit; nothing to do"
             echo "release=false" >> "$GITHUB_OUTPUT"
           else
-            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "::error::main is at $(git rev-parse --short HEAD) and still declares ${VERSION}, which v${VERSION} already released at $(git rev-parse --short "$tagged"). A merge advanced main without moving the version, so nothing will be published."
+            echo "::error::fix it with a pull request that bumps: uv version --bump <patch|minor|major> && uv run towncrier build --version \"\$(uv version --short)\""
+            exit 1
           fi
 
       - name: Tag and dispatch the release

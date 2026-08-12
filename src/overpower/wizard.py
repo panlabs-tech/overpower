@@ -276,7 +276,7 @@ def ask_scope(cwd: Path, environment: Environment, console: Console) -> tuple[Sc
     collapses to, with the reason on it.
     """
     if git_root(cwd) is None:
-        console.print(stepped(_SCOPE_QUESTION, "This machine (~/) — outside a git repository"))
+        console.print(stepped(_SCOPE_QUESTION, "Global — outside a git repository"))
         return Scope.GLOBAL, environment.home
     console.print(railed())
     with _railed(header=_hint_block(_SELECT_HINT), footer=False):
@@ -492,6 +492,8 @@ QUESTIONARY_STYLE = questionary.Style(
         # `Style` gets to literally sharing ink with `op.brand`, rather than
         # merely approximating its hex.
         ("qmark", "fg:ansimagenta bold"),
+        # Unchanged from the library default — the question is meaning, not
+        # frame, and stays exactly as prominent as it already was.
         ("question", "bold"),
         # `op.key`'s ink, in place of the library default `fg:#FF9D00 bold`
         # (orange), for the text that carries meaning: the picked answer, and

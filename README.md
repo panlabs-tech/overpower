@@ -13,11 +13,10 @@ written.
 
 Typed bare in a terminal, `overpower` opens the banner and the help and exits 0,
 and `overpower --help` says the same thing; under a pipe the banner stays behind
-and the help goes through alone, so `grep` and a file get something readable. The
-banner also teaches the keyboard shortcut — [`alias op='overpower'`](#the-op-shortcut),
-which you type or do not — and it is behind the same gate. `overpower --version`
-answers the version that arrived, read from the installed metadata rather than
-from a constant — which is what makes it evidence that the package landed intact.
+and the help goes through alone, so `grep` and a file get something readable.
+`overpower --version` answers the version that arrived, read from the installed
+metadata rather than from a constant — which is what makes it evidence that the
+package landed intact.
 
 ## Always `@latest`
 
@@ -317,7 +316,7 @@ typed.
 
 ## The `op` shortcut
 
-The banner teaches one line, and typing it is your call:
+Typing this is your call, and nothing prints it for you:
 
 ```bash
 alias op='overpower'

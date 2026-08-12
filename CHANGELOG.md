@@ -23,6 +23,13 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.5.0] - 2026-08-12
+
+### Changed
+
+- `install --global` deixa de recusar duro (`DestinationExistsError`, exit 3) quando um destino já existe: num terminal real, sem `--force`, a mesma pergunta que já perguntava `Write these paths?` passa a nomear os paths em conflito e perguntar se deve sobrescrever — `Y` instala tudo e sobrescreve onde há conflito, `N` cancela sem escrever nada (exit `CANNOT_RUN`, 1, a mesma convenção que toda recusa interativa já usava). Fora de terminal, com `--yes`, ou sob `--dry-run` — que é relatório, nunca sessão — o comportamento continua idêntico ao de antes: recusa antes de qualquer tela, exit 3. `--force` continua sobrescrevendo em silêncio, em qualquer contexto. ([#69](https://github.com/panlabs-tech/overpower/issues/69))
+
+
 ## [0.4.0] - 2026-08-12
 
 ### Changed

@@ -537,6 +537,126 @@ def test_the_confirmation_is_asked_in_a_terminal_and_declining_writes_nothing(
     assert list(root.iterdir()) == []
 
 
+# --------------------------------------------------------------------------- #
+# #69: a terminal turns #40's hard refusal into a question
+# --------------------------------------------------------------------------- #
+
+
+def test_a_conflict_in_a_terminal_asks_instead_of_refusing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """Global scope, a terminal, no `--force`: yes overwrites instead of exit 3."""
+
+    def confirm_overwrite(_conflicts: Sequence[Path]) -> bool:
+        return True
+
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    existing = tmp_path / project.CLAUDE / "alpha"
+    existing.mkdir(parents=True)
+    (existing / "stale.md").write_text("from before\n", encoding="utf-8")
+    monkeypatch.setattr(cli, "_confirmed_overwrite", confirm_overwrite)
+
+    code, _ = project.run(
+        capsys, "install", "--skill", "alpha", "--runtime", "claude-code", "--global"
+    )
+
+    assert code == 0
+    assert not (existing / "stale.md").exists()
+    assert (existing / "SKILL.md").is_file()
+
+
+def test_declining_the_overwrite_prompt_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """No is no — the same exit as declining the plain confirmation, a human said stop."""
+
+    def confirm_overwrite(_conflicts: Sequence[Path]) -> bool:
+        return False
+
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    existing = tmp_path / project.CLAUDE / "alpha"
+    existing.mkdir(parents=True)
+    (existing / "stale.md").write_text("from before\n", encoding="utf-8")
+    monkeypatch.setattr(cli, "_confirmed_overwrite", confirm_overwrite)
+
+    code, _ = project.run(
+        capsys, "install", "--skill", "alpha", "--runtime", "claude-code", "--global"
+    )
+
+    assert code == 1
+    assert (existing / "stale.md").is_file()
+
+
+def test_the_overwrite_prompt_replaces_the_plain_one_and_names_the_conflict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """One prompt, not two, and it is told which path it would clobber."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    existing = tmp_path / project.CLAUDE / "alpha"
+    existing.mkdir(parents=True)
+    (existing / "stale.md").write_text("from before\n", encoding="utf-8")
+    plain_asked: list[str] = []
+    overwrite_asked: list[Sequence[Path]] = []
+
+    def confirm_overwrite(conflicts: Sequence[Path]) -> bool:
+        overwrite_asked.append(conflicts)
+        return True
+
+    monkeypatch.setattr(cli, "_confirmed", lambda: bool(plain_asked.append("asked")))
+    monkeypatch.setattr(cli, "_confirmed_overwrite", confirm_overwrite)
+
+    code, _ = project.run(
+        capsys, "install", "--skill", "alpha", "--runtime", "claude-code", "--global"
+    )
+
+    assert code == 0
+    assert plain_asked == []
+    assert overwrite_asked == [(existing,)]
+
+
+def test_dry_run_in_a_terminal_still_refuses_without_asking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """`--dry-run` is a report, never a session — a terminal does not turn it into one."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha")
+    project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    existing = tmp_path / project.CLAUDE / "alpha"
+    existing.mkdir(parents=True)
+    asked: list[str] = []
+
+    def confirm_overwrite(_conflicts: Sequence[Path]) -> bool:
+        asked.append("asked")
+        return True
+
+    monkeypatch.setattr(cli, "_confirmed_overwrite", confirm_overwrite)
+
+    code, output = project.run(
+        capsys,
+        "install",
+        "--skill",
+        "alpha",
+        "--runtime",
+        "claude-code",
+        "--global",
+        "--dry-run",
+    )
+
+    assert code == 3
+    assert asked == []
+    assert "--force" in project.joined(output)
+
+
 def test_the_plan_names_its_artifacts_on_all_three_ways_in(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:

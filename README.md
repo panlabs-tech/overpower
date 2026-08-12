@@ -225,11 +225,14 @@ Windows the same rung is a junction, which needs no privilege. Where neither can
 be created, the write **degrades to a real copy**, says so as a warning, and
 still exits 0: nothing is lost either way.
 
-`--force`/`-f` is a global-scope gate and nothing else. A destination that
-already exists is refused, exit 3, unless it says to overwrite — global scope has
-no `git status` to reveal or undo a clobbered write. Both that refusal and a
-runtime with no destination in the requested scope (`eve` and `promptscript` have
-none globally) are detected before a single byte is written.
+`--force`/`-f` is a global-scope gate and nothing else — global scope has no
+`git status` to reveal or undo a clobbered write. A destination that already
+exists asks before overwriting it, in a terminal; off one, or under `--yes` or
+`--dry-run`, it is refused instead, exit 3, since there is no one to ask.
+`--force` skips the question either way and overwrites in silence. That
+refusal and a runtime with no destination in the requested scope (`eve` and
+`promptscript` have none globally) are both detected before a single byte is
+written.
 
 ### The plan comes first
 

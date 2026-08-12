@@ -23,6 +23,17 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.4.0] - 2026-08-12
+
+### Changed
+
+- O comando sob cada entrada do `list` (`AI Frameworks`, `Bundles`, `Pool skills`) deixa de usar a mesma tinta cyan do nome do artefato acima dele — novo token `op.command` (`#5f819d`, o azul-acinzentado que já era o `qmark` do wizard) marca o comando como subordinado ao nome, sem virar ilegível. Os prompts do wizard `install` (`questionary`) ganham um `Style` próprio, harmonizado com o `THEME` do resto do produto: `qmark` e a moldura (rail, hints, grupo travado) na mesma tinta de `op.brand`/`op.dim`, a resposta selecionada e a linha destacada na mesma tinta de `op.key` — em vez do azul-acinzentado e do laranja que a biblioteca usava por padrão. A pergunta de escopo ganha uma linha em branco antes do hint de navegação, que estavam colados, e as opções mudam de "This repository"/"This machine (~/), every project" para "This project"/"Global". ([#67](https://github.com/panlabs-tech/overpower/issues/67))
+
+### Removed
+
+- A dica de atalho `alias op='overpower'` sai do banner. A linha misturava pt-BR ("atalho") com o resto do banner em en-US e, sem um segundo executável instalado para o alias (#58), não sobrava nada além de mais uma linha para o olho descartar. ([#67](https://github.com/panlabs-tech/overpower/issues/67))
+
+
 ## [0.3.0] - 2026-08-11
 
 ### Added

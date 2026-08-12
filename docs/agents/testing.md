@@ -192,7 +192,13 @@ uv run pytest --snapshot-update tests/test_screens.py
 
 Nada de plugin: uma dev-dep a menos, e o caminho de atualização fica explícito em vez de reflexo.
 
-**A tela do `questionary` não é nossa para gravar.** O #12 mediu que as telas de seleção saem **idênticas em todas as variantes**, porque o `questionary` é dono daquela tela inteira. Snapshot dela grava o desenho de terceiro.
+~~**A tela do `questionary` não é nossa para gravar.** O #12 mediu que as telas de seleção saem **idênticas em todas as variantes**, porque o `questionary` é dono daquela tela inteira. Snapshot dela grava o desenho de terceiro.~~
+
+> **Revisto pelo [#65](https://github.com/panlabs-tech/overpower/issues/65).** A premissa era a posse, e ela mudou: o wizard substitui `questionary.prompts.common.create_inquirer_layout`, então o bloco travado, o viewport, o contador e o rodapé são desenho **nosso**. O que continua não sendo nosso são as linhas de escolha, que o `InquirerControl` desenha — e elas continuam sem snapshot.
+>
+> O que entrou não foi snapshot, e a razão é uma medida: **o fluxo de bytes não distingue *escrito* de *visível*.** O layout antigo escrevia as 57 linhas da lista e deixava o terminal rolar 56 delas, então uma gravação de bytes teria passado verde sobre o defeito que o #65 existe para consertar — 1 linha selecionável numa tela de 24. A guarda é portanto **aritmética**: pergunta + bloco estático + viewport + contador + rodapé tem de caber em 24 linhas, e o viewport não pode cair abaixo das 8 do `npx skills`. Roda nas 9 células, porque não precisa de terminal.
+>
+> Ao lado dela, **um** teste de PTY assevera que trilho, bloco, contador e rodapé chegam a um terminal real — provando que a substituição do layout pegou, e declarando que não assevera visibilidade. É a mesma divisão da §7: o PTY prova a fiação, nunca os pixels.
 
 ## 7. O seam do wizard é stub, e por isso não deve contract test
 

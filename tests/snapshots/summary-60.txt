@@ -1,0 +1,15 @@
+◇  summary ────────────────────────────────────────────────╮
+│                                                          │
+│  matt-pocock  3 artifacts                                │
+│                                                          │
+│    .agents/skills/  ← cursor, codex,            4 files  │
+│    github-copilot (+16)                                  │
+│    .claude/skills/  ← claude-code               4 files  │
+│                                                          │
+│  grilling  1 skill                                       │
+│                                                          │
+│    .agents/skills/  ← cursor, codex,             1 file  │
+│    github-copilot (+16)                                  │
+│    .claude/skills/  ← claude-code                1 file  │
+│                                                          │
+├──────────────────────────────────────────────────────────╯

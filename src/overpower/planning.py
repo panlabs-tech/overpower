@@ -310,16 +310,19 @@ class UnknownSkillError(BadInvocationError):
 
 
 class DestinationExistsError(RefusedError):
-    """A global destination that already occupies the path, asked for without `--force`.
+    """A global destination that already occupies the path, and no one to ask.
 
     The `--force` trigger has exactly one condition: global scope, and the path
     already there — https://github.com/panlabs-tech/overpower/issues/40. Project
     scope has no such refusal (`overpower.writing` writes unconditionally, and
     `git status` is the safety net); global scope has no git to reveal or undo an
-    overwrite, so an existing path is refused instead of clobbered, and the whole
-    command is refused before a single byte is written — detectable in advance,
-    the same reasoning ADR 0009 already used for the runtime-without-destination
-    case.
+    overwrite, so an existing path is refused instead of clobbered — detectable
+    in advance, the same reasoning ADR 0009 already used for the
+    runtime-without-destination case. A real terminal turns the refusal into a
+    question instead (`overpower.cli._confirmed_overwrite`,
+    https://github.com/panlabs-tech/overpower/issues/69); this is what fires
+    when there is no terminal to ask, or `--yes`/`--dry-run` already declined
+    that kind of interaction.
     """
 
     def __init__(self, paths: Sequence[Path]) -> None:
@@ -351,7 +354,7 @@ def plan_for(request: Request, catalog: Catalog, root: Path, environment: Enviro
     skills = _selected_skills(request.skills, catalog)
     runtimes = _selected_runtimes(request.runtimes, request.scope)
     landings = places_of(runtimes, request.scope, root, environment)
-    plan = Plan(
+    return Plan(
         root=root,
         selections=(
             *(_framework_selection(framework, landings, request.scope) for framework in frameworks),
@@ -359,25 +362,25 @@ def plan_for(request: Request, catalog: Catalog, root: Path, environment: Enviro
             *(_skill_selection(artifact, landings, request.scope) for artifact in skills),
         ),
     )
-    _refuse_existing_without_force(plan, request)
-    return plan
 
 
-def _refuse_existing_without_force(plan: Plan, request: Request) -> None:
-    """Global scope only: any write destination already on disk, without `--force`.
+def existing_destinations(plan: Plan, request: Request) -> tuple[Path, ...]:
+    """Global-scope write destinations already on disk, sorted — a fact, not a verdict.
 
-    Detectable before the first byte — `Path.exists()`, never a write — so the
-    whole command is refused rather than half of it silently skipped. Project
-    scope is not this function's concern: it writes unconditionally, by design
-    (`overpower.writing`).
+    Detectable before the first byte — `Path.exists()`, never a write. Global
+    scope only, and always empty when `--force` was given: project scope has no
+    such question (`overpower.writing` writes unconditionally, by design), and
+    `--force` already means "I know, overwrite it" before a caller has anything
+    to decide. What used to be decided here — refuse outright — is now the
+    caller's call (`overpower.cli._perform`): whether there is a terminal to
+    turn this into a question, or `DestinationExistsError` is still the answer,
+    https://github.com/panlabs-tech/overpower/issues/69.
     """
     if request.scope is not Scope.GLOBAL or request.force:
-        return
-    existing = sorted(
-        {write.destination.path for write in plan.writes if write.destination.path.exists()},
+        return ()
+    return tuple(
+        sorted({write.destination.path for write in plan.writes if write.destination.path.exists()})
     )
-    if existing:
-        raise DestinationExistsError(existing)
 
 
 def _framework_selection(

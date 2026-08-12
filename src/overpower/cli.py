@@ -45,7 +45,7 @@ from overpower.discovery import load_catalog
 from overpower.errors import BadInvocationError, OverpowerError, RefusedError
 from overpower.inspection import Terminal, diagnose
 from overpower.packaged import catalog_file, content_root
-from overpower.planning import Request, plan_for
+from overpower.planning import DestinationExistsError, Request, existing_destinations, plan_for
 from overpower.remote import catalog_from
 from overpower.runtimes import Environment, Scope
 from overpower.scope import git_root
@@ -526,9 +526,14 @@ def _perform(
     where a refusal costs no screen at all.
     """
     # Planned before anything is drawn, so a refusal costs no screen: a bad
-    # runtime, or a global destination that already exists without --force, is
-    # exit 2 or exit 3 with nothing written and nothing announced.
+    # runtime, or a global destination that already exists with no terminal to
+    # ask about it, is exit 2 or exit 3 with nothing written and nothing
+    # announced. `--dry-run` is a report, never a session, so it never asks
+    # either — https://github.com/panlabs-tech/overpower/issues/69.
     plan = plan_for(request, catalog, root, environment)
+    conflicts = existing_destinations(plan, request)
+    if conflicts and (request.dry_run or not _asking(request)):
+        raise DestinationExistsError(conflicts)
 
     if request.dry_run:
         # A report and not a session: `--dry-run` is read, piped and diffed, so
@@ -556,7 +561,8 @@ def _perform(
 
     if _asking(request):
         _print_railed()
-        if not _confirmed():
+        confirmed = _confirmed_overwrite(conflicts) if conflicts else _confirmed()
+        if not confirmed:
             _stopped("nothing was written")
             raise typer.Exit(ExitCode.CANNOT_RUN)
 
@@ -758,6 +764,29 @@ def _confirmed() -> bool:
     return bool(
         questionary.confirm(
             "Write these paths?", default=True, qmark=f"{ACTIVE_MARK} ", style=QUESTIONARY_STYLE
+        ).ask()
+    )
+
+
+def _confirmed_overwrite(conflicts: Sequence[Path]) -> bool:
+    """The same gate as `_confirmed`, naming what saying yes would clobber.
+
+    One prompt, not two (https://github.com/panlabs-tech/overpower/issues/69):
+    a caller that already knows some destinations exist folds that fact into
+    the single yes-or-no gate instead of stacking a second one in front of it —
+    so this is what `_perform` calls *instead of* `_confirmed`, never in
+    addition to it. `default=False`, unlike `_confirmed`'s `True`: the plain
+    gate defaults to *go* because nothing is at stake yet, and this one
+    defaults to *stop* because *yes* overwrites files that were already there.
+    """
+    listed = ", ".join(str(path) for path in conflicts)
+    message = (
+        f"{len(conflicts)} of these paths already exist and will be overwritten: "
+        f"{listed}. Write these paths?"
+    )
+    return bool(
+        questionary.confirm(
+            message, default=False, qmark=f"{ACTIVE_MARK} ", style=QUESTIONARY_STYLE
         ).ask()
     )
 

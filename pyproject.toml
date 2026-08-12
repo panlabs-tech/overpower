@@ -9,7 +9,7 @@ name = "overpower"
 # from the VCS — measured in #2, `hatch-vcs` under `git clone --depth 1` (the
 # default of `actions/checkout`) fails to find the tag, warns, *succeeds*, and
 # publishes an invented version.
-version = "0.1.0"
+version = "0.2.0"
 description = "Installs curated AI Frameworks into a repository or a machine"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -201,6 +201,23 @@ required_plugins = ["pytest-randomly"]
 # `bugfix`, `doc`, `removal`, `misc`): the output format is the decision, so the
 # vocabulary has to be the reader's. The issue link comes free from the fragment
 # filename, which turns the CHANGELOG into a navigable index of the map.
+#
+# THE TYPES ARE ALSO THE VERSION. Since
+# https://github.com/panlabs-tech/overpower/issues/62 the `release-ready` check
+# reads the section titles back off the CHANGELOG and refuses a bump smaller
+# than they ask for — `breaking`/`removed` major, `added`/`changed`/`deprecated`
+# minor, `fixed`/`security` patch, with major capped at minor while the project
+# is 0.x. Renaming a `name` here therefore moves a release gate, and the gate
+# builds its title -> type map from these very blocks so the two cannot drift.
+#
+# `breaking` is a SEVENTH type, and the deviation from Keep a Changelog is
+# assumed: the spec has no section for a break, so `changed` was carrying both
+# "the banner shows the alias" and "the default scope became global". The
+# alternative was electing `removed` as the signal and asking whoever changes a
+# default to write "the old behaviour was removed" — a rule that lives in
+# somebody's head, which is the failure class ADR 0012 exists to delete. It is
+# declared FIRST because the block order is the output order, and a break is
+# what a consumer most needs to find.
 [tool.towncrier]
 name = "overpower"
 directory = "changelog.d"
@@ -208,6 +225,11 @@ filename = "CHANGELOG.md"
 start_string = "<!-- towncrier release notes start -->\n"
 title_format = "## [{version}] - {project_date}"
 issue_format = "[#{issue}](https://github.com/panlabs-tech/overpower/issues/{issue})"
+
+[[tool.towncrier.type]]
+directory = "breaking"
+name = "Breaking"
+showcontent = true
 
 [[tool.towncrier.type]]
 directory = "added"

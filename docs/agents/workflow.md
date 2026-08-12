@@ -28,6 +28,10 @@ Isso é o que deixa o `release.yml` continuar sem rodar lint nem teste antes de 
 
 **Publicar é mergear.** Um merge na `main` que mude a versão do `pyproject.toml` cria a tag e dispara o `release.yml`; um merge que não mude não publica nada. O disparo é `gh workflow run release.yml --ref v$X`, e não o push da tag — **tag criada com `GITHUB_TOKEN` não dispara workflow nenhum**, e `workflow_dispatch` é a exceção documentada. Decidido em [Portões do repositório](https://github.com/panlabs-tech/overpower/issues/24).
 
+**E mover a versão não é disciplina, é portão.** O `release-ready` — segundo required check, ao lado do `gate` — reprova o PR que muda o wheel sem bumpar, e **imprime na falha o nível calculado e os dois comandos**. Nenhum workflow escreve na branch: push com `GITHUB_TOKEN` não dispara CI, então um bot deixaria o SHA novo sem check e o PR travaria para sempre. Decidido em [Publicação automática](https://github.com/panlabs-tech/overpower/issues/62) e registrado na [ADR 0012](../adr/0012-o-bump-e-ato-do-autor-e-o-portao-o-ensina.md).
+
+> **Isto substitui um estado que durou três merges.** Depois da `v0.1.0`, os PRs [#59](https://github.com/panlabs-tech/overpower/issues/59), [#60](https://github.com/panlabs-tech/overpower/issues/60) e [#61](https://github.com/panlabs-tech/overpower/issues/61) entraram sem bumpar; o `tag.yml` viu a tag existente, escreveu `::notice::` e **saiu verde** nas três. Nada publicado, nenhum erro em lugar nenhum. O `tag.yml` agora tem três ramos, e o terceiro — tag existente apontando para outro commit — é `::error::` com `exit 1`.
+
 ## Modo de implementação autônoma
 
 Disparado por "implementa as issues" ou equivalente:
@@ -38,7 +42,8 @@ Disparado por "implementa as issues" ou equivalente:
 4. Commit (Conventional Commits, subject minúsculo — o `commit-msg` cobra) e push.
 5. **Abra o PR como `--draft` já no primeiro push.** Vários pushes não criam vários PRs: `gh pr create` não é idempotente, então a guarda é `gh pr list --head "$BRANCH" --state open`.
 6. Ao terminar, escreva o corpo do PR e rode `gh pr ready`. O corpo é escrito **no fim, por quem tem o ticket na mão** — não no começo, por quem só tem o diff.
-7. **Mergeie no verde** e encadeie até as issues acabarem. Com ruleset, `gh pr merge --auto` é nativo: o auto-merge do GitHub só é oferecido em PR bloqueado por required check.
+7. **Feche o release junto com o trabalho**, se o PR muda o wheel. Não decore o nível: o `release-ready` vermelho já o calculou e imprimiu os dois comandos — `uv version --bump <nível>` e `uv run towncrier build --version "$(uv version --short)"`. Bumpar antes de ver o vermelho é permitido, e errar para cima também; errar para baixo reprova.
+8. **Mergeie no verde** e encadeie até as issues acabarem. Com ruleset, `gh pr merge --auto` é nativo: o auto-merge do GitHub só é oferecido em PR bloqueado por required check.
 
 ## Portões
 
@@ -54,7 +59,12 @@ O hook local **não é o portão, é o atalho**: ele pega barato o erro barato. 
 |---|---|
 | `static` | `ruff check` · `ruff format --check` · `pyright` · **P1** · **P2** — ubuntu, um Python |
 | `test` | `pytest`, matriz de 3 SOs × 3 versões de Python |
-| `gate` | `needs: [static, test]` com `if: always()` e asserção dos dois resultados — **é este o nome exigido pelo ruleset** |
+| `gate` | `needs: [static, test]` com `if: always()` e asserção dos dois resultados |
+| `release-ready` | versão movida, `CHANGELOG.md` fechado, `changelog.d/` vazio e nível ≥ o que os fragmentos pedem — só quando o PR muda o wheel |
+
+**São dois os nomes exigidos pelo ruleset**, `gate` e `release-ready`, e eles não se fundem de propósito: `gate` quer dizer *"o código está são"*, `release-ready` quer dizer *"mergear isto publica"*. As duas falhas têm remédios diferentes, e um nome por remédio é o que faz um agente acertar na primeira leitura. O `release-ready` **não** entra no `needs` do `gate`: são checks irmãos, não etapas.
+
+> **Ordem obrigatória ao mexer nisso**, e é a mesma lição do [#24](https://github.com/panlabs-tech/overpower/issues/24): um required check tem de **existir e ter reportado** antes de entrar no ruleset. Nome no ruleset sem job que o publique trava todo PR em *"Expected — waiting for status to be reported"*, para sempre.
 
 Todos bloqueantes: portão que não bloqueia é documentação. O `gate` existe por mecânica e não por elegância — required check some **por nome**, e nome de célula de matriz carrega os valores dela, então sem ele mudar a matriz travaria todo PR em *"Expected — waiting for status to be reported"*.
 

@@ -23,7 +23,7 @@ import subprocess
 import sys
 from dataclasses import replace
 from importlib import metadata
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import pytest
 from rich.console import Console
@@ -38,7 +38,7 @@ from overpower.screens import THEME
 from tests.support import git_remote, project
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Sequence
     from pathlib import Path
 
     from overpower.discovery import Catalog
@@ -46,12 +46,32 @@ if TYPE_CHECKING:
 
     CaptureFixture = pytest.CaptureFixture[str]
 
-    Wizard = Callable[
-        [Request, Catalog | None, Environment, Path, tuple[Scope, Path] | None],
-        tuple[Request, Path],
-    ]
-    """The shape `overpower.cli` calls: the request as the flags left it in, the
-    same request with its gaps filled out."""
+    class Wizard(Protocol):
+        """The shape `overpower.cli` calls: the request as the flags left it in, the
+        same request with its gaps filled out.
+
+        A `Protocol` and not a `Callable[...]` alias because `console` is
+        keyword-only, which the alias form cannot spell — and it is keyword-only
+        because the five before it are the steps and it is not one of them.
+
+        The five are positional-only (`/`), which is what a `Callable[...]`
+        alias gave for free: a stub is free to underscore the parameters it
+        ignores, and without the marker `pyright` reads `_catalog` against
+        `catalog` as a mismatch rather than as an unused argument.
+        """
+
+        def __call__(  # noqa: PLR0913 — one per parameter of the seam it describes
+            self,
+            asked: Request,
+            catalog: Catalog | None,
+            environment: Environment,
+            cwd: Path,
+            scoped: tuple[Scope, Path] | None,
+            /,
+            *,
+            console: Console,
+        ) -> tuple[Request, Path]: ...
+
 
 RUN = "import sys; from overpower.cli import main; sys.exit(main())"
 """The console script, one line: `project.scripts` is `overpower.cli:main`."""
@@ -561,13 +581,22 @@ def test_the_confirmation_is_asked_in_a_terminal_and_declining_writes_nothing(
 def test_the_plan_names_its_artifacts_on_all_three_ways_in(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:
-    """#58: `--dry-run`, the wizard's confirmation and a direct run are one screen.
+    """#58, as #65 revised it: one plan, two lengths, and neither may lose a path.
 
-    Two screens of plan would be two places for the rule to be forgotten, and
-    `--dry-run` is the audit — the one screen that may never say less than the
-    run it audits. The three are asserted against the same expected rows and not
-    against each other, so a change that emptied all three could not pass by
-    agreeing with itself.
+    #58 asserted the **artifact list** on all three ways in, on the argument
+    that a gate has to be readable whole. #65 measured that argument false at
+    the terminal it was written for: at 80x24 the detailed plan is 34 lines, so
+    by the time `Write these paths?` appeared the first **11** had scrolled —
+    including the head line naming what was being accepted. A gate nobody can
+    read whole is not a gate.
+
+    So the two screens split by **length and never by content**: `--dry-run`
+    keeps the artifact list, because the audit may never say less than the run
+    it audits and it is read off a pipe where scrolling costs nothing; the gate
+    speaks in destinations, which is the shape `npx skills` gives it. They stay
+    one function one flag apart (`_planned(..., detailed=)`), and what is
+    asserted here is the seam that matters: **no path may be on one and off
+    another**.
 
     A framework, because it is the case the list exists for: `--ai-framework fw`
     is two words on the line and two artifacts on the disk, and the names of
@@ -579,7 +608,9 @@ def test_the_plan_names_its_artifacts_on_all_three_ways_in(
     ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
         return (("fw",), (), ())
 
-    def project_scope(cwd: Path, _environment: Environment) -> tuple[Scope, Path]:
+    def project_scope(
+        cwd: Path, _environment: Environment, _console: Console
+    ) -> tuple[Scope, Path]:
         return Scope.PROJECT, cwd
 
     def fixed_runtimes(_scope: Scope, _root: Path, _environment: Environment) -> tuple[str, ...]:
@@ -600,10 +631,13 @@ def test_the_plan_names_its_artifacts_on_all_three_ways_in(
     real_code, real_out = project.run(capsys, *selectors, "--yes")
 
     assert (dry_code, wizard_code, real_code) == (0, 1, 0)
+    # the audit names every artifact, and nothing else has to
+    audited = project.joined(dry_out)
+    assert "skill fa" in audited
+    assert "skill fb" in audited
+    # and every path is on all three, which is the half that may never split
     for output in (dry_out, wizard_out, real_out):
-        joined = project.joined(output)
-        assert "skill fa" in joined
-        assert "skill fb" in joined
+        assert f"{project.CLAUDE}/" in project.joined(output)
 
 
 def test_yes_skips_the_confirmation_and_nothing_else(
@@ -763,6 +797,8 @@ def _stub_wizard(filled: Request, root: Path) -> Wizard:
         _environment: Environment,
         _cwd: Path,
         _scoped: tuple[Scope, Path] | None,
+        *,
+        console: Console,  # noqa: ARG001 — the seam takes it; this stub narrates nothing
     ) -> tuple[Request, Path]:
         return (
             replace(
@@ -798,7 +834,7 @@ def _wizard_steps(
         opened.append("artifacts")
         return ((), (), ("alpha",))
 
-    def ask_scope(cwd: Path, environment: Environment) -> tuple[Scope, Path]:
+    def ask_scope(cwd: Path, environment: Environment, _console: Console) -> tuple[Scope, Path]:
         opened.append("scope")
         return scope, (cwd if scope is Scope.PROJECT else environment.home)
 
@@ -878,6 +914,8 @@ def test_the_wizard_being_abandoned_writes_nothing(
         _environment: Environment,
         _cwd: Path,
         _scoped: tuple[Scope, Path] | None,
+        *,
+        console: Console,  # noqa: ARG001 — the seam takes it; backing out narrates nothing
     ) -> None:
         return None
 
@@ -1064,7 +1102,7 @@ def test_the_line_the_list_prints_installs_when_it_is_pasted_back(
     assert shlex.split(line)[0] == "overpower"
     assert code == 0
     assert steps == ["scope", "runtimes"]
-    assert "plan" in project.joined(output)
+    assert "summary" in project.joined(output)
     assert (root / project.CLAUDE / "alpha" / "SKILL.md").is_file()
 
 

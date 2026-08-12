@@ -16,6 +16,7 @@ bare lambda: `pytest.MonkeyPatch.setattr`'s string-keyed overload types its
 from __future__ import annotations
 
 import contextlib
+import io
 import os
 import select
 import sys
@@ -27,6 +28,7 @@ from typing import TYPE_CHECKING
 import pytest
 import questionary
 from questionary.prompts.common import InquirerControl
+from rich.console import Console
 
 from overpower import wizard
 from overpower.discovery import load_catalog
@@ -40,6 +42,7 @@ from overpower.runtimes import (
     runtimes_in,
     universal_runtimes,
 )
+from overpower.screens import RAIL, THEME
 from tests.support.project import catalog_of
 
 if TYPE_CHECKING:
@@ -159,6 +162,17 @@ def test_ask_artifacts_returns_none_on_interruption(
 # --------------------------------------------------------------------------- #
 
 
+def _console() -> Console:
+    """A console that renders into nothing, for the steps that narrate the session.
+
+    `run_wizard` and `ask_scope` print the rail and the collapsed step through
+    the one console `overpower.cli` owns. What they print is asserted where it
+    is drawn — `tests/test_screens.py` — so here it only has to go somewhere
+    that is not the test's own output.
+    """
+    return Console(file=io.StringIO(), theme=THEME, highlight=False, width=80)
+
+
 def _environment(home: Path) -> Environment:
     def _nothing_exists(_path: Path) -> bool:
         return False
@@ -172,14 +186,14 @@ def test_ask_scope_inside_a_repository_offers_both(
     (tmp_path / ".git").mkdir()
     seen: dict[str, object] = {}
 
-    def fake_select(_message: str, choices: object) -> _Answered:
+    def fake_select(_message: str, choices: object, **_kwargs: object) -> _Answered:
         seen["choices"] = choices
         return _Answered(Scope.GLOBAL)
 
     monkeypatch.setattr(wizard.questionary, "select", fake_select)
     environment = _environment(tmp_path / "home")
 
-    outcome = wizard.ask_scope(tmp_path, environment)
+    outcome = wizard.ask_scope(tmp_path, environment, _console())
 
     assert outcome is not None
     scope, root = outcome
@@ -195,7 +209,7 @@ def test_ask_scope_project_choice_writes_under_cwd(
     monkeypatch.setattr(wizard.questionary, "select", _answering(Scope.PROJECT))
     environment = _environment(tmp_path / "home")
 
-    outcome = wizard.ask_scope(tmp_path, environment)
+    outcome = wizard.ask_scope(tmp_path, environment, _console())
 
     assert outcome is not None
     scope, root = outcome
@@ -209,7 +223,7 @@ def test_ask_scope_returns_none_on_interruption(
     (tmp_path / ".git").mkdir()
     monkeypatch.setattr(wizard.questionary, "select", _answering(None))
 
-    assert wizard.ask_scope(tmp_path, _environment(tmp_path / "home")) is None
+    assert wizard.ask_scope(tmp_path, _environment(tmp_path / "home"), _console()) is None
 
 
 def test_ask_scope_outside_a_repository_has_one_answer_and_asks_nothing(
@@ -227,7 +241,7 @@ def test_ask_scope_outside_a_repository_has_one_answer_and_asks_nothing(
     monkeypatch.setattr(wizard.questionary, "select", refuse_to_ask)
     environment = _environment(tmp_path / "home")
 
-    result = wizard.ask_scope(bare, environment)
+    result = wizard.ask_scope(bare, environment, _console())
 
     assert result == (Scope.GLOBAL, environment.home)
     assert asked == []
@@ -241,34 +255,49 @@ def test_ask_scope_outside_a_repository_has_one_answer_and_asks_nothing(
 @pytest.mark.parametrize(
     ("scope", "offered"),
     [
-        pytest.param(Scope.PROJECT, 76, id="project"),
-        pytest.param(Scope.GLOBAL, 74, id="global"),
+        pytest.param(Scope.PROJECT, 57, id="project"),
+        pytest.param(Scope.GLOBAL, 68, id="global"),
     ],
 )
-def test_runtime_choices_are_scoped_and_only_the_universal_group_is_locked(
+def test_runtime_choices_are_scoped_and_offer_everything_the_group_does_not_cover(
     scope: Scope, offered: int
 ) -> None:
-    choices = _real_choices(wizard.runtime_choices(scope, frozenset()))
+    """#65: the locked group left the control, so every row of the list can be ticked.
+
+    Three properties and not one count, because the count alone would pass on a
+    list that had lost rows: nothing offered is disabled, nothing offered is
+    already covered by the group, and the two together are the scoped table
+    whole.
+    """
+    choices = wizard.runtime_choices(scope, frozenset())
+    covered = {runtime.key for runtime in universal_runtimes(scope)}
+    offered_keys = {choice.value for choice in choices}
 
     assert len(choices) == offered
-    locked = {choice.value for choice in choices if choice.disabled is not None}
-    assert locked == {runtime.key for runtime in universal_runtimes(scope)}
+    assert all(choice.disabled is None for choice in choices)
+    assert offered_keys.isdisjoint(covered)
+    assert offered_keys | covered == {runtime.key for runtime in runtimes_in(scope)}
 
 
 @pytest.mark.parametrize(
     ("scope", "members"),
     [pytest.param(Scope.PROJECT, 19, id="project"), pytest.param(Scope.GLOBAL, 6, id="global")],
 )
-def test_the_universal_group_is_an_unselectable_section_in_both_scopes(
+def test_the_universal_group_is_static_text_and_never_a_line_to_tick(
     scope: Scope, members: int
 ) -> None:
-    """ADR 0011: *always included*, not a line to tick — and its size follows the scope."""
-    choices = wizard.runtime_choices(scope, frozenset())
+    """ADR 0011 survives #65: the group is shown, counted, and offered to nobody.
 
-    grouped = _under(choices, "Universal")
-    assert len(grouped) == members
-    locked = [c for c in _real_choices(choices) if c.value in grouped]
-    assert all(choice.disabled for choice in locked)
+    The membership is asserted against the block's own count rather than
+    against rows, because since #65 the block **names four and counts the
+    rest** — which is the change that gave the step its viewport back.
+    """
+    covered = {runtime.key for runtime in universal_runtimes(scope)}
+    assert len(covered) == members
+
+    text = _block_text(scope)
+    assert f"{members} runtimes" in text
+    assert covered.isdisjoint({c.value for c in wizard.runtime_choices(scope, frozenset())})
 
 
 @pytest.mark.parametrize(
@@ -284,21 +313,15 @@ def test_the_universal_heading_names_the_place_of_its_own_scope(scope: Scope, pl
     Eighteen names under `~/.agents/skills` would claim that folder equips the
     eighteen. It equips six.
     """
-    choices = wizard.runtime_choices(scope, frozenset())
-
-    headings = [c.line for c in choices if isinstance(c, questionary.Separator)]
-    assert any(f"Universal ({place})" in heading for heading in headings)
+    assert f"Universal ({place})" in _block_text(scope)
 
 
 def test_the_universal_heading_says_it_is_always_included_and_counts_its_members() -> None:
     """*Always included* and a number is what the reader gets instead of counting boxes."""
-    choices = wizard.runtime_choices(Scope.PROJECT, frozenset())
+    text = _block_text(Scope.PROJECT)
 
-    heading = next(
-        c.line for c in choices if isinstance(c, questionary.Separator) and "Universal" in c.line
-    )
-    assert "always included" in heading
-    assert "19 runtimes" in heading
+    assert wizard.ALWAYS_INCLUDED in text
+    assert "19 runtimes" in text
 
 
 def test_runtime_choices_pre_check_exactly_what_was_detected() -> None:
@@ -309,13 +332,13 @@ def test_runtime_choices_pre_check_exactly_what_was_detected() -> None:
 
 
 def test_a_locked_runtime_is_never_pre_checked_because_it_is_not_a_choice() -> None:
-    """Detection pre-marks a decision; a locked line has none to pre-mark."""
+    """Detection pre-marks a decision; a covered runtime has none to pre-mark."""
     detected = frozenset({"cursor", "claude-code"})
 
-    choices = _real_choices(wizard.runtime_choices(Scope.PROJECT, detected))
+    choices = wizard.runtime_choices(Scope.PROJECT, detected)
 
     checked = {choice.value for choice in choices if choice.checked}
-    assert checked == {"claude-code"}  # `cursor` reads `.agents/skills`, so it is locked
+    assert checked == {"claude-code"}  # `cursor` reads `.agents/skills`, so it is covered
 
 
 def test_the_universal_heading_covers_exactly_the_runtimes_that_read_that_path() -> None:
@@ -327,17 +350,16 @@ def test_the_universal_heading_covers_exactly_the_runtimes_that_read_that_path()
     runtimes under `.agents/skills` when 19 read it.
     """
     # given
-    reads_the_path = [
+    reads_the_path = {
         runtime.key
         for runtime in runtimes_in(Scope.PROJECT)
         if runtime.project_dir.relative == UNIVERSAL_PROJECT_DIR
-    ]
+    }
 
-    choices = wizard.runtime_choices(Scope.PROJECT, frozenset())
+    offered = {choice.value for choice in wizard.runtime_choices(Scope.PROJECT, frozenset())}
 
-    grouped = _under(choices, "Universal")
-    assert grouped == reads_the_path
-    assert len(grouped) == len(RUNTIMES) - len(_under(choices, "Additional agents"))
+    assert {runtime.key for runtime in universal_runtimes(Scope.PROJECT)} == reads_the_path
+    assert offered == {runtime.key for runtime in RUNTIMES} - reads_the_path
 
 
 def test_no_runtime_is_grouped_under_a_path_it_does_not_read() -> None:
@@ -346,25 +368,86 @@ def test_no_runtime_is_grouped_under_a_path_it_does_not_read() -> None:
     Named individually because the three of them are the ones a reader
     recognises, and because a count alone would not say *which* rows moved.
     """
-    choices = wizard.runtime_choices(Scope.PROJECT, frozenset())
+    offered = {choice.value for choice in wizard.runtime_choices(Scope.PROJECT, frozenset())}
 
-    grouped = _under(choices, "Universal")
-    assert "claude-code" not in grouped
-    assert "droid" not in grouped
-    assert "astrbot" not in grouped
+    assert "claude-code" in offered
+    assert "droid" in offered
+    assert "astrbot" in offered
 
 
-def _under(choices: list[questionary.Separator | questionary.Choice], heading: str) -> list[str]:
-    """Every runtime key listed under the heading containing `heading`, until the next one."""
-    keys: list[str] = []
-    collecting = False
-    for choice in choices:
-        if isinstance(choice, questionary.Separator):
-            collecting = heading in choice.line
-            continue
-        if collecting:
-            keys.append(str(choice.value))
-    return keys
+def _block_text(scope: Scope) -> str:
+    """The static universal block, flattened to the text it puts on screen."""
+    return "".join(fragment[1] for fragment in wizard.locked_block(scope)())
+
+
+TERMINAL_ROWS = 24
+"""The default terminal, and the height every budget below is measured against."""
+
+QUESTION_ROWS = 1
+COUNTER_ROWS = 1
+FOOTER_ROWS = 3
+"""What the step spends outside the static block and the list: the question, the
+`↓ N more` line, and the three of the live footer — a rail, the `Selected:` line
+and the closing `└`."""
+
+NPX_VISIBLE_ROWS = 8
+"""What `npx skills add` keeps on screen, and therefore the floor for the viewport."""
+
+
+def test_the_runtime_step_fits_a_twenty_four_row_terminal() -> None:
+    """The defect #65 exists for, asserted as a budget so all nine cells run it.
+
+    Measured before: the step drew **19 locked rows**, two separators and a
+    two-line hint, filling 23 of the 24 rows of a default terminal and leaving
+    **one** selectable row on screen — with the row detection had pre-ticked
+    below the fold and nothing saying 55 more existed.
+
+    A budget and not a screen recording, and the limit is declared rather than
+    hidden: what a byte stream from a PTY cannot prove is *visibility*, because
+    the old layout wrote all 57 rows too and simply let the terminal scroll them
+    away. Arithmetic is what separates *written* from *on screen*, so this is
+    the guard, and the PTY test below proves only that the layout reaches a real
+    terminal.
+
+    It runs against the **project** scope because that is the larger of the two
+    groups — 19 members against 6 — so the scope that fits is the scope that
+    binds.
+    """
+    static = _block_text(Scope.PROJECT).count("\n") + 1
+
+    spent = QUESTION_ROWS + static + wizard.VIEWPORT + COUNTER_ROWS + FOOTER_ROWS
+
+    assert spent <= TERMINAL_ROWS
+    assert wizard.VIEWPORT >= NPX_VISIBLE_ROWS
+
+
+@pytest.mark.parametrize(
+    "scope", [pytest.param(Scope.PROJECT, id="project"), pytest.param(Scope.GLOBAL, id="global")]
+)
+def test_the_static_block_names_a_few_and_counts_the_rest(scope: Scope) -> None:
+    """Bounded however large the group grows, which is what keeps the budget above true.
+
+    Naming all 19 is exactly what cost the step its viewport: the block is
+    **informative**, and what it informs about is the single path on its
+    heading, so it has to be recognisable rather than exhaustive.
+    """
+    text = _block_text(scope)
+    members = len(universal_runtimes(scope))
+
+    named = [line for line in text.splitlines() if "•" in line]
+
+    assert len(named) <= wizard.LOCKED_SHOWN
+    assert f"{members - wizard.LOCKED_SHOWN} more" in text
+
+
+@pytest.mark.parametrize(
+    "scope", [pytest.param(Scope.PROJECT, id="project"), pytest.param(Scope.GLOBAL, id="global")]
+)
+def test_every_line_of_the_static_block_sits_on_the_rail(scope: Scope) -> None:
+    """The rail is what makes the step read as one gesture, so no line may fall off it."""
+    lines = [line for line in _block_text(scope).splitlines() if line]
+
+    assert all(line.startswith(RAIL) for line in lines)
 
 
 def _in_table_order(scope: Scope, keys: set[str]) -> tuple[str, ...]:
@@ -463,7 +546,7 @@ def test_the_runtime_list_is_searchable_and_pays_for_it_with_the_j_and_k_keys(
     ("typed", "narrowed"),
     [
         pytest.param("laude", ["Claude Code"], id="prefix of nothing"),
-        pytest.param("copilot", ["GitHub Copilot"], id="second word"),
+        pytest.param("terminal", ["Devin for Terminal"], id="second word"),
         pytest.param("dev", ["Devin for Terminal", "Rovo Dev"], id="two survivors"),
     ],
 )
@@ -479,19 +562,33 @@ def test_typing_matches_in_the_middle_of_a_name_and_not_only_at_its_start(
     needs a console the Windows cells do not give a `pytest` child.
 
     The three cases reproduce the measurement the ticket carries against
-    questionary 2.1.1 — 22 lines visible at 80x24, `dev` down to 2, `copilot` to
-    1 — and `laude` is the one that separates a substring match from a prefix
-    match, being the start of no name at all.
+    questionary 2.1.1 — `dev` down to 2, `terminal` to 1 — and `laude` is the
+    one that separates a substring match from a prefix match, being the start of
+    no name at all. `copilot` was the original second-word case and is no longer
+    one: since #65 the universal group is not in the list, and GitHub Copilot
+    reads `.agents/skills` in project scope, so it has no row to find.
     """
-    control = InquirerControl(wizard.runtime_choices(Scope.PROJECT, frozenset()))
+    control = InquirerControl(list(wizard.runtime_choices(Scope.PROJECT, frozenset())))
     control.search_filter = typed
 
-    assert [choice.title for choice in control.filtered_choices] == narrowed
+    assert [_named(choice) for choice in control.filtered_choices] == narrowed
+
+
+def _named(choice: questionary.Choice) -> str:
+    """A row's runtime name, without the tree `_choice` appends to it.
+
+    Since #65 the title is `Cursor (.agents/skills)`, because the plan speaks in
+    paths and the row that chooses one may not hide it. The search therefore
+    matches the path too — measured, `.claude` narrows to one row — and that is
+    a gain rather than a cost; what it is not is a reason to assert names with
+    a path glued on.
+    """
+    return str(choice.title).split(" (")[0]
 
 
 def test_a_search_that_matches_nothing_leaves_the_whole_list_standing() -> None:
     """Measured: `questionary` falls back to every choice rather than to an empty screen."""
-    control = InquirerControl(wizard.runtime_choices(Scope.PROJECT, frozenset()))
+    control = InquirerControl(list(wizard.runtime_choices(Scope.PROJECT, frozenset())))
     control.search_filter = "zzz"
 
     assert len(control.filtered_choices) == len(control.choices)
@@ -539,7 +636,7 @@ def test_the_real_questionary_builds_the_locked_and_searchable_list(
 # --------------------------------------------------------------------------- #
 
 
-def _project_scope(cwd: Path, _environment: Environment) -> tuple[Scope, Path]:
+def _project_scope(cwd: Path, _environment: Environment, _console: Console) -> tuple[Scope, Path]:
     return Scope.PROJECT, cwd
 
 
@@ -570,7 +667,7 @@ def test_run_wizard_builds_the_same_request_the_equivalent_flag_line_would(
     monkeypatch.setattr(wizard, "ask_runtimes", _fixed_runtimes)
     environment = Environment.from_process()
 
-    outcome = wizard.run_wizard(Request(), catalog, environment, tmp_path, None)
+    outcome = wizard.run_wizard(Request(), catalog, environment, tmp_path, None, console=_console())
 
     assert outcome is not None
     request, root = outcome
@@ -596,7 +693,9 @@ def test_run_wizard_carries_the_mode_flags_of_the_line_through_untouched(
     monkeypatch.setattr(wizard, "ask_runtimes", _fixed_runtimes)
     asked = Request(skills=("alpha",), force=True, dry_run=True, yes=True)
 
-    outcome = wizard.run_wizard(asked, catalog, Environment.from_process(), tmp_path, None)
+    outcome = wizard.run_wizard(
+        asked, catalog, Environment.from_process(), tmp_path, None, console=_console()
+    )
 
     assert outcome is not None
     request, _ = outcome
@@ -637,9 +736,9 @@ def test_run_wizard_opens_only_the_steps_the_request_left_open(
         steps.append("artifacts")
         return ((), (), ("alpha",))
 
-    def scope_step(cwd: Path, environment: Environment) -> tuple[Scope, Path]:
+    def scope_step(cwd: Path, environment: Environment, console: Console) -> tuple[Scope, Path]:
         steps.append("scope")
-        return _project_scope(cwd, environment)
+        return _project_scope(cwd, environment, console)
 
     def runtime_step(scope: Scope, root: Path, environment: Environment) -> tuple[str, ...]:
         steps.append("runtimes")
@@ -649,7 +748,9 @@ def test_run_wizard_opens_only_the_steps_the_request_left_open(
     monkeypatch.setattr(wizard, "ask_scope", scope_step)
     monkeypatch.setattr(wizard, "ask_runtimes", runtime_step)
 
-    outcome = wizard.run_wizard(asked, catalog, Environment.from_process(), tmp_path, scoped)
+    outcome = wizard.run_wizard(
+        asked, catalog, Environment.from_process(), tmp_path, scoped, console=_console()
+    )
 
     assert outcome is not None
     assert steps == opened
@@ -683,7 +784,12 @@ def test_run_wizard_returns_none_when_any_step_is_abandoned(
     monkeypatch.setattr(wizard, "ask_runtimes", _fixed_runtimes)
     monkeypatch.setattr(wizard, stage, abandoned)
 
-    assert wizard.run_wizard(Request(), catalog, Environment.from_process(), tmp_path, None) is None
+    assert (
+        wizard.run_wizard(
+            Request(), catalog, Environment.from_process(), tmp_path, None, console=_console()
+        )
+        is None
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -722,12 +828,18 @@ def _parsed(text: str) -> dict[str, str]:
     return dict(line.split("=", 1) for line in text.splitlines() if line)
 
 
-def _drive(cwd: Path, home: Path, captured: Path, keys: str, *flags: str) -> None:
+def _drive(cwd: Path, home: Path, captured: Path, keys: str, *flags: str) -> bytes:
     """Fork a PTY, run the real `install`, and feed it `keys` as the screens ask for them.
 
     Adapted from the throwaway PTY driver of #12
     (`prototype/terminal-experience/drive.py`), which measured that
     `questionary` needs an actual terminal — a pipe raises `EOFError`.
+
+    It answers everything the child drew, which is what lets one test assert the
+    `Request` and another assert that the railed layout of #65 reached a real
+    terminal at all. What the bytes cannot say is what was *visible* — the old
+    layout wrote every row too and let the terminal scroll them — so the
+    visibility budget is asserted arithmetically instead.
     """
     import pty  # noqa: PLC0415 — POSIX-only module, imported only where this runs
 
@@ -739,16 +851,19 @@ def _drive(cwd: Path, home: Path, captured: Path, keys: str, *flags: str) -> Non
         argv = [sys.executable, "-c", _CHILD_SCRIPT, str(captured), *flags]
         os.execvpe(sys.executable, argv, env)  # noqa: S606 — replaces this forked child, not a shell
 
+    drawn = bytearray()
     sent = 0
     deadline = time.time() + 25
     while time.time() < deadline and not captured.exists():
         ready, _, _ = select.select([fd], [], [], 0.4)
         if ready:
             try:
-                if not os.read(fd, 65536):
-                    break
+                chunk = os.read(fd, 65536)
             except OSError:
                 break
+            if not chunk:
+                break
+            drawn.extend(chunk)
         elif sent < len(keys):
             time.sleep(0.5)
             os.write(fd, keys[sent].encode())
@@ -757,6 +872,7 @@ def _drive(cwd: Path, home: Path, captured: Path, keys: str, *flags: str) -> Non
     os.close(fd)
     with contextlib.suppress(ChildProcessError, OSError):
         os.waitpid(pid, 0)
+    return bytes(drawn)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="pty is POSIX only, docs/agents/testing.md §7")
@@ -837,3 +953,39 @@ def _locked_plus_the_first_additional(scope: Scope) -> tuple[str, ...]:
     locked = {runtime.key for runtime in universal_runtimes(scope)}
     first = next(runtime.key for runtime in runtimes_in(scope) if runtime.key not in locked)
     return _in_table_order(scope, locked | {first})
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="pty is POSIX only, docs/agents/testing.md §7")
+def test_the_railed_layout_reaches_a_real_terminal(tmp_path: Path) -> None:
+    """The layout replacement of #65, proven end to end rather than in a unit.
+
+    `common.create_inquirer_layout` is replaced at call time, so everything
+    below it — the static block, the viewport, the counter and the live footer —
+    exists only if the real `questionary` picked the replacement up. A unit test
+    of `locked_block` cannot see that; this can, because these four strings can
+    only be on the wire if the substituted layout drew them.
+
+    **What it deliberately does not assert is visibility.** The old layout wrote
+    all 57 rows too and let the terminal scroll them away, so presence in a byte
+    stream proves nothing about what fitted —
+    `test_the_runtime_step_fits_a_twenty_four_row_terminal` is where that lives.
+    """
+    # given
+    framework = load_catalog(content_root(), catalog_file()).frameworks[0]
+    cwd = tmp_path / "project"
+    cwd.mkdir()
+    (cwd / ".git").mkdir()
+    home = tmp_path / "home"
+    home.mkdir()
+    captured = tmp_path / "captured.txt"
+    keys = "\r \r"  # scope: default — runtimes: toggle, submit
+
+    drawn = _drive(cwd, home, captured, keys, "--ai-framework", framework.name).decode(
+        "utf-8", "replace"
+    )
+
+    assert captured.exists(), "the child never reached plan_for within the deadline"
+    assert RAIL in drawn, "the rail never reached the terminal"
+    assert wizard.ALWAYS_INCLUDED in drawn, "the static universal block never drew"
+    assert "more" in drawn, "the `N more` counter never drew"
+    assert "Selected:" in drawn, "the live footer never drew"

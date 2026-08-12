@@ -1,0 +1,13 @@
+◇  installed ──────────────────────────────────────────────╮
+│                                                          │
+│  ✓ matt-pocock  3 artifacts                              │
+│    .agents/skills/                                       │
+│    .claude/skills/                                       │
+│                                                          │
+│  ✓ grilling  1 skill                                     │
+│    .agents/skills/                                       │
+│    .claude/skills/                                       │
+│                                                          │
+│  50 writes · 148 files                                   │
+│                                                          │
+├──────────────────────────────────────────────────────────╯

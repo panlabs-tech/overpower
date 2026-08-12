@@ -35,6 +35,8 @@ be a second place for the truncation rule to be forgotten.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
+from types import MappingProxyType
 from typing import TYPE_CHECKING, assert_never
 
 from rich import box
@@ -139,6 +141,62 @@ Makefile and a CI write is `uvx overpower@latest …` regardless. The alias is
 keyboard comfort, and that is all it claims to be.
 """
 
+
+class Mark(StrEnum):
+    """The five punctuation marks of a session, named rather than spelled.
+
+    A name and not the glyph itself because the glyph is **two** glyphs: the
+    ASCII fallback is chosen at render time off `ConsoleOptions.ascii_only`, the
+    same switch `_PlanScreen` already reads for its arrow, and for the same
+    measured reason — `│` is not encodable in cp1252, which is what a pipe on
+    Windows takes.
+    """
+
+    OPEN = "open"
+    DONE = "done"
+    ACTIVE = "active"
+    NOTE = "note"
+    CLOSE = "close"
+
+
+_MARKS = MappingProxyType(
+    {Mark.OPEN: "┌", Mark.DONE: "◇", Mark.ACTIVE: "◆", Mark.NOTE: "●", Mark.CLOSE: "└"}
+)
+"""The session vocabulary of `npx skills`, adopted whole (#65)."""
+
+_ASCII_MARKS = MappingProxyType(
+    {Mark.OPEN: "+", Mark.DONE: "-", Mark.ACTIVE: ">", Mark.NOTE: "*", Mark.CLOSE: "+"}
+)
+"""The same five where the console cannot carry the first five."""
+
+RAIL = "│"
+"""The vertical that connects every step, and the whole of what makes it read as one gesture."""
+
+_ASCII_RAIL = "|"
+
+ACTIVE_MARK = _MARKS[Mark.ACTIVE]
+DONE_MARK = _MARKS[Mark.DONE]
+CLOSE_MARK = _MARKS[Mark.CLOSE]
+"""The three the wizard needs as plain strings.
+
+`prompt_toolkit` draws its own screen and takes `(style, text)` pairs, not
+renderables, so the marks it needs cannot arrive as `Mark` members. There is no
+ASCII fallback on this path and none is needed: `questionary` requires a real
+terminal — a pipe raises `EOFError` — so the cp1252-under-a-pipe case that
+`_SessionLine` guards against cannot reach these three.
+"""
+
+_MARK_STYLE = MappingProxyType(
+    {
+        Mark.OPEN: "op.brand",
+        Mark.DONE: "op.ok",
+        Mark.ACTIVE: "op.brand",
+        Mark.NOTE: "op.key",
+        Mark.CLOSE: "op.brand",
+    }
+)
+"""Ink per rank. The palette is ours; the structure is the one that was adopted."""
+
 _KIB = 1024
 _MIB = 1024 * 1024
 
@@ -180,6 +238,143 @@ def _shortcut() -> Text:
     value, and they are what let the eye skip the word and take the line.
     """
     return Text.assemble("  ", ("atalho", "op.dim"), "   ", (SHORTCUT, "op.key"), "\n")
+
+
+@dataclass(frozen=True)
+class _SessionLine:
+    """One punctuated line of the session, assembled at render time for its glyphs.
+
+    The lead rail is part of the line and not the caller's to remember, and that
+    is the whole reason this is a type: the rhythm of `npx skills` is that
+    **every** step is preceded by a rail, and a caller that had to print one
+    between steps is a caller that will forget one between two of them.
+    """
+
+    mark: Mark
+    text: str
+    answer: str | None = None
+    lead: bool = True
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        """The mark, the text, and the answer under it — in glyphs this console can carry."""
+        del console
+        marks = _ASCII_MARKS if options.ascii_only else _MARKS
+        rail = _ASCII_RAIL if options.ascii_only else RAIL
+        if self.lead:
+            yield Text(rail, style="op.dim")
+        yield _hanging(Text(marks[self.mark], style=_MARK_STYLE[self.mark]), Text(self.text))
+        if self.answer is not None:
+            yield _hanging(Text(rail, style="op.dim"), Text(self.answer, style="op.key"))
+
+
+def _hanging(mark: Text, body: Text) -> RenderableType:
+    """A mark and its text, where a wrapped line keeps the indent of the first.
+
+    A two-column grid and never `Text.assemble` with spaces, for the reason
+    `_entry` gives for its `Padding`: measured at 60 columns, the sign-off is
+    76 characters and wraps, and assembled as one string its continuation lands
+    at column 0 — under the rail rather than beside it, which reads as a line
+    that fell out of the session.
+    """
+    line = Table.grid(padding=(0, 2))
+    line.add_column(no_wrap=True)
+    line.add_column(overflow="fold")
+    line.add_row(mark, body)
+    return line
+
+
+def opened(title: str) -> RenderableType:
+    """`┌   overpower install` — the session begins, and nothing precedes it."""
+    return _SessionLine(Mark.OPEN, title, lead=False)
+
+
+def noted(text: str) -> RenderableType:
+    """`●  selected: matt-pocock — 25 skills` — a fact the session establishes on the way."""
+    return _SessionLine(Mark.NOTE, text)
+
+
+def stepped(label: str, answer: str) -> RenderableType:
+    """`◇  label` over `│  answer` — a step that was settled without being asked.
+
+    The same shape `questionary` collapses to once answered, drawn here for the
+    steps that never open: outside a git repository the scope has one legal
+    answer, and ADR 0008 wants that explicit rather than silent, so it is
+    *reported* rather than *asked*.
+    """
+    return _SessionLine(Mark.DONE, label, answer=answer)
+
+
+def closed(text: str) -> RenderableType:
+    """`└  Done!  …` — the session ends, and the rail stops."""
+    return _SessionLine(Mark.CLOSE, text)
+
+
+def railed() -> RenderableType:
+    """A bare rail, for the gap between a prompt and what follows it."""
+    return _RailLine()
+
+
+@dataclass(frozen=True)
+class _RailLine:
+    """One rail character, in whichever of the two the console can encode."""
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        """Just the rail."""
+        del console
+        yield Text(_ASCII_RAIL if options.ascii_only else RAIL, style="op.dim")
+
+
+@dataclass(frozen=True)
+class _RailPanel:
+    """A panel that hangs off the rail instead of floating beside it.
+
+    `rich`'s own `Panel` cannot draw this shape: it owns all four corners, and
+    what this needs is a **title line that starts with the session mark** and a
+    bottom-left that is a tee rather than a corner — which is what says the
+    frame is inside the session and not a sibling of it. Thirty lines of segment
+    assembly buys the one property the whole repaint exists for, so it is drawn
+    here rather than approximated with a `Panel` whose corners say otherwise.
+    """
+
+    title: str
+    body: RenderableType
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        """Title line, body inside the rail, and a tee that closes it back onto the rail."""
+        marks = _ASCII_MARKS if options.ascii_only else _MARKS
+        rail = _ASCII_RAIL if options.ascii_only else RAIL
+        horizontal, corner, tee = ("-", "+", "+") if options.ascii_only else ("─", "╮", "├")
+
+        width = options.max_width
+        # Two of padding either side of the body, a rail on the left and a border
+        # on the right. `max` keeps a very narrow terminal from computing a
+        # negative width, which `render_lines` would raise on.
+        inner = max(1, width - 6)
+        lines = console.render_lines(self.body, options.update(width=inner), pad=True)
+
+        head = f"{marks[Mark.DONE]}  {self.title} "
+        yield Text.assemble(
+            (marks[Mark.DONE], _MARK_STYLE[Mark.DONE]),
+            f"  {self.title} ",
+            (horizontal * max(0, width - len(head) - 1), "op.dim"),
+            (corner, "op.dim"),
+        )
+        yield _bordered(Text(""), rail, inner)
+        for line in lines:
+            body = Text("").join(Text(segment.text, style=segment.style or "") for segment in line)
+            yield _bordered(body, rail, inner)
+        yield _bordered(Text(""), rail, inner)
+        foot = "+" if options.ascii_only else "╯"
+        yield Text.assemble(
+            (tee, "op.dim"), (horizontal * max(0, width - 2), "op.dim"), (foot, "op.dim")
+        )
+
+
+def _bordered(line: Text, rail: str, inner: int) -> Text:
+    """One body line, between the rail and the right border."""
+    padded = line.copy()
+    padded.pad_right(max(0, inner - padded.cell_len))
+    return Text.assemble((rail, "op.dim"), "  ", padded, "  ", (rail, "op.dim"))
 
 
 def catalog_screen(catalog: Catalog) -> RenderableType:
@@ -552,10 +747,112 @@ def human(size: int) -> str:
     return f"{size / _MIB:.2f} MiB"
 
 
+def summary_screen(plan: Plan) -> RenderableType:
+    """The **gate**: the same plan, said as destinations rather than as artifacts.
+
+    Measured, and this is what reopens the position written on `_planned`
+    (#65): the detailed plan is **34 lines** at 80 columns, and a terminal is
+    24, so at the moment `Write these paths?` appears the first **11** have
+    scrolled — including the head line that names what is being accepted and how
+    much of it. Fidelity to `list` was chosen there "over fitting on one
+    screen", on the argument that a gate has to be readable whole; the
+    measurement says that at the default size it was readable *not at all*.
+
+    So the gate takes the shape `npx skills` gives it — source, count, and one
+    line per destination with who reads it — and the artifact list stays where
+    it can be read at leisure: `--dry-run` and `list`. **It is the same
+    function** underneath, one flag apart, which is what keeps the truncation
+    rule in one place; that invariant was the real reason `_planned` was single,
+    and it is now structural rather than remembered.
+    """
+    return _SummaryScreen(plan)
+
+
+@dataclass(frozen=True)
+class _SummaryScreen:
+    """The gate panel, assembled at render time for the arrow of `_PlanScreen`."""
+
+    plan: Plan
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        """Draw the compact plan inside a frame that hangs off the rail."""
+        del console
+        arrow = "<-" if options.ascii_only else "←"
+        yield _RailPanel(
+            "summary",
+            Group(
+                *_spaced(
+                    [
+                        _planned(selection, self.plan.root, arrow, detailed=False)
+                        for selection in self.plan.selections
+                    ]
+                )
+            ),
+        )
+
+
+def installed_screen(plan: Plan, writes: int, files: int) -> RenderableType:
+    """What landed, counted, and the places it landed in — the closing frame.
+
+    `npx skills` closes with a panel and a sign-off, and the reason it reads as
+    finished rather than as stopped is that the panel names **what** landed and
+    the line names **what to do next**. What this replaces is a bare
+    `installed 50 writes · 148 files`, which is the count with neither.
+    """
+    return _InstalledScreen(plan, writes, files)
+
+
+@dataclass(frozen=True)
+class _InstalledScreen:
+    """The closing panel, assembled at render time for the arrow."""
+
+    plan: Plan
+    writes: int
+    files: int
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        """One group per selection: its name, its weight, and where it went."""
+        del console
+        tick = "v" if options.ascii_only else "✓"
+        arrow = "<-" if options.ascii_only else "←"
+        blocks: list[RenderableType] = []
+        for selection in self.plan.selections:
+            places = Table.grid()
+            places.add_column(overflow="fold")
+            for landing in selection.landings:
+                places.add_row(Text(_shown(self.plan.root, landing), style="op.dim"))
+            blocks.append(
+                Group(
+                    Text.assemble(
+                        (tick, "op.ok"),
+                        " ",
+                        (selection.name, "op.key"),
+                        "  ",
+                        (_carries(selection.artifacts), "op.dim"),
+                    ),
+                    Padding(places, (0, 0, 0, 2)),
+                )
+            )
+        del arrow
+        counted = Text(
+            f"{self.writes} {_plural('write', self.writes)}"
+            f" · {self.files} {_plural('file', self.files)}",
+            style="op.dim",
+        )
+        yield _RailPanel("installed", Group(*_spaced([*blocks, counted])))
+
+
 def _plan_panel(plan: Plan, arrow: str) -> Panel:
     """One block, and inside it one group per thing that was asked for."""
     return Panel(
-        Group(*_spaced([_planned(selection, plan.root, arrow) for selection in plan.selections])),
+        Group(
+            *_spaced(
+                [
+                    _planned(selection, plan.root, arrow, detailed=True)
+                    for selection in plan.selections
+                ]
+            )
+        ),
         title="[op.section]plan[/]",
         title_align="left",
         box=box.ROUNDED,
@@ -564,20 +861,33 @@ def _plan_panel(plan: Plan, arrow: str) -> Panel:
     )
 
 
-def _planned(selection: Selection, root: Path, arrow: str) -> RenderableType:
+def _planned(selection: Selection, root: Path, arrow: str, *, detailed: bool) -> RenderableType:
     """What one selection brings, **named artifact by artifact**, and every place it lands.
 
     The stacked list is `_contents` — the same function the detail screens of
-    `list` draw, and the same one on purpose (#58): the plan is the last gate
-    before 148 files land in a repository that is not ours, and a gate that
-    summarised *"25 skills"* would ask someone to accept a set they have to leave
-    the screen to read. Fidelity to `list` is the property that was chosen, over
-    fitting on one screen: the plan of `matt-pocock` goes from 8 lines to 34 and
-    scrolls at 24 rows, and it is a plan that can be read whole, which a gate has
-    to be. The measured alternatives all cost more than they saved — a
+    `list` draw, and the same one on purpose (#58): a screen that summarised
+    *"25 skills"* would ask someone to accept a set they have to leave the
+    screen to read. The measured alternatives all cost more than they saved — a
     three-column grid needs 91 characters and a two-column one 62, so neither
     fits the widths this screen is recorded at, and a wrapped run of names fits
     but drops the type prefix that a framework of mixed types is read by.
+
+    **`detailed` is where #65 revised #58, and the revision is one clause
+    wide.** #58 chose fidelity to `list` *over fitting on one screen*, on the
+    argument that the plan is the last gate before 148 files land in a
+    repository that is not ours and a gate has to be readable whole. The
+    measurement that reopened it: at 80x24 — the default terminal — the detailed
+    plan of `matt-pocock` is 34 lines, so by the time `Write these paths?`
+    appeared its first **11** had scrolled, including the head line naming what
+    was being accepted. Fidelity had not bought a readable gate; it had bought
+    an unreadable one.
+
+    So the argument survives and its conclusion moves: the **gate** takes the
+    short form, and the artifact list stays wherever there is no screen to fit —
+    `--dry-run`, and any run whose output goes down a pipe. Both come out of
+    **this function**, one flag apart, which is what keeps the truncation rule
+    in one place; that invariant was the real content of *"there is one plan
+    function"*, and it is now structural rather than remembered.
 
     It is drawn for **every** selection, including a pool skill that carries one
     artifact of its own name. The repetition is the rule staying one rule: the
@@ -604,8 +914,15 @@ def _planned(selection: Selection, root: Path, arrow: str) -> RenderableType:
             ),
             Text(f"{landing.files} {_plural('file', landing.files)}", style="op.dim"),
         )
+    head = Text.assemble(
+        (selection.name, "op.key"), "  ", (_carries(selection.artifacts), "op.dim")
+    )
+    if not detailed:
+        # The gate: head line and destinations, no artifact list. One blank line
+        # keeps the two ranks apart the way the detailed form does with two.
+        return Group(head, "", Padding(places, (0, 0, 0, 2)))
     return Group(
-        Text.assemble((selection.name, "op.key"), "  ", (_carries(selection.artifacts), "op.dim")),
+        head,
         Padding(_contents(selection.artifacts), (1, 0, 1, 2)),
         Padding(places, (0, 0, 0, 2)),
     )

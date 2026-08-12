@@ -50,6 +50,7 @@ from overpower.remote import catalog_from
 from overpower.runtimes import Environment, Scope
 from overpower.scope import git_root
 from overpower.screens import (
+    ACTIVE_MARK,
     AI_FRAMEWORK_FLAG,
     BUNDLE_FLAG,
     PROGRAM,
@@ -59,10 +60,15 @@ from overpower.screens import (
     banner,
     bundle_screen,
     catalog_screen,
+    closed,
     doctor_screen,
     error_panel,
     framework_screen,
+    installed_screen,
+    opened,
     plan_screen,
+    railed,
+    summary_screen,
 )
 from overpower.wizard import run_wizard
 from overpower.writing import execute
@@ -441,6 +447,7 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
         # context, unlike the flag path below, where a screen ahead of a
         # refusal would be the product answering before it knew.
         _print_banner()
+        _open_session()
         # The artifacts step is the only one that consults a catalog, and a line
         # that already names something never opens it. That is what lets a
         # `--from` line reach the wizard without the embedded catalog ever being
@@ -448,9 +455,9 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
         # and `--from` requires `--skill`, hence a selection, hence no step.
         if not selected:
             already_read = load_catalog(content_root(), catalog_file())
-        outcome = run_wizard(asked, already_read, environment, Path.cwd(), scoped)
+        outcome = run_wizard(asked, already_read, environment, Path.cwd(), scoped, console=_out)
         if outcome is None:
-            _out.print(Text("nothing was written", style="op.dim"))
+            _stopped("nothing was written")
             raise typer.Exit(ExitCode.CANNOT_RUN)
         request, root = outcome
     else:
@@ -523,28 +530,52 @@ def _perform(
     # exit 2 or exit 3 with nothing written and nothing announced.
     plan = plan_for(request, catalog, root, environment)
 
-    if banner:
-        _print_banner()
-    _out.print(plan_screen(plan))
-
     if request.dry_run:
+        # A report and not a session: `--dry-run` is read, piped and diffed, so
+        # it keeps the detailed plan and takes no frame. There is no gate here
+        # to fit on a screen, which is the whole reason the gate got shorter.
+        if banner:
+            _print_banner()
+        _out.print(plan_screen(plan))
         _out.print(Text.assemble(("dry run", "op.warn"), " ", ("nothing was written", "op.dim")))
         return
-    if _asking(request) and not _confirmed():
-        _out.print(Text("nothing was written", style="op.dim"))
-        raise typer.Exit(ExitCode.CANNOT_RUN)
+
+    if banner:
+        _print_banner()
+        _open_session()
+    _print_railed()
+    # **Short only where it has to fit.** In a terminal this is the gate, and
+    # measured at 80x24 the detailed plan loses its first 11 lines — including
+    # the head line naming what is being accepted — before `Write these paths?`
+    # appears. Under a pipe there is no gate and no 24 rows: the output is a
+    # record someone greps or files, so it keeps the artifact list, exactly as
+    # `--dry-run` does and exactly as it did before #65. `summary_screen` and
+    # `plan_screen` are the same function one flag apart, so whichever is drawn
+    # they cannot disagree about a path or a truncation.
+    _out.print(summary_screen(plan) if _out.is_terminal else plan_screen(plan))
+
+    if _asking(request):
+        _print_railed()
+        if not _confirmed():
+            _stopped("nothing was written")
+            raise typer.Exit(ExitCode.CANNOT_RUN)
 
     report = execute(plan)
-    _out.print(
-        Text.assemble(
-            ("installed", "op.ok"),
-            " ",
-            (f"{report.writes} writes · {report.files} files", "op.dim"),
+    if not _out.is_terminal:
+        _out.print(
+            Text.assemble(
+                ("installed", "op.ok"),
+                " ",
+                (f"{report.writes} writes · {report.files} files", "op.dim"),
+            )
         )
-    )
+    else:
+        _print_railed()
+        _out.print(installed_screen(plan, report.writes, report.files))
     if report.degraded:
         listed = ", ".join(str(path) for path in report.degraded)
         _out.print(Text.assemble(("degraded to copy", "op.warn"), " ", (listed, "op.dim")))
+    _finished()
 
 
 @app.command()
@@ -631,6 +662,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     return ExitCode.OK
 
 
+DONE = "Done!  Review what landed before use; it runs with full agent permission."
+"""The sign-off, and the one thing on it that is not a pleasantry.
+
+`npx skills` closes on *"Review skills before use; they run with full agent
+permissions"*, and the warning is inherited for the same reason the screen was:
+what lands here is instructions a coding agent will execute, from a curation
+this program vendors rather than authors.
+"""
+
+
 def _print_banner() -> None:
     """The banner is a terminal courtesy, so it is gated on being in one.
 
@@ -640,6 +681,41 @@ def _print_banner() -> None:
     if not _out.is_terminal:
         return
     _out.print(banner(_version(), _out.width))
+
+
+def _open_session() -> None:
+    """`┌   overpower install` — the frame the steps hang off.
+
+    Gated on being in a terminal for the reason the banner is: a rail is a
+    device for reading a sequence of questions, and under a pipe there are no
+    questions and the output goes to `grep`. That gate is what keeps the piped
+    contract of this command byte-identical to what it was before #65.
+    """
+    if not _out.is_terminal:
+        return
+    _out.print(opened(f"{PROGRAM} install"))
+
+
+def _print_railed() -> None:
+    """One rail, between a frame and whatever the session prints next."""
+    if not _out.is_terminal:
+        return
+    _out.print(railed())
+
+
+def _stopped(message: str) -> None:
+    """A run that ends having written nothing, closed rather than merely reported."""
+    if _out.is_terminal:
+        _out.print(closed(message))
+        return
+    _out.print(Text(message, style="op.dim"))
+
+
+def _finished() -> None:
+    """`└  Done!  …` — the session ends, and only in a terminal does it have one."""
+    if not _out.is_terminal:
+        return
+    _out.print(closed(DONE))
 
 
 def _accumulated(values: Sequence[str] | None) -> tuple[str, ...]:
@@ -679,7 +755,9 @@ def _confirmed() -> bool:
     `ask()` answers `None` when the prompt is interrupted, which is the same
     gesture as declining and is treated as one.
     """
-    return bool(questionary.confirm("Write these paths?", default=True).ask())
+    return bool(
+        questionary.confirm("Write these paths?", default=True, qmark=f"{ACTIVE_MARK} ").ask()
+    )
 
 
 def _failed(message: str, code: ExitCode = ExitCode.CANNOT_RUN, *, unexpected: bool = False) -> int:

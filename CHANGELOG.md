@@ -23,6 +23,21 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.3.0] - 2026-08-11
+
+### Added
+
+- Fora de repositório git o escopo passa a ser **relatado** em vez de decidido em silêncio: a sessão mostra `Where should this install write to? / This machine (~/) — outside a git repository` onde antes não havia etapa nenhuma. Cada runtime da lista passa a nomear a árvore que lê, como o `npx skills` faz — e a busca passa a casar o caminho junto com o nome. ([#65](https://github.com/panlabs-tech/overpower/issues/65))
+
+### Changed
+
+- O wizard de `install` passa a desenhar a dinâmica de sessão do `npx skills add`: moldura `┌`/`└`, trilho `│` entre etapas, marcas `◆`/`◇`/`●`, e a etapa respondida colapsando em pergunta sobre resposta. A lista de runtimes ganha viewport de 8 linhas com contador `↓ N mais` e rodapé de seleção viva; o grupo universal sai da lista e vira bloco estático que nomeia quatro e conta o resto. Medido a 80x24: a etapa mostrava **1** linha selecionável e passa a mostrar **8**. ([#65](https://github.com/panlabs-tech/overpower/issues/65))
+
+### Fixed
+
+- O portão de confirmação cabe na tela. Medido a 80x24, o plano detalhado tem 34 linhas contra as 24 do terminal, então as 11 primeiras — incluindo a linha que nomeia o que está sendo aceito — já tinham rolado quando `Write these paths?` aparecia. O portão passa a listar destinos; `--dry-run` e a saída sob cano mantêm a lista de artefatos inteira, e as duas são a mesma função a um flag de distância. ([#65](https://github.com/panlabs-tech/overpower/issues/65))
+
+
 ## [0.2.0] - 2026-08-11
 
 ### Added

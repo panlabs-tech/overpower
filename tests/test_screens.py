@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from rich.console import Console
+from rich.console import Console, Group
 
 from overpower.discovery import Artifact, ArtifactType, Bundle, Catalog, Framework, load_catalog
 from overpower.inspection import (
@@ -56,15 +56,23 @@ from overpower.planning import (
 from overpower.runtimes import Scope
 from overpower.screens import (
     BANNER,
+    RAIL,
     THEME,
     artifact_screen,
     banner,
     bundle_screen,
     catalog_screen,
+    closed,
     doctor_screen,
     framework_screen,
     human,
+    installed_screen,
+    noted,
+    opened,
     plan_screen,
+    railed,
+    stepped,
+    summary_screen,
 )
 from tests.support.screens import WIDTHS, console, render
 from tests.support.snapshots import assert_matches_snapshot
@@ -75,6 +83,9 @@ if TYPE_CHECKING:
     from rich.console import RenderableType
 
 WIDTH_CASES = [pytest.param(width, id=f"{width}cols") for width in WIDTHS]
+
+TERMINAL_ROWS = 24
+"""The rows of the terminal every visual budget in #65 is measured against."""
 
 BANNER_COLUMNS = 50
 BANNER_ROWS = 5
@@ -490,6 +501,117 @@ def test_the_plan_screen_matches_its_snapshot(request: pytest.FixtureRequest, wi
     rendered = render(plan_screen(recorded_plan()), width)
 
     assert_matches_snapshot(request, f"plan-{width}", rendered)
+
+
+# --------------------------------------------------------------------------- #
+# #65: the session — the gate, the close, and the punctuation between them
+# --------------------------------------------------------------------------- #
+
+
+def session_screen() -> RenderableType:
+    """Every session line in the order `install` prints them, as one recordable screen.
+
+    One screen and not five snapshots, because what the recording is for is the
+    **rhythm** — the rail before each mark, the answer indented under its
+    question — and that is a property of the sequence rather than of any line
+    in it.
+    """
+    return Group(
+        opened("overpower install"),
+        noted("31 artifacts available"),
+        stepped("Where should this install write to?", "This repository"),
+        railed(),
+        closed("Done!  Review what landed before use; it runs with full agent permission."),
+    )
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_session_screen_matches_its_snapshot(
+    request: pytest.FixtureRequest, width: int
+) -> None:
+    rendered = render(session_screen(), width)
+
+    assert_matches_snapshot(request, f"session-{width}", rendered)
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_summary_screen_matches_its_snapshot(
+    request: pytest.FixtureRequest, width: int
+) -> None:
+    rendered = render(summary_screen(recorded_plan()), width)
+
+    assert_matches_snapshot(request, f"summary-{width}", rendered)
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_installed_screen_matches_its_snapshot(
+    request: pytest.FixtureRequest, width: int
+) -> None:
+    rendered = render(installed_screen(recorded_plan(), writes=50, files=148), width)
+
+    assert_matches_snapshot(request, f"installed-{width}", rendered)
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_every_planned_path_appears_on_the_gate_as_well_as_on_the_plan(width: int) -> None:
+    """The half of #58 that #65 kept: the gate is shorter, and no path is shorter.
+
+    The artifact list is what left the gate — measured, 34 lines against a
+    24-row terminal — and a path may never leave it, because the path is the
+    whole of what is being accepted.
+    """
+    plan = recorded_plan()
+
+    joined = unwrapped(render(summary_screen(plan), width))
+
+    for selection in plan.selections:
+        for landing in selection.landings:
+            assert landing.place.relative_to(ROOT).as_posix() in joined
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_gate_is_shorter_than_the_plan_it_summarises(width: int) -> None:
+    """The measurement that reopened #58's position, asserted rather than remembered.
+
+    At 80 columns the detailed plan of `matt-pocock` is 34 lines against a
+    terminal of 24, so the head line naming what is being accepted had scrolled
+    by the time the question appeared. The gate has to fit; the audit does not.
+    """
+    plan = recorded_plan()
+
+    gate = render(summary_screen(plan), width).splitlines()
+    audit = render(plan_screen(plan), width).splitlines()
+
+    assert len(gate) < len(audit)
+    assert len(gate) <= TERMINAL_ROWS
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_no_rendered_line_of_the_session_exceeds_the_terminal_width(width: int) -> None:
+    """The rail and the two frames re-wrap with the terminal, so width is an input."""
+    for screen in (
+        session_screen(),
+        summary_screen(recorded_plan()),
+        installed_screen(recorded_plan(), writes=50, files=148),
+    ):
+        rendered = render(screen, width)
+        assert [line for line in rendered.splitlines() if len(line) > width] == []
+        assert "…" not in rendered
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_a_framed_screen_hangs_off_the_rail_instead_of_floating_beside_it(width: int) -> None:
+    """The one property `rich`'s own `Panel` cannot draw, and the reason `_RailPanel` exists.
+
+    A `Panel` owns all four corners, so it would open on `╭` and close on `╰` —
+    a sibling of the session rather than a step inside it. What says *inside* is
+    the mark on the title line and the tee that closes back onto the rail.
+    """
+    lines = render(summary_screen(recorded_plan()), width).splitlines()
+
+    assert lines[0].startswith("◇")
+    assert lines[-1].startswith("├")
+    assert all(line.startswith((RAIL, "◇", "├")) for line in lines if line)
 
 
 @pytest.mark.parametrize(

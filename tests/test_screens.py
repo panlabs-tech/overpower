@@ -519,7 +519,7 @@ def session_screen() -> RenderableType:
     return Group(
         opened("overpower install"),
         noted("31 artifacts available"),
-        stepped("Where should this install write to?", "This repository"),
+        stepped("Where should this install write to?", "This project"),
         railed(),
         closed("Done!  Review what landed before use; it runs with full agent permission."),
     )
@@ -815,23 +815,6 @@ def test_the_banner_names_the_version_that_arrived() -> None:
     rendered = render(banner("9.9.9", width=80), width=80)
 
     assert "9.9.9" in rendered
-
-
-@pytest.mark.parametrize(
-    "width",
-    [pytest.param(80, id="80cols"), pytest.param(60, id="60cols"), pytest.param(40, id="40cols")],
-)
-def test_the_banner_teaches_the_alias_at_every_width(width: int) -> None:
-    """#58: the tip travels with the banner, so it survives the narrow branch too.
-
-    40 columns is below `BANNER_WIDTH`, where the art is dropped for a single
-    line — and the shortcut is not art. The line is typed out here rather than
-    read off the module: what is promised is the shell line someone pastes, and
-    a constant asserted against itself promises nothing.
-    """
-    rendered = render(banner("0.1.0", width=width), width=width)
-
-    assert "alias op='overpower'" in " ".join(rendered.split())
 
 
 @pytest.mark.parametrize("width", WIDTH_CASES)

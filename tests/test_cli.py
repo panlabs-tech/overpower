@@ -174,41 +174,15 @@ def test_the_banner_follows_the_terminal_and_nothing_else(
     assert ("_____" in sink.getvalue()) is expected
 
 
-@pytest.mark.parametrize("argv", [pytest.param([], id="bare"), pytest.param(["--help"], id="help")])
-@pytest.mark.parametrize(
-    ("terminal", "expected"),
-    [pytest.param(True, True, id="tty"), pytest.param(False, False, id="pipe")],
-)
-def test_the_alias_hint_follows_the_terminal_like_the_banner(
-    monkeypatch: pytest.MonkeyPatch, argv: list[str], *, terminal: bool, expected: bool
-) -> None:
-    """#58: the two gestures of discovery, and the one gate both of them share.
-
-    `--help` is on the list because it did not use to carry the banner at all:
-    click answers it before the callback runs, so the banner had to move to
-    where the help screen is *formatted* for the two gestures to say the same
-    thing. Asserted in both directions, because a courtesy that leaks into a
-    pipe is what the gate exists to stop.
-    """
-    sink = io.StringIO()
-    monkeypatch.setattr(
-        cli,
-        "_out",
-        Console(file=sink, theme=THEME, width=80, force_terminal=terminal, highlight=False),
-    )
-
-    assert cli.main(argv) == 0
-
-    assert ("alias op='overpower'" in " ".join(sink.getvalue().split())) is expected
-
-
 def test_the_package_installs_exactly_one_executable() -> None:
-    """#58: the tip is an alias and never a second entry point.
+    """#58: no second entry point is installed for the `op` shell alias someone types themselves.
 
-    Why the name is not occupied is measured once, on `screens.SHORTCUT`, and not
-    repeated here. What this asserts is the consequence, read off the **installed
-    metadata** rather than off `pyproject.toml` — the reason `_version` reads it
-    there: what ships is what the `dist-info` says, not what the source declares.
+    `op` is the binary of the 1Password CLI, so a second `[project.scripts]`
+    entry would shadow a credential tool with no warning at all — measured once,
+    at the time #58 decided the product would never claim the name. What this
+    asserts is the consequence, read off the **installed metadata** rather than
+    off `pyproject.toml` — the reason `_version` reads it there: what ships is
+    what the `dist-info` says, not what the source declares.
     """
     entry_points = metadata.distribution("overpower").entry_points
 
@@ -462,21 +436,6 @@ def test_the_banner_is_suppressed_without_a_tty() -> None:
 
     assert result.returncode == 0
     assert b"_____" not in result.stdout
-
-
-@pytest.mark.parametrize("argv", [pytest.param([], id="bare"), pytest.param(["--help"], id="help")])
-def test_the_alias_hint_is_suppressed_without_a_tty(argv: list[str]) -> None:
-    """#58, measured against the real binary: under a pipe the tip is not there.
-
-    The in-process half proves the terminal side; this one proves the pipe side
-    the way a user meets it — `overpower --help > file`, where a line of advice
-    is noise the file has to carry forever. The ANSI of the same output is next
-    door and stays there: one property per test, and this one is the hint.
-    """
-    result = piped(*argv)
-
-    assert result.returncode == 0
-    assert b"alias op=" not in result.stdout
 
 
 def test_the_doctor_screen_carries_no_ansi_under_a_pipe(tmp_path: Path) -> None:

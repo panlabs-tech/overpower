@@ -78,6 +78,15 @@ THEME = Theme(
         "op.err": "bold red",
         "op.dim": "dim",
         "op.key": "cyan",
+        # The command line under a `list` entry. Split from `op.key` on purpose
+        # (#67): both used to render in cyan, so the command borrowed the exact
+        # ink that named the artifact above it, and with several commands on
+        # screen the artifact name stopped standing out. `#5f819d` is not a new
+        # colour to the terminal session — it is `questionary`'s own default
+        # `qmark` blue-grey (`wizard.py`'s prompts already render it), reused
+        # here rather than invented so the command reads as ink the eye already
+        # treats as "structure", not "content".
+        "op.command": "#5f819d",
     }
 )
 
@@ -118,27 +127,6 @@ longer parses — green, because nothing compares two literals.
 `--skill` is the pool selector and not the artifact's own type: it is the only
 one v0.1.0 ships, and the day a command lands in the pool the CLI grows the flag
 before this line can name it.
-"""
-
-SHORTCUT = "alias op='overpower'"
-"""The keyboard comfort the banner teaches, and the reason it is only a hint.
-
-**No second executable is installed for it** (#58), and that is measured rather
-than tasteful: `op` is the binary of the 1Password CLI, in `/usr/local/bin`, and
-on the machine this was measured on `~/.local/bin` sits at position **1** of the
-`PATH` against position **6** for it — a second `[project.scripts]` entry would
-shadow a credential tool with no warning at all. `uv` only detects a collision
-between tools it manages itself, and when it does it refuses the **whole**
-package (`error: Executable already exists: op`), so even the honest half of that
-trade fails. Occupying the name is a decision for whoever knows their own
-machine, so the product says the line and types nothing.
-
-Measured and accepted as its limit: a shell alias does not expand in a
-non-interactive shell — `sh -c op`, which is how a Makefile invokes, answers
-`command not found` and exit 127. That costs nothing, because by rule 5 the
-version of the overpower is the version of its catalog and the line a README, a
-Makefile and a CI write is `uvx overpower@latest …` regardless. The alias is
-keyboard comfort, and that is all it claims to be.
 """
 
 
@@ -210,34 +198,17 @@ the path it belongs to.
 
 
 def banner(version: str, width: int) -> RenderableType:
-    """The opening screen: the art, the tagline, the version, and the shortcut.
+    """The opening screen: the art, the tagline, and the version.
 
     Whether it is *shown* is not decided here — it is a terminal question, and
     the CLI gates it on `isatty()`.
-
-    The shortcut line **travels with the banner** rather than carrying a gate of
-    its own, and both branches draw it: it is courtesy for exactly the same
-    reason the art is, so it is shown exactly where the art would be shown and
-    hidden wherever the art is hidden. A second gate would be a second place for
-    *"not under a pipe"* to be forgotten — and the art is what a narrow terminal
-    drops, not the one line someone came to copy.
     """
     if width < BANNER_WIDTH:
-        return Group(Text.assemble(("overpower ", "op.brand"), (version, "op.dim")), _shortcut())
+        return Text.assemble(("overpower ", "op.brand"), (version, "op.dim"))
     return Group(
         Text(BANNER, style="op.brand"),
         Text.assemble("  ", (TAGLINE, "op.dim"), "   ", (f"v{version}", "op.key")),
-        _shortcut(),
     )
-
-
-def _shortcut() -> Text:
-    """`  atalho   alias op='overpower'` — the label dim, the line to paste in ink.
-
-    The two ranks are the ones the `doctor` already uses for a label and its
-    value, and they are what let the eye skip the word and take the line.
-    """
-    return Text.assemble("  ", ("atalho", "op.dim"), "   ", (SHORTCUT, "op.key"), "\n")
 
 
 @dataclass(frozen=True)
@@ -1061,7 +1032,7 @@ def _commands(commands: Sequence[str]) -> RenderableType:
     stacked = Table.grid()
     stacked.add_column(overflow="fold")
     for command in commands:
-        stacked.add_row(Text(command, style="op.key"))
+        stacked.add_row(Text(command, style="op.command"))
     return stacked
 
 

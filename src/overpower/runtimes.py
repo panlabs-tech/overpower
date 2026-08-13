@@ -58,6 +58,62 @@ of runtimes that read it does not: 19 in project, 6 in global (ADR 0011).
 """
 
 
+class Dialect(StrEnum):
+    """Which spelling of MCP configuration a document is written in.
+
+    It is a property of the **document** and never of the runtime, and the
+    difference is measured: `.mcp.json` is read by Claude Code, VS Code and the
+    Copilot CLI, so three runtimes share one spelling, while the same VS Code
+    reads `.vscode/mcp.json` in a different one — `servers` instead of
+    `mcpServers`, `${input:}` instead of `${VAR}`. A dialect per runtime would
+    have to answer twice for VS Code and could only be wrong once.
+
+    One member today, which is the tracer bullet's slice
+    (https://github.com/panlabs-tech/overpower/issues/76). The set is closed and
+    matched with `assert_never` in `overpower.rendering`, so the second target
+    lands as a compiler-visible hole rather than as a silent default.
+    """
+
+    CLAUDE = "claude"
+    """`mcpServers`, an explicit `type`, and `${VAR}` interpolation."""
+
+
+@dataclass(frozen=True)
+class McpDocument:
+    """Where a runtime reads MCP servers in one scope, and how that file is written.
+
+    Destination is a function of (type, runtime, scope) — rule 8, ADR 0006 — and
+    this is the graft half of it: a copy lands in a folder, a graft lands in a
+    **file plus a key inside it**, so this row carries the root key as well as
+    the path.
+
+    There is deliberately **no field for the file type**. JSON and JSONC differ
+    for a reader that uses the standard library, and this product does not: the
+    graft reads both through the same parser
+    (docs/adr/0016-o-diff-aditivo-e-requisito.md). A field with no reader would
+    be a field that goes stale unnoticed.
+    """
+
+    relative: str
+    """The document, `/`-separated, hanging off whatever the scope's root is."""
+
+    root_key: str
+    """The key the servers live under — `mcpServers` here, `servers` in VS Code."""
+
+    dialect: Dialect
+
+    born_pending: bool = False
+    """Whether a server written here is inert until the user approves it.
+
+    Measured in https://github.com/panlabs-tech/overpower/issues/17: a server
+    coming from `.mcp.json` is born `⏸ Pending approval` in Claude Code and
+    **does not connect** — no message, no exit code, no sign in a normal
+    session. It is a column of this table and not a fact of the CLI because it
+    is a fact of the pair (runtime, scope), and ADR 0014 makes the warning a
+    requirement rather than a courtesy.
+    """
+
+
 class Evidence(StrEnum):
     """Whether a path was verified against the runtime that reads it.
 
@@ -544,6 +600,99 @@ RUNTIMES_BY_KEY: Mapping[str, Runtime] = MappingProxyType(
     {runtime.key: runtime for runtime in RUNTIMES}
 )
 """The table indexed by key, for `--runtime <key>` lookup."""
+
+MCP_DOCUMENTS: Mapping[tuple[str, Scope], McpDocument] = MappingProxyType(
+    {
+        # Measured against Claude Code 2.1.220 in
+        # https://github.com/panlabs-tech/overpower/issues/17: `.mcp.json` at the
+        # root of the project, strict JSON, `mcpServers`, and the server born
+        # pending approval.
+        ("claude-code", Scope.PROJECT): McpDocument(
+            relative=".mcp.json",
+            root_key="mcpServers",
+            dialect=Dialect.CLAUDE,
+            born_pending=True,
+        ),
+    }
+)
+"""Where each (runtime, scope) pair reads MCP servers — **and the function is partial**.
+
+Skills have a destination for all 76 rows in project scope; MCP has one, and
+that asymmetry is the shape of the whole class rather than a gap in the
+transcription. There is **no canonical format** — measured, the same server has
+three root keys, three file names and three secret spellings across three
+targets, and the MCP spec itself documents the absence (SEP-2633). So a row here
+is a target somebody rendered and measured, never a path copied from a list.
+
+Where the pair has no row the pair **does not exist**: `overpower.planning`
+refuses the whole line with exit 3 rather than inventing a file, which is ADR
+0009's reading applied to the second axis. The remaining targets and the machine
+scope are https://github.com/panlabs-tech/overpower/issues/79, /issues/80 and
+/issues/81.
+"""
+
+
+@dataclass(frozen=True)
+class McpPlace:
+    """One document a graft lands in, and every selected runtime that reads it.
+
+    The graft twin of what `places_of` answers for the copy class, and it
+    collapses runtimes onto a place for the same reason (ADR 0008): three
+    runtimes read `.mcp.json`, so announcing a runtime would promise one target
+    and equip several.
+    """
+
+    path: Path
+    document: McpDocument
+    readers: tuple[str, ...]
+
+
+def mcp_document_of(runtime: Runtime, scope: Scope) -> McpDocument | None:
+    """Where `runtime` reads MCP servers in `scope`, or `None` when the pair has none.
+
+    `None` is a real answer and not a failure — the caller has to refuse the
+    runtime rather than invent a file for it, the same contract
+    `resolve_global_dir` already has.
+    """
+    return MCP_DOCUMENTS.get((runtime.key, scope))
+
+
+def mcp_runtimes_in(scope: Scope) -> tuple[str, ...]:
+    """The runtime keys that can receive an MCP server in `scope`, in table order.
+
+    One implementation, so the refusal and every screen that lists the
+    alternatives cannot disagree about who is on it — the same reason
+    `runtimes_in` is single.
+    """
+    return tuple(
+        runtime.key for runtime in runtimes_in(scope) if mcp_document_of(runtime, scope) is not None
+    )
+
+
+def mcp_places_of(runtimes: Sequence[Runtime], scope: Scope, root: Path) -> tuple[McpPlace, ...]:
+    """Each distinct document `runtimes` read in `scope`, with all of its readers.
+
+    `root` is what the destinations hang off — the repository in project scope,
+    the home in global — exactly as it is for the copy class, so this needs no
+    `Environment`: the anchors a machine-scope MCP document would hang off are
+    https://github.com/panlabs-tech/overpower/issues/81, and until then every row
+    of the table is a plain relative path under the root.
+
+    A runtime with no document in `scope` is **skipped**, not guessed at: the
+    caller refuses the line before this runs, and refusing twice in two places
+    would be two chances to word it differently.
+    """
+    grouped: dict[Path, tuple[McpDocument, list[str]]] = {}
+    for runtime in runtimes:
+        document = mcp_document_of(runtime, scope)
+        if document is None:
+            continue
+        path = _join(root, document.relative)
+        grouped.setdefault(path, (document, []))[1].append(runtime.key)
+    return tuple(
+        McpPlace(path=path, document=document, readers=tuple(readers))
+        for path, (document, readers) in grouped.items()
+    )
 
 
 def runtimes_in(scope: Scope) -> tuple[Runtime, ...]:

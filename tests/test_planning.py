@@ -15,7 +15,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from overpower.discovery import load_catalog
-from overpower.planning import DirectoryTree, Request, WriteMode, plan_for
+from overpower.planning import DirectoryTree, DocumentKey, Request, WriteMode, plan_for
+from overpower.rendering import Fragment
 from overpower.runtimes import Environment, Scope
 from tests.support.project import CLAUDE, catalog_of, joined, run, target
 
@@ -49,6 +50,89 @@ def test_the_copy_class_lands_in_a_folder_and_the_planner_says_which(
         DirectoryTree(path=root / CLAUDE / "alpha")
     ]
     assert [write.mode for write in plan.writes] == [WriteMode.COPY]
+
+
+def test_the_graft_class_lands_in_a_document_and_the_planner_says_which_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other half of the two-form destination, and the one the model reserved.
+
+    The plan carries the **rendered fragment** as the write's origin, not a path
+    and not the recipe: a writer that re-rendered could disagree with the screen
+    by construction, and no test written afterwards would close that.
+    """
+    # given
+    content = catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": "https://mcp.example.com/mcp"})
+    root = target(tmp_path, monkeypatch)
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+
+    plan = plan_for(
+        Request(mcps=("cloudflare",), runtimes=("claude-code",), scope=Scope.PROJECT),
+        catalog,
+        root,
+        Environment.from_process(),
+    )
+
+    assert [write.destination for write in plan.writes] == [
+        DocumentKey(path=root / ".mcp.json", key="mcpServers.cloudflare")
+    ]
+    assert [write.mode for write in plan.writes] == [WriteMode.GRAFT]
+    assert [write.source for write in plan.writes] == [
+        Fragment(
+            root_key="mcpServers",
+            name="cloudflare",
+            value={"type": "http", "url": "https://mcp.example.com/mcp"},
+        )
+    ]
+
+
+def test_a_runtime_with_no_mcp_document_refuses_the_whole_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """ADR 0009 on the second axis, and the refusal covers the copy half too.
+
+    Writing the skill and dropping the server would be the *"success with the
+    wrong content"* class — so the line is refused whole, before the first byte,
+    with exit 3 and the runtimes that *can* take a server named.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, "alpha", mcps={"cloudflare": "https://mcp.example.com/mcp"})
+    root = target(tmp_path, monkeypatch)
+
+    code, output = run(
+        capsys,
+        *("install", "--skill", "alpha", "--mcp", "cloudflare"),
+        *("--runtime", "claude-code,cursor"),
+    )
+
+    assert code == 3
+    assert "cursor" in joined(output)
+    assert "claude-code" in joined(output)
+    assert not (root / CLAUDE).exists()
+    assert not (root / ".mcp.json").exists()
+
+
+def test_the_machine_scope_has_no_mcp_document_yet_and_says_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The table is a function of (runtime, **scope**), and it is partial on both axes.
+
+    Where a machine-scope MCP document hangs off is
+    https://github.com/panlabs-tech/overpower/issues/81 — until it answers, the
+    pair does not exist, and inventing `~/.claude.json` would be the guess this
+    product exists not to make.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": "https://mcp.example.com/mcp"})
+    target(tmp_path, monkeypatch)
+
+    code, output = run(
+        capsys, *("install", "--mcp", "cloudflare", "--runtime", "claude-code", "--global")
+    )
+
+    assert code == 3
+    assert "global" in joined(output)
+    assert not (tmp_path / ".mcp.json").exists()
 
 
 def test_comma_and_repetition_both_accumulate(

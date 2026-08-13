@@ -9,7 +9,7 @@ name = "overpower"
 # from the VCS — measured in #2, `hatch-vcs` under `git clone --depth 1` (the
 # default of `actions/checkout`) fails to find the tag, warns, *succeeds*, and
 # publishes an invented version.
-version = "0.6.0"
+version = "0.7.0"
 description = "Installs curated AI Frameworks into a repository or a machine"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -27,9 +27,11 @@ keywords = ["ai", "agent", "skills", "claude", "cursor", "codex"]
 classifiers = [
   # `1 - Planning` was true of the `0.0.x` probe and is the same claim the README
   # notice made; both leave together in
-  # https://github.com/panlabs-tech/overpower/issues/44. It is `3 - Alpha` and
-  # not `4 - Beta` because the graft class of the domain exists in the vocabulary
-  # and is not exercised yet.
+  # https://github.com/panlabs-tech/overpower/issues/44. It stays `3 - Alpha` and
+  # not `4 - Beta`: the graft class is exercised since
+  # https://github.com/panlabs-tech/overpower/issues/76, but for **one** of the
+  # three measured targets and with no slot, so the surface a user meets still
+  # grows ticket by ticket.
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
   "Intended Audience :: Developers",
@@ -47,6 +49,17 @@ dependencies = [
   # `>=2.0,<4.0`, and before 3.0.53 (2026-07-26) the no-TTY case on macOS leaks
   # a raw `OSError` that `except EOFError` does not catch.
   "prompt-toolkit>=3.0.53",
+  # The graft's reader AND its writer, and both halves were forced:
+  # docs/adr/0016-o-diff-aditivo-e-requisito.md. The stdlib does not *read* the
+  # target — `json.loads` over a `.vscode/mcp.json` with a comment raises — and
+  # writing with `json.dumps` reflows servers nobody touched, which breaks the
+  # axiom that makes `git diff` the manifest.
+  #
+  # PACKAGING TRAP, measured: the PyPI package `json-five` installs the module
+  # `json5`, which is also the module name of the PyPI package `json5`. The two
+  # in one environment collide, so a dependency on `json5` must never be added
+  # beside this one.
+  "json-five>=1.1.2",
 ]
 
 [project.urls]
@@ -152,6 +165,13 @@ ignore = [
   "FBT002",  # a boolean *default* is fine; FBT001/FBT003 still guard the call
   "TRY003",  # long messages outside the exception class; EM handles the real trap
 ]
+# `›` is the product's own punctuation for *a key inside a document* —
+# `.mcp.json › mcpServers.cloudflare`, decided with the graft in
+# https://github.com/panlabs-tech/overpower/issues/76. RUF001 is right that it
+# resembles `>`, and that is exactly why it is not `>`: the plan line sits next
+# to lines meant to be pasted into a shell, where `>` reads as a redirect.
+# Allowed once, here, rather than suppressed at each of the sites that draw it.
+allowed-confusables = ["›"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

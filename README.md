@@ -84,7 +84,7 @@ the message: the list is closed, so the defect is in what was typed.
 uvx overpower@latest install --ai-framework matt-pocock --runtime claude-code,cursor
 ```
 
-**The three selectors mix freely on one line**, and each accepts a comma-separated
+**The selectors mix freely on one line**, and each accepts a comma-separated
 value, a repeated flag, or both — they accumulate either way:
 
 | flag | short | unit |
@@ -92,15 +92,49 @@ value, a repeated flag, or both — they accumulate either way:
 | `--ai-framework` | — | an AI Framework, installed whole |
 | `--bundle` | `-b` | a bundle, expanded to the pool artifacts it names |
 | `--skill` | `-s` | one pool skill |
+| `--mcp` | — | one MCP server, written into the runtime's own configuration |
 
 `--ai-framework` has no short flag on purpose: `-f` is spoken for by `--force`,
 and a letter that means one thing on one line and another elsewhere is worse than
-typing the word.
+typing the word. `--mcp` has none because it is already three letters.
 
-A line that mixes all three produces **one** plan, in a fixed order — framework,
-then bundle, then individual artifact. Where two selectors would write the same
-destination the order decides it rather than an error: the individual artifact is
-the most specific unit, so it is the last write and its content is what survives.
+A line that mixes them produces **one** plan, in a fixed order — framework, then
+bundle, then individual artifact, then MCP server. Where two selectors would
+write the same destination the order decides it rather than an error: the
+individual artifact is the most specific unit, so it is the last write and its
+content is what survives.
+
+### `--mcp` — a key inside a file that is yours
+
+The first three selectors **copy**: a folder arrives that was not there, and
+`git status` shows a new file. `--mcp` **grafts**: a key arrives inside a
+document you also edit, and `git diff` shows a change to a file of yours.
+
+```bash
+uvx overpower@latest install --mcp cloudflare --runtime claude-code
+```
+
+Three things follow from the destination being somebody else's file.
+
+**The plan names the file and the key**, not just the file:
+`.mcp.json › mcpServers.cloudflare ← claude-code`. That line is the last thing
+before the write, and it is the one that says which key is about to be replaced.
+
+**The rest of the document arrives byte for byte.** Comments survive, a root key
+nothing here knows survives, and a server that was already there is not
+reformatted — not even its `args` on one line. Writing the file back with a JSON
+serialiser would reflow it, and `git diff` would stop answering what the tool
+actually wrote.
+
+**A server of the same name is overwritten**, without a question and without
+`--force`, the same way an existing folder is. And a configuration file that is
+*already* broken is **refused, never repaired**: editing a file of yours on our
+own initiative is not something an install gets to do.
+
+The server is written and **not turned on**. In Claude Code a server coming from
+`.mcp.json` is born pending approval and does not connect until you approve it,
+so the command says so at the end — at exit 0, because the write happened and
+what is missing is yours to do.
 
 ### Runtimes
 

@@ -23,6 +23,53 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.7.0] - 2026-08-13
+
+### Added
+
+- **`install --mcp` escreve um servidor MCP dentro do arquivo do usuário, e o `git diff`
+  mostra só o que ele escreveu.** `overpower install --mcp cloudflare --runtime claude-code`
+  num repositório git enxerta `mcpServers.cloudflare` no `.mcp.json` da raiz e sai 0. É a
+  **segunda operação de escrita** do modelo — a primeira classe que colide por **chave** e
+  não por caminho —, e ela entra como ramo da fronteira de escrita que já existia:
+  `WriteMode.GRAFT` ao lado de `COPY`, um escritor só.
+
+  **O resto do documento chega byte a byte igual.** Comentário sobrevive, chave raiz
+  desconhecida sobrevive, e um servidor que já estava lá **não é reformatado** — nem os
+  `args` que ele mantinha numa linha. Isso custou uma dependência (`json-five`) e a
+  proibição do `json.dumps` como escritor de enxerto, decidida na
+  [ADR 0016](https://github.com/panlabs-tech/overpower/blob/main/docs/adr/0016-o-diff-aditivo-e-requisito.md):
+  medido, reserializar no melhor caso possível já reflui um servidor que ninguém tocou, e
+  aí o `git diff` deixa de responder o que a ferramenta fez. Indentação por tabs continua
+  tabs, `CRLF` continua `CRLF`, e um comentário no fim do objeto sobrevive à vírgula que a
+  inserção precisa acrescentar.
+
+  **O plano nomeia arquivo e chave antes de confirmar** — `.mcp.json ›
+  mcpServers.cloudflare ← claude-code` —, e essa linha é requisito e não ornamento: chave
+  homônima é **sobrescrita** sem perguntar e sem `--force`
+  ([ADR 0013](https://github.com/panlabs-tech/overpower/blob/main/docs/adr/0013-a-chave-alheia-e-sobrescrita.md)),
+  então ela é a única defesa que o leitor tem. A identidade de três vias ganhou a metade
+  que faltava: toda chave que o plano nomeou existe no documento depois, e nenhuma que ele
+  não nomeou apareceu. **Arquivo de configuração já quebrado é recusado, nunca reparado**,
+  com exit 3 — e o `--dry-run` devolve o mesmo 3, porque a checagem acontece antes do
+  primeiro byte.
+
+  **O servidor nasce desligado e o produto diz isso**
+  ([ADR 0014](https://github.com/panlabs-tech/overpower/blob/main/docs/adr/0014-o-enxerto-nasce-desligado-e-o-produto-diz-isso.md)):
+  no Claude Code um servidor vindo do `.mcp.json` nasce pendente de aprovação e **não
+  conecta**, sem mensagem e sem exit code, então o comando avisa ao final — com exit 0,
+  porque a escrita aconteceu e o que falta é ato do usuário. O aviso só sai onde é verdade.
+
+  Nascem com isso o **leitor de receita** e o **renderizador**, os dois função pura sobre
+  valores, e a **terceira raiz de catálogo**: `catalog/mcps/<slug>.toml`, um arquivo por
+  MCP, descoberta por andar na árvore, na raiz que **nunca aterrissa** — porque o que
+  aterrissa é o fragmento renderizado, não a receita. Transporte fora de `stdio`/`http` e
+  campo que esta versão não renderiza são **erro nomeado no leitor**, nunca aceitação
+  parcial. O primeiro corte tem **um alvo** (Claude Code, escopo de projeto) e **uma
+  receita**, `cloudflare`, que não é inventada: é a configuração que três repositórios
+  desta organização já mantêm à mão, em três cópias que por acaso concordam. ([#76](https://github.com/panlabs-tech/overpower/issues/76))
+
+
 ## [0.6.0] - 2026-08-13
 
 ### Changed

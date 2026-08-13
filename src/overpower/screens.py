@@ -47,8 +47,10 @@ from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 
+from overpower.discovery import Artifact
 from overpower.inspection import DanglingLink, Divergence, LinkTurnedText
 from overpower.planning import DirectoryTree, DocumentKey, WriteMode
+from overpower.recipes import Recipe
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
@@ -56,9 +58,9 @@ if TYPE_CHECKING:
 
     from rich.console import Console, ConsoleOptions, RenderableType, RenderResult
 
-    from overpower.discovery import Artifact, Bundle, Catalog, Framework
+    from overpower.discovery import Bundle, Catalog, Framework
     from overpower.inspection import Diagnosis, Finding, Terminal
-    from overpower.planning import Destination, Landing, Plan, Selection
+    from overpower.planning import Carried, Destination, Landing, Plan, Selection
 
 THEME = Theme(
     {
@@ -116,7 +118,8 @@ those two stop being the same string.
 AI_FRAMEWORK_FLAG = "--ai-framework"
 BUNDLE_FLAG = "--bundle"
 SKILL_FLAG = "--skill"
-"""The three selectors, spelled once for the screen that prints them and the CLI
+MCP_FLAG = "--mcp"
+"""The four selectors, spelled once for the screen that prints them and the CLI
 that declares them.
 
 Same reasoning as `PROGRAM`, and the reason it is not laboured differently: a
@@ -195,6 +198,37 @@ Three and a `(+N)`, which is the shape the prototype settled on: enough to
 recognise the place, short enough that the line still fits at 60 columns next to
 the path it belongs to.
 """
+
+
+@dataclass(frozen=True)
+class _Glyphs:
+    """The two marks a plan line is drawn with, in what this console can encode.
+
+    Measured: neither `←` nor `›` can be encoded in cp1252, which is what a pipe
+    on Windows takes, and rich writes text straight to the file — so a hard-coded
+    pair raises `UnicodeEncodeError` out of the middle of the screen, on the
+    three Windows cells only. `ascii_only` is the same switch rich itself reads
+    to swap the box characters, and it is read off the console about to draw
+    rather than off the platform, so a UTF-8 pipe on Windows keeps both.
+    """
+
+    arrow: str
+    """`place ← who reads it`."""
+
+    into: str
+    """`document › key inside it` — the graft's own separator.
+
+    One spelling of *"a key inside a document"*, shared with the `doctor`: two
+    would be two ways to write the one thing a reader has to recognise across
+    both screens.
+    """
+
+    @classmethod
+    def of(cls, options: ConsoleOptions) -> _Glyphs:
+        """The pair this console can carry."""
+        if options.ascii_only:
+            return cls(arrow="<-", into=">")
+        return cls(arrow="←", into="›")
 
 
 def banner(version: str, width: int) -> RenderableType:
@@ -512,9 +546,9 @@ class _PlanScreen:
     plan: Plan
 
     def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
-        """Draw the panel with the arrow this console can carry."""
+        """Draw the panel with the marks this console can carry."""
         del console
-        yield _plan_panel(self.plan, "<-" if options.ascii_only else "←")
+        yield _plan_panel(self.plan, _Glyphs.of(options))
 
 
 def doctor_screen(diagnosis: Diagnosis) -> RenderableType:
@@ -540,14 +574,14 @@ class _DoctorScreen:
     diagnosis: Diagnosis
 
     def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
-        """Draw both blocks with the arrow this console can carry."""
+        """Draw both blocks with the marks this console can carry."""
         del console
-        arrow = "<-" if options.ascii_only else "←"
+        glyphs = _Glyphs.of(options)
         yield Group(
             *_spaced(
                 (
                     _terminal_block(self.diagnosis.terminal),
-                    _integrity_block(self.diagnosis, arrow),
+                    _integrity_block(self.diagnosis, glyphs),
                 )
             )
         )
@@ -569,18 +603,14 @@ class _Roots:
     def shorten(self, path: Path) -> str:
         """The repository first, then the home, then not at all.
 
-        `/` separators on every platform, deliberately, as on the plan: the
-        runtime table spells its paths that way, `git status` prints them that
-        way on Windows too, and a screen whose separator changes with the
-        platform cannot be recorded once for the nine cells.
-
         A place under neither root is shown whole, because it is not a detail
-        the reader can reconstruct — that is the second write of a graft.
+        the reader can reconstruct — that is the second write of a graft. How
+        each half is spelled is `shortened`'s call.
         """
         if self.repository is not None and path.is_relative_to(self.repository):
-            return path.relative_to(self.repository).as_posix()
+            return shortened(path, self.repository)
         if path.is_relative_to(self.home):
-            return f"~/{path.relative_to(self.home).as_posix()}"
+            return f"~/{shortened(path, self.home)}"
         return path.as_posix()
 
 
@@ -607,7 +637,7 @@ def _no_color(value: str | None) -> str:
     return value if value.strip() else 'set to ""'
 
 
-def _integrity_block(diagnosis: Diagnosis, arrow: str) -> Panel:
+def _integrity_block(diagnosis: Diagnosis, glyphs: _Glyphs) -> Panel:
     """What landed, counted, and everything wrong with it.
 
     The count line says **artifacts and places**, two numbers and never one: an
@@ -622,26 +652,27 @@ def _integrity_block(diagnosis: Diagnosis, arrow: str) -> Panel:
     )
     roots = _Roots(repository=diagnosis.root, home=diagnosis.home)
     found: list[RenderableType] = [
-        _finding(finding, roots, arrow) for finding in diagnosis.findings
+        _finding(finding, roots, glyphs) for finding in diagnosis.findings
     ]
     if not found:
         found = [Text("no findings", style="op.ok")]
     return _block("integrity", "what is installed", [counted, *found])
 
 
-def _finding(finding: Finding, roots: _Roots, arrow: str) -> RenderableType:
+def _finding(finding: Finding, roots: _Roots, glyphs: _Glyphs) -> RenderableType:
     """One thing that is wrong: what class it is, and every path that carries it."""
+    arrow = glyphs.arrow
     match finding:
         case DanglingLink(destination, points_at):
-            place = _located(destination, roots)
+            place = _located(destination, roots, glyphs)
             pointed = "" if points_at is None else f"  {arrow} {points_at}"
             return _flagged("dangling link", [f"{place}{pointed}"])
         case LinkTurnedText(destination, inside, points_at):
-            place = _located(destination, roots)
-            relative = _under(inside, destination.path)
+            place = _located(destination, roots, glyphs)
+            relative = shortened(inside, destination.path)
             return _flagged("link became a text file", [f"{place}  {relative} {arrow} {points_at}"])
         case Divergence(name, _, destinations):
-            places = [_located(destination, roots) for destination in destinations]
+            places = [_located(destination, roots, glyphs) for destination in destinations]
             return _flagged(f"copies of `{name}` differ", places)
         case _ as unreachable:
             assert_never(unreachable)
@@ -663,7 +694,7 @@ def _flagged(headline: str, places: Sequence[str]) -> RenderableType:
     return Group(Text(headline, style="op.warn"), Padding(stacked, (0, 0, 0, 2)))
 
 
-def _located(destination: Destination, roots: _Roots) -> str:
+def _located(destination: Destination, roots: _Roots, glyphs: _Glyphs) -> str:
     """Where a write is, said the shortest way that still names it unambiguously.
 
     The two forms of a destination read differently on purpose: a folder earns a
@@ -677,16 +708,27 @@ def _located(destination: Destination, roots: _Roots) -> str:
         case DirectoryTree():
             return f"{shown}/"
         case DocumentKey(_, key):
-            return f"{shown}#{key}"
+            return f"{shown} {glyphs.into} {key}"
         case _ as unreachable:
             assert_never(unreachable)
 
 
-def _under(path: Path, base: Path) -> str:
-    """A file named against the write it was found in, so the line stays readable."""
+def shortened(path: Path, base: Path) -> str:
+    """`path` named against `base`, with `/` separators — or whole if it is outside.
+
+    `/` on every platform, deliberately: the runtime table spells its paths that
+    way, `git status` prints them that way on Windows too, and a screen whose
+    separator changes with the platform cannot be recorded once for the nine
+    cells of the matrix.
+
+    A path *outside* `base` is shown whole, because it is not a detail the reader
+    can reconstruct. Public because `overpower.cli` prints one path this module
+    does not draw — the activation warning — and two spellings of *where a thing
+    is* would be two answers to the reader's one question.
+    """
     if path.is_relative_to(base):
         return path.relative_to(base).as_posix()
-    return path.as_posix()  # pragma: no cover — the walk starts at the destination
+    return path.as_posix()
 
 
 def error_panel(body: Text) -> Panel:
@@ -748,13 +790,13 @@ class _SummaryScreen:
     def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
         """Draw the compact plan inside a frame that hangs off the rail."""
         del console
-        arrow = "<-" if options.ascii_only else "←"
+        glyphs = _Glyphs.of(options)
         yield _RailPanel(
             "summary",
             Group(
                 *_spaced(
                     [
-                        _planned(selection, self.plan.root, arrow, detailed=False)
+                        _planned(selection, self.plan.root, glyphs, detailed=False)
                         for selection in self.plan.selections
                     ]
                 )
@@ -813,13 +855,13 @@ class _InstalledScreen:
         yield _RailPanel("installed", Group(*_spaced([*blocks, counted])))
 
 
-def _plan_panel(plan: Plan, arrow: str) -> Panel:
+def _plan_panel(plan: Plan, glyphs: _Glyphs) -> Panel:
     """One block, and inside it one group per thing that was asked for."""
     return Panel(
         Group(
             *_spaced(
                 [
-                    _planned(selection, plan.root, arrow, detailed=True)
+                    _planned(selection, plan.root, glyphs, detailed=True)
                     for selection in plan.selections
                 ]
             )
@@ -832,7 +874,9 @@ def _plan_panel(plan: Plan, arrow: str) -> Panel:
     )
 
 
-def _planned(selection: Selection, root: Path, arrow: str, *, detailed: bool) -> RenderableType:
+def _planned(
+    selection: Selection, root: Path, glyphs: _Glyphs, *, detailed: bool
+) -> RenderableType:
     """What one selection brings, **named artifact by artifact**, and every place it lands.
 
     The stacked list is `_contents` — the same function the detail screens of
@@ -874,17 +918,8 @@ def _planned(selection: Selection, root: Path, arrow: str, *, detailed: bool) ->
     places.add_column(ratio=1, overflow="fold")
     places.add_column(justify="right", no_wrap=True)
     for landing in selection.landings:
-        places.add_row(
-            Text.assemble(
-                _shown(root, landing),
-                "  ",
-                (arrow, "op.dim"),
-                " ",
-                (_readers(landing.readers), "op.dim"),
-                *_mode_suffix(landing.mode),
-            ),
-            Text(f"{landing.files} {_plural('file', landing.files)}", style="op.dim"),
-        )
+        for line, counted in _place_rows(landing, root, glyphs):
+            places.add_row(line, counted)
     head = Text.assemble(
         (selection.name, "op.key"), "  ", (_carries(selection.artifacts), "op.dim")
     )
@@ -897,6 +932,46 @@ def _planned(selection: Selection, root: Path, arrow: str, *, detailed: bool) ->
         Padding(_contents(selection.artifacts), (1, 0, 1, 2)),
         Padding(places, (0, 0, 0, 2)),
     )
+
+
+def _place_rows(landing: Landing, root: Path, glyphs: _Glyphs) -> Iterable[tuple[Text, Text]]:
+    """The rows one landing draws: **one per folder, one per key**.
+
+    The two forms of a destination read differently because they *are*
+    different: a copy lands in a folder and costs files, a graft lands in a key
+    inside a document that is already there and costs no path at all. Naming the
+    document alone would leave the key off the last screen before the write —
+    see `overpower.planning.DocumentKey.key` for why that key is the whole of
+    the reader's defence.
+    """
+    if landing.folder:
+        yield (
+            Text.assemble(
+                _shown(root, landing),
+                "  ",
+                (glyphs.arrow, "op.dim"),
+                " ",
+                (_readers(landing.readers), "op.dim"),
+                *_mode_suffix(landing.mode),
+            ),
+            Text(f"{landing.files} {_plural('file', landing.files)}", style="op.dim"),
+        )
+        return
+    for key in landing.keys:
+        yield (
+            Text.assemble(
+                _shown(root, landing),
+                " ",
+                (glyphs.into, "op.dim"),
+                " ",
+                (key, "op.key"),
+                "  ",
+                (glyphs.arrow, "op.dim"),
+                " ",
+                (_readers(landing.readers), "op.dim"),
+            ),
+            Text("1 key", style="op.dim"),
+        )
 
 
 def _mode_suffix(mode: WriteMode) -> tuple[tuple[str, str], ...]:
@@ -914,19 +989,16 @@ def _mode_suffix(mode: WriteMode) -> tuple[tuple[str, str], ...]:
 
 
 def _shown(root: Path, landing: Landing) -> str:
-    """The place, as the plan names it: relative to the target, with `/` separators.
+    """The place, as the plan names it — and a folder earns a trailing separator.
 
-    `/` on every platform, deliberately. The runtime table spells its paths that
-    way, `git status` prints them that way on Windows too, and a screen whose
-    separator changes with the platform cannot be recorded once for the nine
-    cells of the matrix.
+    How it is spelled is `shortened`'s call; what this adds is the one thing the
+    plan knows and it does not: whether the place is a folder or a document.
 
     A place *outside* the target is shown whole, because it is not a detail the
     reader can reconstruct — that is the second write of a graft, which lands
     outside the repository.
     """
-    inside = landing.place.is_relative_to(root)
-    shown = landing.place.relative_to(root).as_posix() if inside else landing.place.as_posix()
+    shown = shortened(landing.place, root)
     return f"{shown}/" if landing.folder else shown
 
 
@@ -937,15 +1009,31 @@ def _readers(keys: Sequence[str]) -> str:
     return f"{shown} (+{rest})" if rest > 0 else shown
 
 
-def _carries(artifacts: Sequence[Artifact]) -> str:
+def _carries(artifacts: Sequence[Carried]) -> str:
     """`22 skills`, or `4 artifacts` when a selection mixes types.
 
     A framework may mix skill, command and agent — the type comes from the tree
     (rule 8) — so the noun is data and not a constant.
     """
-    kinds = {artifact.type for artifact in artifacts}
-    noun = str(next(iter(kinds))) if len(kinds) == 1 else "artifact"
+    kinds = {_kind(item) for item in artifacts}
+    noun = next(iter(kinds)) if len(kinds) == 1 else "artifact"
     return f"{len(artifacts)} {_plural(noun, len(artifacts))}"
+
+
+def _kind(item: Carried) -> str:
+    """What one carried thing is called on screen.
+
+    An artifact answers with the type its folder gave it; a recipe answers `mcp
+    server`, which is what it is — the noun is not `mcp`, because what lands is
+    a server and the protocol is not the thing being installed.
+    """
+    match item:
+        case Artifact():
+            return str(item.type)
+        case Recipe():
+            return "mcp server"
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
 def _block(title: str, note: str, entries: Sequence[RenderableType]) -> Panel:
@@ -1036,7 +1124,7 @@ def _commands(commands: Sequence[str]) -> RenderableType:
     return stacked
 
 
-def _contents(artifacts: Sequence[Artifact]) -> RenderableType:
+def _contents(artifacts: Sequence[Carried]) -> RenderableType:
     """The artifacts an item carries, one per line, type first.
 
     The type column is dim and the name is cyan, so a line reads as *what kind*
@@ -1062,7 +1150,7 @@ def _contents(artifacts: Sequence[Artifact]) -> RenderableType:
     stacked.add_column(overflow="fold")
     stacked.add_column(overflow="fold")
     for artifact in artifacts:
-        stacked.add_row(Text(artifact.type, style="op.dim"), Text(artifact.name, style="op.key"))
+        stacked.add_row(Text(_kind(artifact), style="op.dim"), Text(artifact.name, style="op.key"))
     return stacked
 
 

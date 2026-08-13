@@ -172,7 +172,12 @@ def run_wizard(  # noqa: PLR0913 — the five the steps need, plus the console t
     place for the theme and the width to be decided.
     """
     ai_frameworks, bundles, skills = asked.ai_frameworks, asked.bundles, asked.skills
-    if not (ai_frameworks or bundles or skills):
+    # `asked.mcps` is a selection like the other three, so a line that names one
+    # has already answered this step — the wizard opens the gaps and not the
+    # steps. What it does *not* yet do is offer MCP servers to pick, or scope the
+    # runtime step to the ones that can take one, which is
+    # https://github.com/panlabs-tech/overpower/issues/85.
+    if not (ai_frameworks or bundles or skills or asked.mcps):
         if catalog is None:  # pragma: no cover — `overpower.cli` decides the two together
             message = "the artifacts step opened with no catalog to read"
             raise AssertionError(message)

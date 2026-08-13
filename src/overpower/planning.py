@@ -51,14 +51,25 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from overpower.errors import BadInvocationError, RefusedError
-from overpower.runtimes import RUNTIMES_BY_KEY, Scope, places_of, runtimes_in
+from overpower.grafting import read_document, refuse_if_broken
+from overpower.rendering import Fragment, render
+from overpower.runtimes import (
+    RUNTIMES_BY_KEY,
+    Scope,
+    mcp_document_of,
+    mcp_places_of,
+    mcp_runtimes_in,
+    places_of,
+    runtimes_in,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
     from pathlib import Path
 
     from overpower.discovery import Artifact, Bundle, Catalog, Framework
-    from overpower.runtimes import Environment, Runtime
+    from overpower.recipes import Recipe
+    from overpower.runtimes import Environment, McpPlace, Runtime
 
 
 class WriteMode(StrEnum):
@@ -78,6 +89,15 @@ class WriteMode(StrEnum):
     COPY = "copy"
     LINK = "link"
     JUNCTION = "junction"
+    GRAFT = "graft"
+    """A key written **inside a document the user also edits**.
+
+    The second operation of the model, and the one `domain.md` reserved the
+    shape for: a copy collides by *path* and shows up in `git status` as a new
+    file, a graft collides by *key* and shows up in `git diff` as a change to a
+    file that is theirs. It is a mode and not a second writer because the write
+    boundary stays single — `overpower.writing` gains a branch, not a sibling.
+    """
 
 
 @dataclass(frozen=True)
@@ -95,9 +115,10 @@ class DocumentKey:
     """A key inside a document the user also edits — the graft class.
 
     Collision is of *key*: in `git diff` it shows up as a change to a file that
-    is theirs. Nothing in v0.1.0 constructs one — there is no MCP server and no
-    hook in the catalog — and the form exists anyway, because the flow must not
-    assume *"one artifact, one write, all of it inside the target"*.
+    is theirs. `key` is the **whole path** to it — `mcpServers.cloudflare` —
+    because that is what the plan prints, and with unconditional overwriting
+    (ADR 0013) that line is the only chance the reader has to notice the key
+    about to be replaced is one of theirs.
     """
 
     path: Path
@@ -112,11 +133,26 @@ Destination = DirectoryTree | DocumentKey
 class Write:
     """One landing: where it comes from, where it goes, and how it gets there."""
 
-    source: Path
+    source: Path | Fragment
+    """A directory to copy, **or the rendered fragment to graft**.
+
+    A graft has no source path — nothing on disk is being moved — so the origin
+    of a write became one of two things when the second operation arrived. The
+    alternative was for the writer to re-render the recipe, and *"the writer
+    consumes the plan and nothing beyond it"* is precisely what makes the plan
+    and the disk unable to disagree.
+    """
+
     destination: Destination
     mode: WriteMode
     files: int
-    """How many files this write puts on disk. The screen adds them up."""
+    """How many files this write puts on disk. The screen adds them up.
+
+    One for a graft: the document is a file, and writing a key into it writes
+    that file. What the *plan* counts for a graft is keys, not files — a folder
+    row and a document row measure different things — but the report at the end
+    counts what landed on disk, and one file did.
+    """
 
 
 @dataclass(frozen=True)
@@ -142,8 +178,28 @@ class Landing:
 
     @property
     def folder(self) -> bool:
-        """Whether `place` is a folder, which is what earns a trailing separator."""
+        """Whether `place` is a folder, which is what earns a trailing separator.
+
+        Uniform by construction, the way `mode` is: the form of a destination
+        follows from the **place**, and a place is either a directory runtimes
+        read or a document they parse — never both. `all` rather than the first
+        write because that is the claim, and a landing that ever mixed the two
+        would answer *document* here and be read as one.
+        """
         return all(isinstance(write.destination, DirectoryTree) for write in self.writes)
+
+    @property
+    def keys(self) -> tuple[str, ...]:
+        """The document keys this landing writes, empty for the copy class.
+
+        What a graft costs is counted in keys and never in paths: it creates no
+        path, so the screen and the identity assertion both read this instead.
+        """
+        return tuple(
+            write.destination.key
+            for write in self.writes
+            if isinstance(write.destination, DocumentKey)
+        )
 
     @property
     def mode(self) -> WriteMode:
@@ -157,12 +213,22 @@ class Landing:
         return self.writes[0].mode
 
 
+type Carried = Artifact | Recipe
+"""What a selection brings: a directory to copy, or a server to declare.
+
+A union rather than one widened type, and for the same reason `Destination` is
+one: an `Artifact` is a directory with a weight, a `Recipe` is a declaration
+with none, and a value that had to spell both would lie about half of its fields
+on every instance.
+"""
+
+
 @dataclass(frozen=True)
 class Selection:
     """One thing the user asked for, and everywhere it lands."""
 
     name: str
-    artifacts: tuple[Artifact, ...]
+    artifacts: tuple[Carried, ...]
     """One entry per artifact this selection brings, so the screen can count and name them.
 
     The artifacts themselves and not just their types, because the plan **names**
@@ -217,6 +283,14 @@ class Request:
     ai_frameworks: tuple[str, ...] = ()
     bundles: tuple[str, ...] = ()
     skills: tuple[str, ...] = ()
+    mcps: tuple[str, ...] = ()
+    """The MCP servers named, a fourth independent selector.
+
+    A line may mix it with the other three — the line is the manifest, and the
+    manifest cannot be two lines — so it accumulates the same way they do and is
+    refused the same way when nothing at all was named.
+    """
+
     runtimes: tuple[str, ...] = ()
     scope: Scope = Scope.PROJECT
     force: bool = False
@@ -295,7 +369,7 @@ class NothingSelectedError(BadInvocationError):
     def __init__(self) -> None:
         """Say that nothing was named, and what naming something looks like."""
         super().__init__(
-            "nothing to install: name at least one --skill, --ai-framework or --bundle"
+            "nothing to install: name at least one --skill, --ai-framework, --bundle or --mcp"
         )
 
 
@@ -307,6 +381,34 @@ class UnknownSkillError(BadInvocationError):
         self.name = name
         listed = ", ".join(sorted(known)) or "empty"
         super().__init__(f"unknown skill `{name}`; the pool is: {listed}")
+
+
+class NoMcpDocumentError(RefusedError):
+    """A selected runtime has nowhere to receive an MCP server in this scope.
+
+    ADR 0009's reading, applied to the second axis: destination is a function of
+    (type, runtime, scope), the function is **partial**, and where it is not
+    defined the pair does not exist. Asking for one is a valid invocation with a
+    negative answer — exit 3 — and the whole line is refused, never half of it:
+    writing the skills of `--skill a --mcp b --runtime cursor` and dropping the
+    server would be the *"success with the wrong content"* class this product
+    exists to avoid.
+
+    There is no canonical MCP format to fall back on — measured, the same server
+    has three root keys and three file names across three targets, and the MCP
+    spec documents the absence itself — so a runtime with no row is a runtime
+    nobody has rendered for, not a runtime whose path we merely have not typed.
+    """
+
+    def __init__(self, key: str, scope: Scope) -> None:
+        """Name the runtime, the scope, and every runtime that *can* take one."""
+        self.key = key
+        self.scope = scope
+        listed = ", ".join(mcp_runtimes_in(scope)) or "none of them"
+        super().__init__(
+            f"`{key}` has no MCP document in {scope} scope; "
+            f"the runtimes that take one there are: {listed}"
+        )
 
 
 class DestinationExistsError(RefusedError):
@@ -347,21 +449,96 @@ def plan_for(request: Request, catalog: Catalog, root: Path, environment: Enviro
     it is unused and still required in project scope, because a function whose
     shape changes with its own input is a harder one to call correctly.
     """
-    if not (request.ai_frameworks or request.bundles or request.skills):
+    if not (request.ai_frameworks or request.bundles or request.skills or request.mcps):
         raise NothingSelectedError
     frameworks = _selected_frameworks(request.ai_frameworks, catalog)
     bundles = _selected_bundles(request.bundles, catalog)
     skills = _selected_skills(request.skills, catalog)
+    mcps = _selected_mcps(request.mcps, catalog)
     runtimes = _selected_runtimes(request.runtimes, request.scope)
+    if mcps:
+        # Before the first `Selection` is built, so the refusal costs no screen
+        # and no byte — and for the whole line, never for the half of it that
+        # happens to have a destination.
+        _refuse_a_runtime_with_no_document(runtimes, request.scope)
     landings = places_of(runtimes, request.scope, root, environment)
+    documents = mcp_places_of(runtimes, request.scope, root)
     return Plan(
         root=root,
         selections=(
             *(_framework_selection(framework, landings, request.scope) for framework in frameworks),
             *(_bundle_selection(bundle, landings, request.scope) for bundle in bundles),
             *(_skill_selection(artifact, landings, request.scope) for artifact in skills),
+            *(_mcp_selection(recipe, documents) for recipe in mcps),
         ),
     )
+
+
+def refuse_broken_documents(plan: Plan) -> None:
+    """Refuse before the first byte if a document this plan grafts into is broken.
+
+    Here rather than in `overpower.writing` because of **`--dry-run`**: the
+    report has to mirror the exit code of the real run, and a check that only
+    the writer ran would let the dry run answer 0 to a line the real one refuses
+    with 3. It is also what makes the refusal land before the first byte on a
+    line that mixes a copy with a graft — the writer would already have written
+    the skills by the time it reached the document.
+
+    It raises rather than answering, unlike `existing_destinations`: a broken
+    file has no second reading a terminal could turn into a question.
+
+    It reads **every write** and not every path, because what makes a document
+    unusable is the pair (file, root key): a `mcpServers` that is a string
+    parses and still has nowhere to receive a server.
+    """
+    for write in plan.writes:
+        destination = write.destination
+        source = write.source
+        if (
+            isinstance(destination, DocumentKey)
+            and isinstance(source, Fragment)
+            and destination.path.is_file()
+        ):
+            refuse_if_broken(destination.path, read_document(destination.path), source.root_key)
+
+
+def pending_activation(plan: Plan, scope: Scope) -> tuple[Path, ...]:
+    """Documents whose grafts are born inert until the user approves them.
+
+    ADR 0014: the overpower writes the server and does **not** turn it on, and
+    the warning is a requirement rather than a courtesy — without it the product
+    ships exactly the failure the research named, a file written, exit 0, and a
+    server that never connects with no sign anywhere.
+
+    It answers off the same table that decided the document, so *"where the
+    warning is true"* and *"where the file is"* cannot drift apart. Where it is
+    not true it says nothing: a warning that appears everywhere is a warning
+    nobody reads.
+    """
+    found = {
+        landing.place
+        for selection in plan.selections
+        for landing in selection.landings
+        if any(isinstance(write.destination, DocumentKey) for write in landing.writes)
+        and _born_pending(landing.readers, scope)
+    }
+    return tuple(sorted(found))
+
+
+def _born_pending(readers: Sequence[str], scope: Scope) -> bool:
+    """Whether any runtime reading this place leaves the server waiting for a human."""
+    for key in readers:
+        document = mcp_document_of(RUNTIMES_BY_KEY[key], scope)
+        if document is not None and document.born_pending:
+            return True
+    return False
+
+
+def _refuse_a_runtime_with_no_document(runtimes: Sequence[Runtime], scope: Scope) -> None:
+    """Refuse the line if any selected runtime cannot receive a server in `scope`."""
+    for runtime in runtimes:
+        if mcp_document_of(runtime, scope) is None:
+            raise NoMcpDocumentError(runtime.key, scope)
 
 
 def existing_destinations(plan: Plan, request: Request) -> tuple[Path, ...]:
@@ -402,6 +579,42 @@ def _skill_selection(
 ) -> Selection:
     """One pool artifact, landing in every selected place."""
     return _grouped_selection(artifact.name, (artifact,), places, scope)
+
+
+def _mcp_selection(recipe: Recipe, documents: Sequence[McpPlace]) -> Selection:
+    """One MCP server, rendered once per document it lands in.
+
+    Rendering happens **here** and the fragment travels in the plan, so the key
+    the screen names and the key the writer inserts are the same value read
+    twice — the graft half of *"the writer consumes the plan and nothing beyond
+    it"*.
+
+    There is no ladder and no canonical landing: a graft copies nothing, so
+    there is nothing for a second place to link to. Every document gets the
+    fragment its own dialect asks for.
+    """
+    return Selection(
+        name=recipe.name,
+        artifacts=(recipe,),
+        landings=tuple(_graft_landing(recipe, place) for place in documents),
+    )
+
+
+def _graft_landing(recipe: Recipe, place: McpPlace) -> Landing:
+    """The document, everyone who reads it, and the one key that lands in it."""
+    fragment = render(recipe, place.document)
+    return Landing(
+        place=place.path,
+        readers=place.readers,
+        writes=(
+            Write(
+                source=fragment,
+                destination=DocumentKey(place.path, fragment.dotted),
+                mode=WriteMode.GRAFT,
+                files=1,
+            ),
+        ),
+    )
 
 
 def _grouped_selection(
@@ -506,6 +719,18 @@ def _selected_skills(names: Sequence[str], catalog: Catalog) -> tuple[Artifact, 
         if artifact is None:
             raise UnknownSkillError(name, pool)
         chosen[name] = artifact
+    return tuple(chosen.values())
+
+
+def _selected_mcps(names: Sequence[str], catalog: Catalog) -> tuple[Recipe, ...]:
+    """The MCP recipes named, deduplicated, in the order they were typed.
+
+    Lookup goes through `Catalog.mcp`, the same closed-list error the other
+    three units answer with — one place names what the catalog does not have.
+    """
+    chosen: dict[str, Recipe] = {}
+    for name in names:
+        chosen[name] = catalog.mcp(name)
     return tuple(chosen.values())
 
 

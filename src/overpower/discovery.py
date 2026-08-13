@@ -31,15 +31,27 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from overpower.errors import BadInvocationError, OverpowerError
+from overpower.recipes import RECIPE_SUFFIX, read_recipe
 from overpower.written import read_written_catalog
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
     from pathlib import Path
 
+    from overpower.recipes import Recipe
+
 POOL_DIR = "pool"
 FRAMEWORKS_DIR = "frameworks"
 SKILL_FILE = "SKILL.md"
+
+MCPS_DIR = "mcps"
+"""The third discovery root, and the only one outside `content/`.
+
+A recipe **never lands** — what lands is the fragment rendered out of it — so it
+cannot live under the root whose invariant is *100% lands*. It sits beside the
+written file instead, inside the root that lands nothing, discovered by walking
+exactly as the other two are (`docs/agents/domain.md`).
+"""
 
 
 class ArtifactType(StrEnum):
@@ -47,9 +59,13 @@ class ArtifactType(StrEnum):
 
     The set is closed: destination is a function of (type, runtime, scope) —
     rule 8, ADR 0006 — so a type nobody wrote a destination for cannot be
-    installed, and discovering one silently would ship that hole. v0.1.0 copies
-    files only; the graft classes (MCP server, hook) join the set when the
-    operation that lands them exists, which is the trigger this error is for.
+    installed, and discovering one silently would ship that hole.
+
+    It is the closed set of **type folders under a content root**, which is why
+    the MCP server is not on it even though the operation that lands one now
+    exists: a recipe does not land, so it is not content, and it is discovered
+    from the other root by `discover_mcps`. The hook is still to come, and it
+    *will* join this set — it is contract **and** tree, so part of it is content.
     """
 
     SKILL = "skill"
@@ -143,6 +159,14 @@ class Catalog:
     frameworks: tuple[Framework, ...]
     pool: tuple[Artifact, ...]
     bundles: tuple[Bundle, ...]
+    mcps: tuple[Recipe, ...] = ()
+    """The MCP recipes, which are a fourth thing to know and not a fourth unit.
+
+    A server is an artifact of the pool in the model — it is chosen alone and it
+    is not composed — and it sits in its own field for one mechanical reason: it
+    is not an `Artifact`, because an `Artifact` is a directory that gets copied
+    and a recipe is a declaration that gets rendered.
+    """
 
     def framework(self, name: str) -> Framework:
         """The AI Framework by that name, or the error carrying the closed list."""
@@ -155,6 +179,10 @@ class Catalog:
     def bundle(self, name: str) -> Bundle:
         """The bundle by that name, or the error carrying the closed list."""
         return _named("bundle", name, {item.name: item for item in self.bundles})
+
+    def mcp(self, name: str) -> Recipe:
+        """The MCP recipe by that name, or the error carrying the closed list."""
+        return _named("MCP server", name, {item.name: item for item in self.mcps})
 
 
 class UnknownArtifactTypeError(OverpowerError):
@@ -220,7 +248,13 @@ class UnknownNameError(BadInvocationError):
 
 
 def load_catalog(content_root: Path, catalog_file: Path) -> Catalog:
-    """The whole catalog: the tree, plus the one line per thing the tree cannot know."""
+    """The whole catalog: the tree, plus the one line per thing the tree cannot know.
+
+    The recipes are read from `mcps/` **beside** `catalog_file`, and the sibling
+    relationship is the decision rather than a shortcut: the written file and the
+    recipes are the two things inside the root that never lands, so one address
+    locates both and there is no second root to keep pointed at the first.
+    """
     written = read_written_catalog(catalog_file)
     pool = discover_pool(content_root / POOL_DIR)
     by_name = {artifact.name: artifact for artifact in pool}
@@ -237,6 +271,27 @@ def load_catalog(content_root: Path, catalog_file: Path) -> Catalog:
         frameworks=discover_frameworks(content_root / FRAMEWORKS_DIR, written.frameworks),
         pool=pool,
         bundles=bundles,
+        mcps=discover_mcps(catalog_file.parent / MCPS_DIR),
+    )
+
+
+def discover_mcps(mcps_root: Path) -> tuple[Recipe, ...]:
+    """Every recipe under `<mcps>/<slug>.toml`, sorted by slug.
+
+    One file per MCP, and the stem is the slug: the tree is the catalog (rule 8),
+    so a recipe registers nothing anywhere and adding one is adding a file.
+    Anything that is not a `.toml` is ignored the way a loose file in a type
+    folder is — the measured blind spot of discovery-by-convention
+    (https://github.com/panlabs-tech/overpower/issues/10) — and a root that does
+    not exist yields nothing, because a content tree may legitimately carry no
+    recipes at all.
+    """
+    if not mcps_root.is_dir():
+        return ()
+    return tuple(
+        read_recipe(path)
+        for path in sorted(mcps_root.iterdir(), key=lambda entry: entry.name)
+        if path.is_file() and path.suffix == RECIPE_SUFFIX
     )
 
 

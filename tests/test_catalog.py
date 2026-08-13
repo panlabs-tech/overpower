@@ -73,6 +73,22 @@ def write_catalog_file(tmp_path: Path, body: str) -> Path:
     return path
 
 
+def write_mcp(tmp_path: Path, name: str, url: str = "https://mcp.example.com/mcp") -> Path:
+    """One recipe, in the third discovery root — beside the written file.
+
+    It never lands, so it cannot live under the root whose invariant is *100%
+    lands*; it lives in the root that lands nothing, one file per server.
+    """
+    path = tmp_path / "catalog" / "mcps" / f"{name}.toml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f'description = "The {name} server."\ntransport = "http"\n\n[server]\nurl = "{url}"\n',
+        encoding="utf-8",
+        newline="\n",
+    )
+    return path
+
+
 WRITTEN = """
 [bundles.api-python]
 description = "Equipment for working on a Python API."
@@ -353,6 +369,71 @@ def test_a_skill_added_to_the_tree_appears_without_touching_the_written_file(
 
 
 # --------------------------------------------------------------------------- #
+# the third root: MCP recipes
+# --------------------------------------------------------------------------- #
+
+
+def test_a_recipe_dropped_in_the_third_root_is_discovered_by_walking(tmp_path: Path) -> None:
+    """Rule 8 again, one root over: adding a server is adding a file."""
+    # given
+    content = write_content(tmp_path)
+    catalog_path = write_catalog_file(tmp_path, WRITTEN)
+    write_mcp(tmp_path, "cloudflare")
+
+    catalog = load_catalog(content, catalog_path)
+
+    assert [recipe.name for recipe in catalog.mcps] == ["cloudflare"]
+    assert catalog.mcp("cloudflare").description == "The cloudflare server."
+
+
+def test_recipes_come_back_sorted_by_slug(tmp_path: Path) -> None:
+    """`iterdir` answers in the filesystem's order, and a screen needs one of ours."""
+    # given
+    content = write_content(tmp_path)
+    catalog_path = write_catalog_file(tmp_path, WRITTEN)
+    for name in ("hostinger-vps", "cloudflare", "github"):
+        write_mcp(tmp_path, name)
+
+    catalog = load_catalog(content, catalog_path)
+
+    assert [recipe.name for recipe in catalog.mcps] == ["cloudflare", "github", "hostinger-vps"]
+
+
+def test_a_file_that_is_not_a_recipe_is_not_an_mcp(tmp_path: Path) -> None:
+    """The same blind spot #10 measured for a loose file in a type folder."""
+    # given
+    content = write_content(tmp_path)
+    catalog_path = write_catalog_file(tmp_path, WRITTEN)
+    write_mcp(tmp_path, "cloudflare")
+    (tmp_path / "catalog" / "mcps" / "README.md").write_text("not a recipe\n", encoding="utf-8")
+
+    catalog = load_catalog(content, catalog_path)
+
+    assert [recipe.name for recipe in catalog.mcps] == ["cloudflare"]
+
+
+def test_a_catalog_root_with_no_recipes_at_all_is_a_catalog_with_no_mcps(tmp_path: Path) -> None:
+    """A tree may legitimately carry none, so the absent root is not a failure."""
+    catalog = load_catalog(write_content(tmp_path), write_catalog_file(tmp_path, WRITTEN))
+
+    assert catalog.mcps == ()
+
+
+def test_an_mcp_name_the_catalog_does_not_have_carries_the_whole_closed_list(
+    tmp_path: Path,
+) -> None:
+    # given
+    write_mcp(tmp_path, "cloudflare")
+    catalog = load_catalog(write_content(tmp_path), write_catalog_file(tmp_path, WRITTEN))
+
+    with pytest.raises(UnknownNameError) as raised:
+        catalog.mcp("typo")
+
+    assert "cloudflare" in str(raised.value)
+    assert isinstance(raised.value, BadInvocationError)
+
+
+# --------------------------------------------------------------------------- #
 # the tree that ships
 # --------------------------------------------------------------------------- #
 
@@ -369,3 +450,4 @@ def test_the_packaged_roots_resolve_to_a_loadable_catalog() -> None:
     assert catalog.frameworks
     assert catalog.pool
     assert catalog.bundles
+    assert catalog.mcps

@@ -54,14 +54,16 @@ import os
 import shutil
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from overpower.errors import OverpowerError
+from overpower.grafting import EMPTY_DOCUMENT, grafted, read_document, write_document
 from overpower.planning import DirectoryTree, DocumentKey, WriteMode
+from overpower.rendering import Fragment
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
     from overpower.planning import Destination, Plan, Write
 
@@ -98,13 +100,14 @@ class WriteFailedError(OverpowerError):
 
 
 class UnsupportedWriteError(OverpowerError):
-    """The plan asks for an operation this version does not have.
+    """The plan asks for an operation this dispatch has no branch for.
 
-    Two axes reach here, and both are open by design rather than by oversight: a
-    destination that is a **document and a key** — the graft class, which joins
-    in v0.2 — and a mode that is **link or junction**, which is how the global
-    scope lands. Refusing by name is the trigger; answering with a copy would be
-    the silent wrong answer this product exists to avoid.
+    Both operations exist now — a tree that is copied and a key that is grafted
+    — so what reaches here is a **pair that does not go together**: a document
+    key asked for by copy, a folder asked for by graft, or a graft whose origin
+    is a path instead of a rendered fragment. Refusing by name is the trigger;
+    answering with a copy would be the silent wrong answer this product exists
+    to avoid.
     """
 
     def __init__(self, destination: Destination, mode: WriteMode) -> None:
@@ -159,15 +162,18 @@ def _perform(write: Write) -> WriteMode:
     Returns the mode that actually landed, which is `write.mode` on the happy
     path and `WriteMode.COPY` wherever a link or a junction degraded.
     """
-    match write.destination, write.mode:
-        case DirectoryTree(path), WriteMode.COPY:
-            _land_tree(write.source, path)
+    match write.destination, write.mode, write.source:
+        case DirectoryTree(path), WriteMode.COPY, Path() as origin:
+            _land_tree(origin, path)
             return WriteMode.COPY
-        case DirectoryTree(path), WriteMode.LINK:
-            return _land_link(write.source, path)
-        case DirectoryTree(path), WriteMode.JUNCTION:
-            return _land_junction(write.source, path)
-        case destination, mode:
+        case DirectoryTree(path), WriteMode.LINK, Path() as origin:
+            return _land_link(origin, path)
+        case DirectoryTree(path), WriteMode.JUNCTION, Path() as origin:
+            return _land_junction(origin, path)
+        case DocumentKey(path), WriteMode.GRAFT, Fragment() as fragment:
+            _land_graft(fragment, path)
+            return WriteMode.GRAFT
+        case destination, mode, _:
             raise UnsupportedWriteError(destination, mode)
 
 
@@ -179,6 +185,26 @@ def _land_tree(source: Path, destination: Path) -> None:
     # second copy. No `dirs_exist_ok`: the destination was just cleared, and
     # overlaying is trap 3.
     shutil.copytree(source, destination, symlinks=True)
+
+
+def _land_graft(fragment: Fragment, destination: Path) -> None:
+    """Put one key into a document, and leave every other byte of it alone.
+
+    Read, splice, write — never serialise. The whole argument is ADR 0016 and
+    the mechanics are `overpower.grafting`; what belongs here is that the graft
+    is a **branch of the one write boundary** and not a second writer, so the
+    plan is still the only thing that decides what lands.
+
+    A document that is not there yet is created; a document that is there and
+    does not parse was already refused before the first byte
+    (`overpower.planning.broken_documents`), and refused again here if it ever
+    reached this far.
+    """
+    text = read_document(destination) if destination.is_file() else EMPTY_DOCUMENT
+    write_document(
+        destination,
+        grafted(destination, text, fragment.root_key, fragment.name, fragment.value),
+    )
 
 
 def _land_link(source: Path, destination: Path) -> WriteMode:

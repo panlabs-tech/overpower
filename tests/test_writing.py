@@ -1,10 +1,16 @@
 """The write boundary: what the plan promised is what the disk carries.
 
-Mirror of `src/overpower/writing.py`, and the subject is the boundary rather
-than the function — every case here goes through the CLI, with `tmp_path` as the
-working directory and as `HOME`, because that is the one seam the doctrine
-allows and because a writer asserted directly could not show the *screen* half
-of the identity, which is half of the defect it exists to catch.
+Mirror of `src/overpower/writing.py` **and of `src/overpower/grafting.py`**, the
+way `test_catalog.py` mirrors two modules: they answer one question between them
+— *what ends up on disk* — and ADR 0016 puts the assertion that catches the
+graft's measured trap here rather than over the function, because the trap is
+exit 0 with a byte-identical file and only the **content of the file** shows it.
+
+The subject is the boundary rather than the function: every case here goes
+through the CLI, with `tmp_path` as the working directory and as `HOME`, because
+that is the one seam the doctrine allows — and because a writer asserted
+directly could not show the *screen* half of the identity, which is half of the
+defect it exists to catch.
 
 The central assertion lives here for the same reason: it says the writer put on
 disk exactly what the plan announced, and nothing else.
@@ -38,9 +44,12 @@ from tests.support import git_remote
 from tests.support.project import (
     AGENTS,
     CLAUDE,
+    STDIO,
     catalog_of,
+    document_keys,
     files_under,
     joined,
+    keys_in,
     landings_of,
     paths_in,
     pinned,
@@ -385,20 +394,20 @@ def test_a_failure_in_the_middle_leaves_what_it_wrote_and_says_where_it_stopped(
     assert (root / CLAUDE / "alpha" / "SKILL.md").is_file()
 
 
-def test_a_destination_that_is_a_document_key_is_refused_by_name(tmp_path: Path) -> None:
-    """The graft class exists in the model and has no operation yet.
+def test_a_document_key_asked_for_by_copy_is_refused_by_name(tmp_path: Path) -> None:
+    """Both operations exist now, so what has no branch is a **pair** that does not go together.
 
-    Modelling a destination as a folder path is the regression that turns v0.2
-    into a rewrite of the flow instead of the sum of one operation, so the shape
-    is here and the missing half says so out loud. Built by hand because nothing
-    in the v0.1.0 catalog can produce one — there is no MCP server and no hook.
+    A graft is a key written by `WriteMode.GRAFT` out of a rendered fragment;
+    asking for a document key by copy, from a source path, is a plan nobody
+    builds — and the dispatch says so instead of answering with a copy, which
+    would be the silent wrong answer this product exists to avoid.
     """
     # given
     grafted = Artifact(
         type=ArtifactType.SKILL,
         name="probe",
         path=tmp_path / "source",
-        description="The graft that has no operation yet.",
+        description="A copy asked to land inside a document.",
         files=1,
         size=1,
     )
@@ -425,6 +434,417 @@ def test_a_destination_that_is_a_document_key_is_refused_by_name(tmp_path: Path)
 
     with pytest.raises(UnsupportedWriteError):
         execute(plan)
+
+
+# --------------------------------------------------------------------------- #
+# the graft: a key inside a document that is the user's
+# --------------------------------------------------------------------------- #
+
+CLOUDFLARE = "https://mcp.cloudflare.com/mcp"
+"""The URL the recipe carries, so a test can assert what reached the file."""
+
+MCP_JSON = ".mcp.json"
+"""Where Claude Code reads MCP servers in a repository — measured, not transcribed."""
+
+OCCUPIED = """\
+{
+  // the schema is mine, and nobody asked the overpower to touch it
+  "$schema": "https://example.com/mcp.schema.json",
+  "mcpServers": {
+    "antigo": {
+      "command": "node",
+      "args": ["server.js"]
+    }
+  }
+}
+"""
+"""A document with everything the graft has to leave alone.
+
+A comment the standard library cannot even parse, a root key no tool of ours
+knows, and a server of the user's whose `args` are on one line — which is exactly
+what `json.dumps` reflows, measured, in the friendliest case there is.
+"""
+
+
+def lost_lines(before: str, after: str) -> list[str]:
+    """Lines of `before` that `after` does not carry, ignoring one added comma.
+
+    This is *"the rest of the document arrives byte for byte"*, written as
+    something a machine can check. The comma is the one exception the format
+    imposes and not a licence: inserting a pair after the last one means the line
+    that used to end the object now ends with `,`, and there is no JSON in which
+    it does not.
+    """
+    kept = set(after.splitlines())
+    return [line for line in before.splitlines() if line not in kept and f"{line}," not in kept]
+
+
+def occupied(root: Path, text: str = OCCUPIED) -> Path:
+    """A `.mcp.json` already on disk, written byte for byte as given."""
+    path = root / MCP_JSON
+    path.write_text(text, encoding="utf-8", newline="")
+    return path
+
+
+def test_the_plan_the_screen_and_the_document_name_the_same_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The three-way identity, with the half a graft needs.
+
+    A graft creates no path, so the copy class's `walk(disk)` has nothing to
+    compare: what it creates is a **key**. So the assertion keeps its shape and
+    changes its subject — every key the plan named is in the document afterwards,
+    and no key it did not name appeared. The second half is the one that catches
+    the measured trap of the insertion library, which returns exit 0 with a
+    byte-identical file and the graft gone.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": CLOUDFLARE})
+    dry_root = target(tmp_path, monkeypatch, "dry")
+    real_root = target(tmp_path, monkeypatch, "real")
+    dry_document = occupied(dry_root)
+    real_document = occupied(real_root)
+    before = document_keys(real_document)
+    selectors = ("install", "--mcp", "cloudflare", "--runtime", "claude-code")
+
+    monkeypatch.chdir(dry_root)
+    dry_code, dry_out = run(capsys, *selectors, "--dry-run")
+    monkeypatch.chdir(real_root)
+    real_code, real_out = run(capsys, *selectors)
+
+    named = keys_in(real_out)
+    after = document_keys(real_document)
+    assert keys_in(dry_out) == named
+    assert named <= after
+    assert after - before <= named
+    assert dry_document.read_text(encoding="utf-8") == OCCUPIED
+    assert files_under(dry_root) == {MCP_JSON}
+    assert dry_code == real_code == 0
+
+
+def test_the_rest_of_the_document_arrives_byte_for_byte(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """ADR 0016, and it is the reason a dependency was bought.
+
+    *"In a repository the git is the manifest"* only holds if `git diff` answers
+    exactly what the tool wrote. Measured, `json.dumps` in the friendliest case
+    there is — strict JSON, no comments, the same indent — already reflows a
+    server nobody touched.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": CLOUDFLARE})
+    root = target(tmp_path, monkeypatch)
+    document = occupied(root)
+
+    code, _ = run(capsys, "install", "--mcp", "cloudflare", "--runtime", "claude-code")
+
+    assert code == 0
+    after = document.read_text(encoding="utf-8")
+    assert lost_lines(OCCUPIED, after) == []
+    assert '      "args": ["server.js"]' in after
+    assert "  // the schema is mine, and nobody asked the overpower to touch it" in after
+    assert CLOUDFLARE in after
+
+
+def test_a_server_of_the_same_name_is_overwritten_without_asking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """ADR 0013: key collision resolves the way path collision does — unconditionally.
+
+    `--force` is not consulted and is not passed here: it governs an existing
+    destination of the **copy** class in global scope, and a second regime of
+    collision would make the user need to know an artifact's class to predict
+    what the command does.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": CLOUDFLARE})
+    root = target(tmp_path, monkeypatch)
+    document = occupied(
+        root,
+        '{\n  "mcpServers": {\n    "cloudflare": {\n      "type": "sse",\n'
+        '      "url": "https://stale.example.com/sse"\n    },\n'
+        '    "antigo": { "command": "node" }\n  }\n}\n',
+    )
+
+    code, _ = run(capsys, "install", "--mcp", "cloudflare", "--runtime", "claude-code")
+
+    assert code == 0
+    after = document.read_text(encoding="utf-8")
+    assert "stale.example.com" not in after
+    assert CLOUDFLARE in after
+    assert '    "antigo": { "command": "node" }' in after
+
+
+def test_grafting_the_same_server_twice_writes_again_and_exits_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The write is unconditional, and running twice asks nothing.
+
+    The second run is also the interesting one for the format: it grafts over a
+    key the first run wrote, so the document has to come out the same rather than
+    accumulating a second copy of the server.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": CLOUDFLARE})
+    root = target(tmp_path, monkeypatch)
+    selectors = ("install", "--mcp", "cloudflare", "--runtime", "claude-code")
+    first, _ = run(capsys, *selectors)
+    once = (root / MCP_JSON).read_text(encoding="utf-8")
+
+    second, _ = run(capsys, *selectors)
+
+    assert first == second == 0
+    assert (root / MCP_JSON).read_text(encoding="utf-8") == once
+
+
+def test_a_comment_at_the_end_of_the_object_is_not_swallowed_by_the_comma(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The hazard the insertion is *shaped* around, and it destroys a line if missed.
+
+    Appending a pair means the previous one gains a comma. If that comma landed
+    after the whitespace the object already carried, it would be written **onto
+    the comment line** — `// a note,` — and the comment would swallow it: valid
+    JSON5, one server short, exit 0. So the whitespace is moved onto the new
+    entry instead of rebuilt, and the comma goes in front of it.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": CLOUDFLARE})
+    root = target(tmp_path, monkeypatch)
+    text = (
+        '{\n  "mcpServers": {\n    "antigo": { "command": "node" }\n'
+        "    // a note the user left at the end\n  }\n}\n"
+    )
+    document = occupied(root, text)
+
+    code, output = run(capsys, "install", "--mcp", "cloudflare", "--runtime", "claude-code")
+
+    assert code == 0
+    after = document.read_text(encoding="utf-8")
+    assert "    // a note the user left at the end\n" in after
+    assert keys_in(output) <= document_keys(document)
+    assert lost_lines(text, after) == []
+
+
+def test_a_stdio_server_lands_with_its_array_inline_and_its_table_expanded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The formatting rule, asserted where ADR 0016 says it has to be: on the file.
+
+    **Objects expand and arrays stay inline** — one rule per shape, and the
+    reason to check it here rather than over the renderer is that the whitespace
+    does not exist until the model is dumped. `args` is the field the measured
+    `json.dumps` diff reflowed, so it is also the one worth reading back.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"coolify": STDIO})
+    root = target(tmp_path, monkeypatch)
+
+    code, _ = run(capsys, "install", "--mcp", "coolify", "--runtime", "claude-code")
+
+    assert code == 0
+    assert (root / MCP_JSON).read_text(encoding="utf-8") == (
+        "{\n"
+        '  "mcpServers": {\n'
+        '    "coolify": {\n'
+        '      "type": "stdio",\n'
+        '      "command": "uvx",\n'
+        '      "args": ["coolify-server", "--repository", "."],\n'
+        '      "env": {\n'
+        '        "PANEL_URL": "https://panel.example.com"\n'
+        "      }\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+    )
+
+
+def test_two_servers_on_one_line_both_reach_the_same_document(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The second graft reads what the first one wrote, rather than the file it found.
+
+    Two writes, one document, and they are performed in plan order — so a writer
+    that had kept the original text in hand would land the second server over
+    the first and report two writes for one key.
+    """
+    # given
+    catalog_of(
+        tmp_path,
+        monkeypatch,
+        mcps={"cloudflare": CLOUDFLARE, "hostinger-vps": "https://mcp.hostinger.com/mcp"},
+    )
+    root = target(tmp_path, monkeypatch)
+
+    code, output = run(
+        capsys, "install", "--mcp", "cloudflare,hostinger-vps", "--runtime", "claude-code"
+    )
+
+    assert code == 0
+    assert document_keys(root / MCP_JSON) == keys_in(output)
+    assert {"mcpServers.cloudflare", "mcpServers.hostinger-vps"} <= keys_in(output)
+
+
+def test_the_document_is_created_when_the_repository_has_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Creating a file is not repairing one, and it is the ordinary first install."""
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": CLOUDFLARE})
+    root = target(tmp_path, monkeypatch)
+
+    code, output = run(capsys, "install", "--mcp", "cloudflare", "--runtime", "claude-code")
+
+    assert code == 0
+    assert files_under(root) == {MCP_JSON}
+    assert document_keys(root / MCP_JSON) == keys_in(output)
+
+
+@pytest.mark.parametrize(
+    ("text", "kept"),
+    [
+        pytest.param(
+            '{\n\t"mcpServers": {\n\t\t"antigo": {\n\t\t\t"command": "node"\n\t\t}\n\t}\n}\n',
+            '\t\t"cloudflare": {',
+            id="tabs",
+        ),
+        pytest.param(
+            '{\n    "mcpServers": {\n        "antigo": {\n            "command": "node"\n'
+            "        }\n    }\n}\n",
+            '        "cloudflare": {',
+            id="four-spaces",
+        ),
+    ],
+)
+def test_the_document_keeps_the_indentation_it_already_had(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    text: str,
+    kept: str,
+) -> None:
+    """The indent of a new entry is read off the entry already there, never invented."""
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": CLOUDFLARE})
+    root = target(tmp_path, monkeypatch)
+    document = occupied(root, text)
+
+    code, _ = run(capsys, "install", "--mcp", "cloudflare", "--runtime", "claude-code")
+
+    assert code == 0
+    after = document.read_text(encoding="utf-8")
+    assert kept in after
+    assert lost_lines(text, after) == []
+
+
+def test_a_document_written_with_crlf_keeps_every_one_of_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The trap is the default of `read_text`, not the platform.
+
+    Universal newlines translate `\\r\\n` to `\\n` on the way in, so a document
+    written back would arrive with **every** line ending changed — the largest
+    possible non-additive diff, produced by the one function whose whole purpose
+    is not to produce one. It runs on the nine cells because the file is written
+    with explicit bytes on all of them.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": CLOUDFLARE})
+    root = target(tmp_path, monkeypatch)
+    document = occupied(root, OCCUPIED.replace("\n", "\r\n"))
+
+    code, _ = run(capsys, "install", "--mcp", "cloudflare", "--runtime", "claude-code")
+
+    assert code == 0
+    raw = document.read_bytes()
+    assert b"\r\n" in raw
+    assert raw.replace(b"\r\n", b"") == raw.replace(b"\r\n", b"").replace(b"\n", b"")
+
+
+BROKEN = [
+    pytest.param('{"mcpServers": {,,}}\n', id="not-json"),
+    pytest.param('["mcpServers"]\n', id="not-an-object"),
+    pytest.param('{"mcpServers": "not a table"}\n', id="root-key-not-an-object"),
+]
+"""The three shapes of *already broken*, and the third is the one that hides.
+
+The first two fail at the parser. The third parses perfectly and still has
+nowhere to put a server — so a check that stopped at the top level would answer
+that it is fine, which is exactly what it did until it was measured.
+"""
+
+
+@pytest.mark.parametrize("broken", BROKEN)
+def test_a_configuration_file_that_is_already_broken_is_refused_and_not_repaired(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], broken: str
+) -> None:
+    """Repairing means editing, on our own initiative, a file that is not ours.
+
+    Exit **3** — the invocation was well formed, the product ran, and the answer
+    is no — and the file is left exactly as it was found. It is also what the
+    official CLIs do, measured: `claude mcp add` and `codex mcp add` both refuse.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": CLOUDFLARE})
+    root = target(tmp_path, monkeypatch)
+    document = occupied(root, broken)
+
+    code, output = run(capsys, "install", "--mcp", "cloudflare", "--runtime", "claude-code")
+
+    assert code == 3
+    assert document.read_text(encoding="utf-8") == broken
+    assert MCP_JSON in joined(output)
+
+
+@pytest.mark.parametrize("broken", BROKEN)
+def test_a_broken_file_is_refused_by_the_dry_run_with_the_same_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], broken: str
+) -> None:
+    """#8, still: a report that answered 0 where the real run answers 3 is a report
+    about a different installation, and useless as a CI gate.
+
+    Parametrised over **every** shape of broken, and that is what this case
+    bought: measured, checking only the top level let `{"mcpServers": "not a
+    table"}` through the dry run at 0 while the real run refused it with 3 — one
+    shape of broken passing, the other two hiding it.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": CLOUDFLARE})
+    root = target(tmp_path, monkeypatch)
+    occupied(root, broken)
+    selectors = ("install", "--mcp", "cloudflare", "--runtime", "claude-code")
+
+    dry_code, _ = run(capsys, *selectors, "--dry-run")
+    real_code, _ = run(capsys, *selectors)
+
+    assert dry_code == real_code == 3
+
+
+@pytest.mark.parametrize("broken", BROKEN)
+def test_a_broken_file_is_refused_before_the_copies_of_the_same_line_land(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], broken: str
+) -> None:
+    """*"Recusado antes do primeiro byte"* is about the **line**, not about the graft.
+
+    A refusal that lived in the writer would let the skills of
+    `--skill alpha --mcp cloudflare` land first and report 3 afterwards, which is
+    half an installation announced as a refusal.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, "alpha", mcps={"cloudflare": CLOUDFLARE})
+    root = target(tmp_path, monkeypatch)
+    document = occupied(root, broken)
+
+    code, _ = run(
+        capsys,
+        *("install", "--skill", "alpha", "--mcp", "cloudflare"),
+        *("--runtime", "claude-code"),
+    )
+
+    assert code == 3
+    assert not (root / CLAUDE).exists()
+    assert document.read_text(encoding="utf-8") == broken
 
 
 # --------------------------------------------------------------------------- #

@@ -53,6 +53,8 @@ from overpower.planning import (
     Write,
     WriteMode,
 )
+from overpower.recipes import HttpServer, Recipe
+from overpower.rendering import Fragment
 from overpower.runtimes import Scope
 from overpower.screens import (
     BANNER,
@@ -428,7 +430,13 @@ def test_the_plan_names_every_artifact_it_will_write(width: int) -> None:
     rendered = rows(render(plan_screen(plan), width))
 
     for selection in plan.selections:
-        stacked = [f"{inside.type} {inside.name}" for inside in selection.artifacts]
+        # Every selection of *this* plan carries copies, and the narrowing says
+        # so: what a recipe answers instead is the graft plan's own test.
+        stacked = [
+            f"{inside.type} {inside.name}"
+            for inside in selection.artifacts
+            if isinstance(inside, Artifact)
+        ]
         assert [row for row in rendered if row in stacked] == stacked
 
 
@@ -501,6 +509,117 @@ def test_the_plan_screen_matches_its_snapshot(request: pytest.FixtureRequest, wi
     rendered = render(plan_screen(recorded_plan()), width)
 
     assert_matches_snapshot(request, f"plan-{width}", rendered)
+
+
+# --------------------------------------------------------------------------- #
+# the graft line: a document, a key, and who reads it
+# --------------------------------------------------------------------------- #
+
+CLOUDFLARE_URL = "https://mcp.cloudflare.com/mcp"
+
+
+def recorded_graft() -> Plan:
+    """A plan of the second operation: one key, inside a document that is the user's.
+
+    Its own fixture rather than a third selection on `recorded_plan`, and for the
+    reason the doctrine gives for one file per screen: the graft line is what
+    this ticket adds, so a change to it has to move **its** recording and leave
+    the copy plan's at 0%.
+    """
+    recipe = Recipe(
+        name="cloudflare",
+        path=Path("cloudflare.toml"),
+        description="Cloudflare's remote MCP server, over streamable HTTP.",
+        server=HttpServer(url=CLOUDFLARE_URL),
+    )
+    document = ROOT / ".mcp.json"
+    return Plan(
+        root=ROOT,
+        selections=(
+            Selection(
+                name="cloudflare",
+                artifacts=(recipe,),
+                landings=(
+                    Landing(
+                        place=document,
+                        readers=("claude-code",),
+                        writes=(
+                            Write(
+                                source=Fragment(
+                                    root_key="mcpServers",
+                                    name="cloudflare",
+                                    value={"type": "http", "url": CLOUDFLARE_URL},
+                                ),
+                                destination=DocumentKey(document, "mcpServers.cloudflare"),
+                                mode=WriteMode.GRAFT,
+                                files=1,
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_plan_names_the_document_and_the_key_it_will_write(width: int) -> None:
+    """`.mcp.json › mcpServers.cloudflare ← claude-code`, and the key is the point.
+
+    Under unconditional overwriting (ADR 0013) this line is the whole of the
+    reader's defence: a server of the same name is replaced without a question
+    and without `--force`, so naming the exact key before the write is what makes
+    that decision defensible rather than a surprise.
+    """
+    joined = unwrapped(render(plan_screen(recorded_graft()), width))
+
+    assert ".mcp.json › mcpServers.cloudflare" in joined
+    assert "claude-code" in joined
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_plan_names_the_server_as_what_it_is(width: int) -> None:
+    """The stacked list is one grid for both classes, and the noun comes from the data.
+
+    A recipe is not an `Artifact` — it is a declaration with no weight — so what
+    the type column shows for one is the answer of the same function that shows
+    `skill` for a copy, never a second grid with a second truncation rule.
+    """
+    rendered = rows(render(plan_screen(recorded_graft()), width))
+
+    assert "mcp server cloudflare" in rendered
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_document_of_a_graft_is_not_spelled_as_a_folder(width: int) -> None:
+    """A trailing separator says *folder*, and a graft lands in a file plus a key."""
+    joined = unwrapped(render(plan_screen(recorded_graft()), width))
+
+    assert ".mcp.json/" not in joined
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_graft_is_counted_in_keys_and_never_in_paths(width: int) -> None:
+    """It creates no path, so counting files there would count something else."""
+    joined = unwrapped(render(plan_screen(recorded_graft()), width))
+
+    assert "1 key" in joined
+    assert "1 file" not in joined
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_no_rendered_line_of_the_graft_plan_exceeds_the_terminal_width(width: int) -> None:
+    rendered = render(plan_screen(recorded_graft()), width)
+
+    assert [line for line in rendered.splitlines() if len(line) > width] == []
+    assert "…" not in rendered
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_graft_plan_matches_its_snapshot(request: pytest.FixtureRequest, width: int) -> None:
+    rendered = render(plan_screen(recorded_graft()), width)
+
+    assert_matches_snapshot(request, f"plan-graft-{width}", rendered)
 
 
 # --------------------------------------------------------------------------- #
@@ -1089,16 +1208,18 @@ def test_the_doctor_screen_counts_artifacts_and_places_separately(width: int) ->
     assert "3 artifacts · 5 places" in joined
 
 
-def test_the_doctor_screen_spells_a_destination_that_is_a_document_key() -> None:
-    """The graft class exists in the model, and the `doctor` can already say it.
+def test_the_doctor_screen_spells_a_destination_the_way_the_plan_spells_it() -> None:
+    """One spelling of *a key inside a document*, and both screens use it.
 
-    Built by hand because nothing in the v0.1.0 catalog produces one — there is
-    no MCP server and no hook — exactly as `test_writing.py` builds one to assert
-    that the write path refuses it by name. A report that could only spell a
-    folder would be a report v0.2 has to replace instead of extend.
+    The `doctor` inspects nothing about MCP yet
+    (https://github.com/panlabs-tech/overpower/issues/86), so this is built by
+    hand — but the punctuation is not the `doctor`'s to choose: the plan prints
+    `.mcp.json › mcpServers.cloudflare` before a write, and a report that spelled
+    the same thing differently afterwards would make a reader compare two
+    notations to answer one question.
     """
     # given
-    grafted = DocumentKey(path=ROOT / ".mcp.json", key="context7")
+    grafted = DocumentKey(path=ROOT / ".mcp.json", key="mcpServers.context7")
     diagnosis = Diagnosis(
         terminal=Terminal(tty=False, colour="none", width=80, no_color=None),
         root=ROOT,
@@ -1111,7 +1232,7 @@ def test_the_doctor_screen_spells_a_destination_that_is_a_document_key() -> None
 
     joined = unwrapped(render(doctor_screen(diagnosis), 80))
 
-    assert ".mcp.json#context7" in joined
+    assert ".mcp.json › mcpServers.context7" in joined
 
 
 @pytest.mark.parametrize(("name", "case", "width"), SNAPSHOT_CASES)

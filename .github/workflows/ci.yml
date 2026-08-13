@@ -1,5 +1,8 @@
-# The gate on every pull request. Six checks, all blocking, in three jobs —
-# decided in https://github.com/panlabs-tech/overpower/issues/24.
+# The gate on every pull request. Seven checks, all blocking, across four jobs —
+# decided in https://github.com/panlabs-tech/overpower/issues/24 and grown twice
+# since: `release-ready` in
+# https://github.com/panlabs-tech/overpower/issues/62 and P3 in
+# https://github.com/panlabs-tech/overpower/issues/71.
 #
 # There is deliberately NO `on: pull_request` trigger, and the absence is the
 # decision. A check run is attached to the *SHA*, not to the event, so the run
@@ -119,6 +122,72 @@ jobs:
           print(f"P2 ok: {len(tracked)} tracked path(s) under content/, all present in {wheel}")
           PY
 
+      # P3 — the sdist carries exactly what it declared.
+      # https://github.com/panlabs-tech/overpower/issues/71
+      #
+      # It costs no build: the P2 step above already ran `uv build --no-sources`,
+      # which writes the sdist beside the wheel, so this reads `dist/` as it is.
+      #
+      # THE DIRECTION IS NOT THE ONE THE TICKET ASKED FOR, and the difference is
+      # the whole reason this gate is worth having. A P3 that existed to catch an
+      # untracked file leaking into the sdist would be vacuously green forever:
+      # `actions/checkout` materializes only what git tracks, so the intruder
+      # cannot exist here — the same trap #45 found in P1 while the content root
+      # did not exist. What closes the leak is the allowlist in `pyproject.toml`,
+      # by construction (docs/adr/0013-o-sdist-declara-o-que-carrega.md). What
+      # this gate catches is that allowlist going STALE — the day `src/` stops
+      # being the right expression and a tracked file silently stops travelling.
+      # That direction CI can see, and it is measured red: an allowlist narrowed
+      # to `src/overpower/content/` drops 15 tracked `.py` files.
+      #
+      # The first clause stays anyway, because it costs nothing and it is what
+      # fails if someone reaches for one of the four keys ADR 0004 forbids — the
+      # only mechanism left that can put an untracked file in the sdist.
+      - name: P3 — the sdist carries exactly what it declared
+        run: |
+          python3 - <<'PY'
+          import glob
+          import subprocess
+          import sys
+          import tarfile
+
+          # `-z`, like P2 above, and for the same reason: `git ls-files` quotes a
+          # path carrying a space or a non-ASCII byte, so a naive split would
+          # invent both an intruder and an absence out of one filename.
+          tracked = {
+              path
+              for path in subprocess.run(
+                  ["git", "ls-files", "-z"],
+                  capture_output=True, text=True, check=True,
+              ).stdout.split("\0")
+              if path
+          }
+          sdist = sorted(glob.glob("dist/*.tar.gz"))[-1]
+          with tarfile.open(sdist) as tar:
+              root = tar.getnames()[0].split("/")[0] + "/"
+              # PKG-INFO is written by the build and exists in no tree. It is the
+              # only exemption needed: every other file hatchling forces in —
+              # `pyproject.toml`, the readme, the `license-files` matches and
+              # `.gitignore` — is tracked, so it answers the first clause on its
+              # own.
+              inside = {
+                  member.name[len(root):] for member in tar.getmembers() if member.isfile()
+              } - {"PKG-INFO"}
+
+          stray = sorted(inside - tracked)
+          # Only `src/`: the second clause asserts the allowlist, and the
+          # allowlist is `src/`. Asking for the rest of the repository back would
+          # assert the opposite of the decision.
+          missing = sorted(path for path in tracked - inside if path.startswith("src/"))
+          for name in stray:
+              print(f"::error::in the sdist but not tracked by git: {name}")
+          for name in missing:
+              print(f"::error::tracked under src/ and absent from the sdist: {name}")
+          if stray or missing:
+              sys.exit(1)
+          print(f"P3 ok: {len(inside)} file(s) in {sdist}, all tracked, none missing under src/")
+          PY
+
   # Only pytest varies with OS and Python version, and it varies for a reason:
   # what the suite exercises is the filesystem, which is precisely what differs
   # across the nine cells. The floor is not arbitrary either — `os.path.isjunction`
@@ -202,10 +271,19 @@ jobs:
               "added": "minor", "changed": "minor", "deprecated": "minor",
               "fixed": "patch", "security": "patch",
           }
-          # The trigger is the WHEEL, not the sdist. Measured: the published
-          # sdist is the whole repository — 164 files, `docs/` and `tests/`
-          # included — so under the sdist reading every merge would change what
-          # is published, down to a comma in an ADR. The wheel is the product.
+          # The trigger is the WHEEL, and this tuple used to be a CHOICE between
+          # two artifacts: the published sdist was the whole repository — 164
+          # files, `docs/` and `tests/` included — so under the sdist reading a
+          # comma in an ADR would have published a version.
+          #
+          # THAT PREMISE IS GONE. The allowlist of
+          # docs/adr/0013-o-sdist-declara-o-que-carrega.md made the sdist `src/`
+          # plus the eight files hatchling forces in, so the two readings
+          # converge onto this very tuple. What survives of the divergence is
+          # `.gitignore` and the `[tool.*]` half of `pyproject.toml`, which
+          # travel in the sdist and are not the product. The tuple is unchanged
+          # and is now a description of both artifacts rather than a preference
+          # between them.
           WHEEL = ("src/", "README.md", "NOTICE", "LICENSE", "licenses/")
 
           def git(*args: str) -> str:

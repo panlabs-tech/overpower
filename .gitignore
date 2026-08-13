@@ -218,5 +218,21 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
-# Worktrees de subagentes
+
+# Estado local do Claude Code. Estas linhas viviam no `.git/info/exclude`, que é
+# por clone e não viaja: o `git status` ficava limpo na máquina que tinha o
+# arquivo e sujo em qualquer outra, e o hatchling — que monta o sdist lendo o
+# `.gitignore` e nunca o `info/exclude` — empacotava as quatro que existiam.
+# `mailbox/` guarda mensagem trocada entre agentes e `checkpoints/` guarda estado
+# de sessão: conteúdo, não metadado.
+# https://github.com/panlabs-tech/overpower/issues/72
 .claude/worktrees/
+.claude/scheduled_tasks.lock
+.claude/scheduled_tasks.json
+.claude/routines/.state/
+.claude/checkpoints/
+.claude/mailbox/
+.claude/agent-registry.json
+.claude/agent-memory-local
+.claude/first-run
+.claude/assistant-daemon-state.json

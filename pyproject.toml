@@ -9,7 +9,7 @@ name = "overpower"
 # from the VCS — measured in #2, `hatch-vcs` under `git clone --depth 1` (the
 # default of `actions/checkout`) fails to find the tag, warns, *succeeds*, and
 # publishes an invented version.
-version = "0.5.0"
+version = "0.6.0"
 description = "Installs curated AI Frameworks into a repository or a machine"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -59,11 +59,33 @@ Issues = "https://github.com/panlabs-tech/overpower/issues"
 # Measured in https://github.com/panlabs-tech/overpower/issues/3
 overpower = "overpower.cli:main"
 
-# There is no `[tool.hatch.build...]` here, and the absence is a measured
-# decision: docs/adr/0004-build-nao-forca-inclusao-de-conteudo.md
-# Any `force-include`, `artifacts`, `packages` or `ignore-vcs` appearing in this
-# file is a regression until proven otherwise, and the proof has to come from a
-# CI build off a clean clone.
+# The sdist declares what it carries, and the mechanism is an ALLOWLIST:
+# docs/adr/0013-o-sdist-declara-o-que-carrega.md
+#
+# `include` is NOT one of the four keys ADR 0004 forbids, and the difference is
+# mechanical rather than nominal. `force-include`, `artifacts`, `packages` and
+# `ignore-vcs` punch *through* the `.gitignore` filter, which is what made the
+# build depend on the machine that ran it — 2 of 2 locally, 1 of 2 in CI. An
+# allowlist does the opposite: it cannot admit what nobody declared, so a dirty
+# tree and a clean clone produce the same 105 files. Any of those four appearing
+# in this file is still a regression until proven otherwise, and the proof still
+# has to come from a CI build off a clean clone.
+#
+# Measured on 0.5.0: without this block the sdist is the whole repository — 172
+# files, 1.308.825 bytes — and 67 of those files, 41% of the bytes, are `tests/`,
+# `docs/`, `.github/` and tooling dotfiles that nothing downstream reads. The
+# wheel rebuilt from the shrunken sdist is byte-identical: 105 entries, zero
+# differing bytes.
+#
+# Eight files land regardless of what is written here — hatchling forces
+# `pyproject.toml`, the `readme`, every `license-files` match, `.gitignore` and
+# `PKG-INFO` in. Measured on purpose: an `exclude` naming all eight removes
+# nothing. That is why the PEP 639 attribution of ADR 0003 cannot be lost to a
+# wrong allowlist, and it is also why this line is not the whole guard — P3 in
+# `.github/workflows/ci.yml` is what fails when `src/` stops being the right
+# expression and a tracked file goes missing from the sdist.
+[tool.hatch.build.targets.sdist]
+include = ["src/"]
 
 # --------------------------------------------------------------------------- #
 # Project management — https://github.com/panlabs-tech/overpower/issues/2

@@ -23,6 +23,48 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.6.0] - 2026-08-13
+
+### Changed
+
+- **O sdist publicado deixa de ser o repositório inteiro.** `[tool.hatch.build.targets.sdist]`
+  ganha uma linha — `include = ["src/"]` — e o `.tar.gz` sai de 172 arquivos e 424.699
+  bytes para 105 e 266.086, **−37%**. O que sai é `tests/`, `docs/`, `.github/` e os
+  dotfiles de ferramenta, e sai porque nada a jusante os lê: o wheel reconstruído a
+  partir do sdist encolhido é **byte-idêntico** ao de hoje, 105 entradas e zero bytes
+  diferentes. Oito arquivos entram de qualquer jeito — `pyproject.toml`, o readme, os
+  `license-files`, o `.gitignore` e o `PKG-INFO` são forçados pelo `hatchling`,
+  verificado —, o que garante que a atribuição PEP 639 não pode ser perdida por uma
+  allowlist errada.
+
+  O mecanismo é **allowlist e não denylist**, e é a escolha que fecha a classe: um
+  `exclude` obriga a enumerar a ferramenta de amanhã; um `include` não deixa entrar o
+  que ninguém declarou. Um portão novo, **P3**, roda no job `static` e reprova o sdist
+  que carregue arquivo não rastreado pelo git ou que perca arquivo rastreado sob
+  `src/` — sem custar build nenhum, lendo o `dist/` que o P2 já constrói. Ele existe
+  para pegar a allowlist envelhecendo, e não o vazamento, que a CI nunca conseguiria
+  ver.
+
+  **Quem empacotava a partir do sdist para rodar a suíte passa a precisar do
+  repositório**, e a divergência está registrada na
+  [ADR 0013](https://github.com/panlabs-tech/overpower/blob/main/docs/adr/0013-o-sdist-declara-o-que-carrega.md). ([#71](https://github.com/panlabs-tech/overpower/issues/71))
+
+### Fixed
+
+- **O estado local do Claude Code sai do `.git/info/exclude` e entra no `.gitignore`.**
+  O `info/exclude` é por clone e não viaja, e nenhuma ferramenta além do git o lê — o
+  `hatchling` monta o sdist filtrando pelo `.gitignore`. O resultado medido: plantadas
+  quatro sondas numa árvore suja, **as quatro entravam no sdist sem aparecer no `git
+  status`**, entre elas `.claude/mailbox/` (mensagem trocada entre agentes) e
+  `.claude/checkpoints/` (estado de sessão), que são conteúdo e não metadado. Nove
+  linhas passam a viver ao lado do `.claude/worktrees/` que já estava lá.
+
+  Nada disso chegou ao PyPI: os sdists publicados `0.1.0` e `0.5.0` têm **zero**
+  entradas `.claude`, porque o release builda em runner limpo e o `actions/checkout`
+  só materializa o que o git rastreia. O que estava exposto era o build da máquina do
+  mantenedor, para o dia em que um `uv build && uv publish` saísse dali. ([#72](https://github.com/panlabs-tech/overpower/issues/72))
+
+
 ## [0.5.0] - 2026-08-12
 
 ### Changed

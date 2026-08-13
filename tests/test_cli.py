@@ -788,6 +788,127 @@ def test_the_dry_run_mirrors_the_exit_code_of_the_real_run(
 
 
 # --------------------------------------------------------------------------- #
+# the graft: `--mcp`, and the warning ADR 0014 makes a requirement
+# --------------------------------------------------------------------------- #
+
+MCP_URL = "https://mcp.cloudflare.com/mcp"
+
+
+def test_installing_an_mcp_warns_that_it_is_born_pending_approval(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """ADR 0014: the product does not turn the server on, and it says so.
+
+    Measured in #17: a server coming from `.mcp.json` is born `⏸ Pending
+    approval` in Claude Code and **does not connect** — no message, no exit code,
+    no sign in a normal session. Without this line the product ships exactly that
+    failure: file written, exit 0, tool absent.
+
+    Exit **0**, because the write happened and was correct; what is missing is
+    the user's act.
+    """
+    # given
+    project.catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": MCP_URL})
+    root = project.target(tmp_path, monkeypatch)
+
+    code, output = project.run(capsys, "install", "--mcp", "cloudflare", "--runtime", "claude-code")
+
+    assert code == 0
+    joined = project.joined(output)
+    assert "pending approval" in joined
+    assert ".mcp.json" in joined
+    assert "approve" in joined
+    assert (root / ".mcp.json").is_file()
+
+
+def test_a_run_that_grafts_nothing_says_nothing_about_approval(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """A warning that appears everywhere is a warning nobody reads (ADR 0014)."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha", mcps={"cloudflare": MCP_URL})
+    project.target(tmp_path, monkeypatch)
+
+    code, output = project.run(capsys, "install", "--skill", "alpha", "--runtime", "claude-code")
+
+    assert code == 0
+    assert "pending approval" not in project.joined(output)
+
+
+def test_the_dry_run_of_a_graft_names_the_key_and_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """A report that named different keys from the run it describes is worth nothing."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": MCP_URL})
+    root = project.target(tmp_path, monkeypatch)
+
+    code, output = project.run(
+        capsys, "install", "--mcp", "cloudflare", "--runtime", "claude-code", "--dry-run"
+    )
+
+    assert code == 0
+    assert "mcpServers.cloudflare" in project.joined(output)
+    assert list(root.iterdir()) == []
+
+
+def test_an_mcp_name_outside_the_catalog_exits_two(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """A typo is the caller's defect, and the closed list is small enough to print."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": MCP_URL})
+    root = project.target(tmp_path, monkeypatch)
+
+    code, output = project.run(capsys, "install", "--mcp", "cloudfare", "--runtime", "claude-code")
+
+    assert code == 2
+    assert "cloudflare" in project.joined(output)
+    assert list(root.iterdir()) == []
+
+
+def test_from_and_mcp_on_one_line_are_refused_before_anything_is_fetched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """A federated recipe is the next slice (#83), and until then the flag says so.
+
+    Refused for the *line*, so it needs neither a git repository nor a network to
+    be told — the same reasoning that refuses `--from` with a bundle.
+    """
+    # given
+    project.catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": MCP_URL})
+    project.target(tmp_path, monkeypatch)
+
+    code, output = project.run(
+        capsys,
+        *("install", "--from", "https://github.com/owner/repo"),
+        *("--mcp", "cloudflare", "--runtime", "claude-code"),
+    )
+
+    assert code == 2
+    assert "--mcp" in project.joined(output)
+
+
+def test_a_line_that_mixes_a_skill_and_a_server_writes_both(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The line is the manifest, and the manifest cannot be two lines."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha", mcps={"cloudflare": MCP_URL})
+    root = project.target(tmp_path, monkeypatch)
+
+    code, _ = project.run(
+        capsys,
+        *("install", "--skill", "alpha", "--mcp", "cloudflare"),
+        *("--runtime", "claude-code"),
+    )
+
+    assert code == 0
+    assert (root / project.CLAUDE / "alpha" / "SKILL.md").is_file()
+    assert "mcpServers.cloudflare" in project.document_keys(root / ".mcp.json")
+
+
+# --------------------------------------------------------------------------- #
 # #40: the default scope needs a git repository, and --global does not
 # --------------------------------------------------------------------------- #
 

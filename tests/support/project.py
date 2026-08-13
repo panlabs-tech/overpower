@@ -16,8 +16,9 @@ address moves.
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
+from json5 import loads
 from rich.console import Console
 
 from overpower import cli
@@ -43,6 +44,14 @@ PATH = re.compile(r"(?:[\w.@+-]+/)+")
 The plan screen is the only screen that prints paths, and it prints them
 relative to the target with a trailing separator — so this finds the announced
 set and nothing else. A runtime key carries no separator.
+"""
+
+KEY = re.compile(r"[›>]\s+([\w.@+-]+)")
+"""The key half of a graft line: `.mcp.json › mcpServers.cloudflare`.
+
+The plan is the only screen that spells a document key, and it spells it after
+the separator — so this finds the announced set and nothing else. A path carries
+no separator of this kind and a runtime key carries no dot.
 """
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -81,13 +90,14 @@ transcription and restore exactly the leak this exists to close.
 """
 
 
-def catalog_of(
+def catalog_of(  # noqa: PLR0913 — one keyword per unit of the catalog, plus the two roots
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     *names: str,
     extra: Sequence[str] = (),
     frameworks: Mapping[str, Sequence[str]] | None = None,
     bundles: Mapping[str, Sequence[str]] | None = None,
+    mcps: Mapping[str, str] | None = None,
 ) -> Path:
     """Build a real content tree of `names`, aim the product at it, answer its root.
 
@@ -98,7 +108,9 @@ def catalog_of(
     `frameworks` maps a framework name to the skill names inside it, each built
     the same way as a pool skill and written into the catalog with a description
     (#39: a framework needs one, discovery reads it and not a tree). `bundles`
-    maps a bundle name to the pool skill names its manifest points at. Both are
+    maps a bundle name to the pool skill names its manifest points at. `mcps`
+    maps a server slug to its URL, written as a recipe in the third discovery
+    root — beside the written file, because a recipe never lands. All three are
     optional and additive, so a call that only names pool skills is unaffected.
     """
     content = tmp_path / "packaged" / "content"
@@ -107,6 +119,8 @@ def catalog_of(
     for framework, artifacts in (frameworks or {}).items():
         for artifact_name in artifacts:
             _skill(content / "frameworks" / framework / "skills" / artifact_name, artifact_name, ())
+    for slug, url in (mcps or {}).items():
+        _recipe(tmp_path / "packaged" / "mcps" / f"{slug}.toml", slug, url)
 
     written = tmp_path / "packaged" / "catalog.toml"
     written.write_text(_written(frameworks or {}, bundles or {}), encoding="utf-8")
@@ -125,6 +139,16 @@ def _skill(skill: Path, name: str, extra: Sequence[str]) -> None:
         path = skill / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(f"{name}: {relative}\n", encoding="utf-8")
+
+
+def _recipe(path: Path, slug: str, url: str) -> None:
+    """One MCP recipe on disk, in the smallest shape the reader accepts."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f'description = "The {slug} server."\ntransport = "http"\n\n[server]\nurl = "{url}"\n',
+        encoding="utf-8",
+        newline="\n",
+    )
 
 
 def _written(frameworks: Mapping[str, Sequence[str]], bundles: Mapping[str, Sequence[str]]) -> str:
@@ -252,6 +276,45 @@ def joined(output: str) -> str:
 def paths_in(output: str) -> set[str]:
     """Every path the screen announced."""
     return {match.group(0) for match in PATH.finditer(output)}
+
+
+def keys_in(output: str) -> set[str]:
+    """Every document key the screen named, **and each of its parents**.
+
+    Naming `mcpServers.cloudflare` names `mcpServers` as well: the plan cannot
+    write the leaf without the branch, so a document that gained both gained
+    nothing the plan did not say. Without that reading the identity would fail on
+    the first install into a file that had no `mcpServers` yet — which is the
+    ordinary case, not an edge one.
+
+    Both spellings of the separator are accepted for the reason the product has
+    two: `›` cannot be encoded in cp1252, which is what a pipe on Windows takes.
+    """
+    named = {match.group(1) for match in KEY.finditer(output)}
+    return {prefix for key in named for prefix in _prefixes(key)}
+
+
+def document_keys(path: Path) -> set[str]:
+    """Every key of a JSON document, dotted, to the two levels a graft occupies.
+
+    Parsed with the library's own loader rather than with the product's writer:
+    a helper built out of `overpower.grafting` could only ever prove the graft
+    agrees with itself.
+    """
+    parsed: object = loads(path.read_text(encoding="utf-8"))
+    if not isinstance(parsed, dict):
+        return set()
+    document = cast("dict[str, object]", parsed)
+    found = set(document)
+    for name, value in document.items():
+        if isinstance(value, dict):
+            found |= {f"{name}.{key}" for key in cast("dict[str, object]", value)}
+    return found
+
+
+def _prefixes(key: str) -> set[str]:
+    parts = key.split(".")
+    return {".".join(parts[: index + 1]) for index in range(len(parts))}
 
 
 def files_under(root: Path) -> set[str]:

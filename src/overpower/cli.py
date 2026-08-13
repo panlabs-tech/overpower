@@ -45,7 +45,14 @@ from overpower.discovery import load_catalog
 from overpower.errors import BadInvocationError, OverpowerError, RefusedError
 from overpower.inspection import Terminal, diagnose
 from overpower.packaged import catalog_file, content_root
-from overpower.planning import DestinationExistsError, Request, existing_destinations, plan_for
+from overpower.planning import (
+    DestinationExistsError,
+    Request,
+    broken_documents,
+    existing_destinations,
+    pending_activation,
+    plan_for,
+)
 from overpower.remote import catalog_from
 from overpower.runtimes import Environment, Scope
 from overpower.scope import git_root
@@ -53,6 +60,7 @@ from overpower.screens import (
     ACTIVE_MARK,
     AI_FRAMEWORK_FLAG,
     BUNDLE_FLAG,
+    MCP_FLAG,
     PROGRAM,
     SKILL_FLAG,
     THEME,
@@ -89,6 +97,7 @@ if TYPE_CHECKING:
     from typer._click.formatting import HelpFormatter as ClickHelpFormatter
 
     from overpower.discovery import Catalog
+    from overpower.planning import Plan
 
 ABORTED = 130
 """What Ctrl-C costs before it reaches here — the shell's `128 + SIGINT`.
@@ -149,13 +158,16 @@ class TooManySelectorsError(BadInvocationError):
 
 
 class UnsupportedRemoteUnitError(BadInvocationError):
-    """`--from` on a line that also names an AI Framework or a bundle.
+    """`--from` on a line that also names an AI Framework, a bundle or an MCP server.
 
-    `--from` is for `--skill` and nothing else in v0.1.0, and the reason is the
-    same one that separates the three units: a **skill is the only one that
+    `--from` is for `--skill` and nothing else yet, and the reason is the same
+    one that separates the three copy units: a **skill is the only one that
     exists in the market**, while a bundle and an AI Framework only exist in a
-    repository that already knows the overpower. Refusing by name is what keeps
-    the flag from silently meaning less than it says.
+    repository that already knows the overpower. The MCP server is the one that
+    will join it — a federated recipe is precisely the channel a home-made MCP
+    has none of today — and it joins in
+    https://github.com/panlabs-tech/overpower/issues/83. Refusing by name is what
+    keeps the flag from silently meaning less than it says.
 
     It lives here rather than in `overpower.remote` for the same reason
     `TooManySelectorsError` does: nothing about the URL or the names is wrong —
@@ -357,6 +369,17 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
             help="Pool skills to install. Comma-separated, repeated, or both.",
         ),
     ] = None,
+    mcp: Annotated[
+        list[str] | None,
+        typer.Option(
+            MCP_FLAG,
+            # No short flag: `--mcp` is already three letters, and `-m` bought
+            # against a name that short is a letter spent for nothing.
+            metavar="NAME",
+            help="MCP servers to write into the runtime's configuration. "
+            "Comma-separated, repeated, or both.",
+        ),
+    ] = None,
     runtime: Annotated[
         list[str] | None,
         typer.Option(
@@ -407,22 +430,24 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
     frameworks = _accumulated(ai_framework)
     bundles = _accumulated(bundle)
     skills = _accumulated(skill)
+    mcps = _accumulated(mcp)
     # Before the scope, before the catalog and before any obtention: a line that
     # `--from` cannot answer is a defect of the *line*, and answering it must not
     # depend on there being a git repository, a readable tree or a network.
-    _refuse_a_line_from_cannot_answer(from_, frameworks, bundles, skills)
+    _refuse_a_line_from_cannot_answer(from_, frameworks, bundles, mcps, skills)
 
     environment = Environment.from_process()
     asked = Request(
         ai_frameworks=frameworks,
         bundles=bundles,
         skills=skills,
+        mcps=mcps,
         runtimes=_accumulated(runtime),
         force=force,
         dry_run=dry_run,
         yes=yes,
     )
-    selected = bool(frameworks or bundles or skills)
+    selected = bool(frameworks or bundles or skills or mcps)
     # **The trigger is the gap, not the empty line**
     # (https://github.com/panlabs-tech/overpower/issues/57): there is a
     # terminal, and what was typed does not add up to a plan — no selection, or
@@ -482,22 +507,29 @@ def _refuse_a_line_from_cannot_answer(
     from_: str | None,
     frameworks: Sequence[str],
     bundles: Sequence[str],
+    mcps: Sequence[str],
     skills: Sequence[str],
 ) -> None:
     """The two ways a `--from` line has no answer, refused before anything is fetched.
 
-    The three sequences are `Request`'s three sibling selectors and would rather
+    The four sequences are `Request`'s four sibling selectors and would rather
     travel as one, which is what they do everywhere else in this module. They
     cannot here, and the reason is the *order*: this refusal has to land before
     `_scope_and_root` — a line `--from` cannot answer must not need a git
     repository to be told so — and a `Request` built before the scope is resolved
-    would carry a scope that is not the one it will run under. Three parameters
+    would carry a scope that is not the one it will run under. Four parameters
     is the smaller lie.
     """
     if from_ is None:
         return
     given = [
-        flag for flag, names in ((AI_FRAMEWORK_FLAG, frameworks), (BUNDLE_FLAG, bundles)) if names
+        flag
+        for flag, names in (
+            (AI_FRAMEWORK_FLAG, frameworks),
+            (BUNDLE_FLAG, bundles),
+            (MCP_FLAG, mcps),
+        )
+        if names
     ]
     if given:
         raise UnsupportedRemoteUnitError(given)
@@ -531,6 +563,11 @@ def _perform(
     # announced. `--dry-run` is a report, never a session, so it never asks
     # either — https://github.com/panlabs-tech/overpower/issues/69.
     plan = plan_for(request, catalog, root, environment)
+    # Read before anything is drawn and before the first byte, and on **both**
+    # paths: a `--dry-run` that answered 0 to a line the real run refuses with 3
+    # would be a report about a different installation
+    # (https://github.com/panlabs-tech/overpower/issues/76).
+    broken_documents(plan)
     conflicts = existing_destinations(plan, request)
     if conflicts and (request.dry_run or not _asking(request)):
         raise DestinationExistsError(conflicts)
@@ -581,7 +618,47 @@ def _perform(
     if report.degraded:
         listed = ", ".join(str(path) for path in report.degraded)
         _out.print(Text.assemble(("degraded to copy", "op.warn"), " ", (listed, "op.dim")))
+    _warn_about_activation(plan, request.scope, root)
     _finished()
+
+
+def _warn_about_activation(plan: Plan, scope: Scope, root: Path) -> None:
+    """Say that what was just written is not on yet, wherever that is true.
+
+    ADR 0014: the overpower writes the server and does **not** activate it —
+    approving it is the user's act, and there is no version of that decision in
+    which we could do it for all three targets. So the warning is a
+    **requirement**: without it the product ships the exact failure the research
+    named — file written, exit 0, server inert, no sign anywhere.
+
+    It comes out at **exit 0**, because the write happened and was correct; what
+    is missing is not ours to do. And it comes out only where it is true, which
+    is what keeps it read at all.
+    """
+    pending = pending_activation(plan, scope)
+    if not pending:
+        return
+    listed = ", ".join(_relative(path, root) for path in pending)
+    _out.print(
+        Text.assemble(
+            ("pending approval", "op.warn"),
+            " ",
+            (
+                (
+                    f"{listed} is written, and the server does not connect until you "
+                    "approve it — Claude Code asks the next time it starts in this repository"
+                ),
+                "op.dim",
+            ),
+        )
+    )
+
+
+def _relative(path: Path, root: Path) -> str:
+    """A written path the way every other screen spells one: short, with `/`."""
+    if path.is_relative_to(root):
+        return path.relative_to(root).as_posix()
+    return path.as_posix()  # pragma: no cover — a graft lands under the scope's root
 
 
 @app.command()

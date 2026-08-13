@@ -1,0 +1,14 @@
+# The first embedded recipe, and it is not invented: this is the `cloudflare`
+# entry that three repositories of this organisation already keep by hand, in
+# three copies that happen to agree. Copying it a fourth time is the work the
+# graft exists to stop.
+description = """\
+Cloudflare's remote MCP server, over streamable HTTP. It carries no secret in \
+the file: the connection authorises in the browser the first time an agent uses \
+it, so nothing here has to be filled in before the server works.\
+"""
+
+transport = "http"
+
+[server]
+url = "https://mcp.cloudflare.com/mcp"

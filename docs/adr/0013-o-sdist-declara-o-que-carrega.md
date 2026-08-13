@@ -89,6 +89,8 @@ todo arquivo que o git rastreia sob src/ está no sdist
 
 A primeira cláusula fica mesmo sendo a que a CI não consegue reprovar hoje: ela custa zero e é o que falha se alguém alcançar uma das quatro chaves da 0004, que é o único mecanismo que sobrou capaz de pôr arquivo não rastreado no sdist.
 
+**O `src/` da segunda cláusula é escrito à mão de propósito, e a tentação de lê-lo do `include` foi medida.** Ela parece a mesma higiene que o `release-ready` pratica ao montar o mapa `título → tipo` a partir dos blocos `[[tool.towncrier.type]]` em vez de repeti-lo — mas os dois casos são opostos. Lá, o mapa e os tipos são duas grafias do mesmo fato. Aqui, o `include` é a **implementação** e a cláusula é a **asserção**: derivar uma da outra faz o portão sair **verde** com `include = ["src/overpower/content/"]`, porque uma allowlist estreitada é consistente consigo mesma. O portão passaria a assertar que o `hatchling` implementa `include`, que não é modo de falha de ninguém — a mesma vacuidade que esta ADR existe para recusar. O limite conhecido de escrever à mão é a direção contrária: um `include` que **cresça** só passa a ser asseverado quando esta linha crescer junto. Estreitar, que é o que perde arquivo, falha alto.
+
 **Custo zero de build.** O passo do P2 já roda `uv build --no-sources`, que escreve o sdist ao lado do wheel; o P3 lê o `dist/` como está. E **não vai para o `lefthook`**: o hook local pega barato o erro barato, `uv build` não é barato, e a direção que só o local enxergaria já está fechada por construção.
 
 ## Consequences

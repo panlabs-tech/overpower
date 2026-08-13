@@ -226,7 +226,9 @@ __marimo__/
 # `mailbox/` guarda mensagem trocada entre agentes e `checkpoints/` guarda estado
 # de sessão: conteúdo, não metadado.
 # https://github.com/panlabs-tech/overpower/issues/72
+# Worktrees de subagentes, aninhados no próprio repo:
 .claude/worktrees/
+# Estado de sessão e de fila:
 .claude/scheduled_tasks.lock
 .claude/scheduled_tasks.json
 .claude/routines/.state/

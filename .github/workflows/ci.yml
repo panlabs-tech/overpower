@@ -175,10 +175,24 @@ jobs:
               } - {"PKG-INFO"}
 
           stray = sorted(inside - tracked)
-          # Only `src/`: the second clause asserts the allowlist, and the
-          # allowlist is `src/`. Asking for the rest of the repository back would
-          # assert the opposite of the decision.
+
+          # `src/` IS WRITTEN OUT, and it is deliberately not read back off
+          # `[tool.hatch.build.targets.sdist]`. That reads like the second-source
+          # duplication `release-ready` avoids below, and it is the opposite:
+          # there, the title -> type map and the fragment types are two spellings
+          # of one fact; here, the `include` is the implementation and this line
+          # is the assertion. Measured — a clause that derives its expectation
+          # from `include` goes GREEN on `include = ["src/overpower/content/"]`,
+          # because a narrowed allowlist is self-consistent. It would assert that
+          # hatchling implements `include`, which is nobody's failure mode, and
+          # it is the same vacuity ADR 0013 exists to refuse.
+          #
+          # The known limit of writing it out: an `include` that GROWS an entry
+          # is not asserted until this line grows with it. Narrowing — the
+          # direction that loses files — fails loudly, and that is the one the
+          # gate is for.
           missing = sorted(path for path in tracked - inside if path.startswith("src/"))
+
           for name in stray:
               print(f"::error::in the sdist but not tracked by git: {name}")
           for name in missing:

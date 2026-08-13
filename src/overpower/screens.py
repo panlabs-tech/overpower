@@ -603,18 +603,14 @@ class _Roots:
     def shorten(self, path: Path) -> str:
         """The repository first, then the home, then not at all.
 
-        `/` separators on every platform, deliberately, as on the plan: the
-        runtime table spells its paths that way, `git status` prints them that
-        way on Windows too, and a screen whose separator changes with the
-        platform cannot be recorded once for the nine cells.
-
         A place under neither root is shown whole, because it is not a detail
-        the reader can reconstruct — that is the second write of a graft.
+        the reader can reconstruct — that is the second write of a graft. How
+        each half is spelled is `shortened`'s call.
         """
         if self.repository is not None and path.is_relative_to(self.repository):
-            return path.relative_to(self.repository).as_posix()
+            return shortened(path, self.repository)
         if path.is_relative_to(self.home):
-            return f"~/{path.relative_to(self.home).as_posix()}"
+            return f"~/{shortened(path, self.home)}"
         return path.as_posix()
 
 
@@ -673,7 +669,7 @@ def _finding(finding: Finding, roots: _Roots, glyphs: _Glyphs) -> RenderableType
             return _flagged("dangling link", [f"{place}{pointed}"])
         case LinkTurnedText(destination, inside, points_at):
             place = _located(destination, roots, glyphs)
-            relative = _under(inside, destination.path)
+            relative = shortened(inside, destination.path)
             return _flagged("link became a text file", [f"{place}  {relative} {arrow} {points_at}"])
         case Divergence(name, _, destinations):
             places = [_located(destination, roots, glyphs) for destination in destinations]
@@ -717,11 +713,22 @@ def _located(destination: Destination, roots: _Roots, glyphs: _Glyphs) -> str:
             assert_never(unreachable)
 
 
-def _under(path: Path, base: Path) -> str:
-    """A file named against the write it was found in, so the line stays readable."""
+def shortened(path: Path, base: Path) -> str:
+    """`path` named against `base`, with `/` separators — or whole if it is outside.
+
+    `/` on every platform, deliberately: the runtime table spells its paths that
+    way, `git status` prints them that way on Windows too, and a screen whose
+    separator changes with the platform cannot be recorded once for the nine
+    cells of the matrix.
+
+    A path *outside* `base` is shown whole, because it is not a detail the reader
+    can reconstruct. Public because `overpower.cli` prints one path this module
+    does not draw — the activation warning — and two spellings of *where a thing
+    is* would be two answers to the reader's one question.
+    """
     if path.is_relative_to(base):
         return path.relative_to(base).as_posix()
-    return path.as_posix()  # pragma: no cover — the walk starts at the destination
+    return path.as_posix()
 
 
 def error_panel(body: Text) -> Panel:
@@ -933,8 +940,8 @@ def _place_rows(landing: Landing, root: Path, glyphs: _Glyphs) -> Iterable[tuple
     The two forms of a destination read differently because they *are*
     different: a copy lands in a folder and costs files, a graft lands in a key
     inside a document that is already there and costs no path at all. Naming the
-    document alone would hide the only line that says which key is about to be
-    replaced, which under unconditional overwriting (ADR 0013) is the whole of
+    document alone would leave the key off the last screen before the write —
+    see `overpower.planning.DocumentKey.key` for why that key is the whole of
     the reader's defence.
     """
     if landing.folder:
@@ -982,19 +989,16 @@ def _mode_suffix(mode: WriteMode) -> tuple[tuple[str, str], ...]:
 
 
 def _shown(root: Path, landing: Landing) -> str:
-    """The place, as the plan names it: relative to the target, with `/` separators.
+    """The place, as the plan names it — and a folder earns a trailing separator.
 
-    `/` on every platform, deliberately. The runtime table spells its paths that
-    way, `git status` prints them that way on Windows too, and a screen whose
-    separator changes with the platform cannot be recorded once for the nine
-    cells of the matrix.
+    How it is spelled is `shortened`'s call; what this adds is the one thing the
+    plan knows and it does not: whether the place is a folder or a document.
 
     A place *outside* the target is shown whole, because it is not a detail the
     reader can reconstruct — that is the second write of a graft, which lands
     outside the repository.
     """
-    inside = landing.place.is_relative_to(root)
-    shown = landing.place.relative_to(root).as_posix() if inside else landing.place.as_posix()
+    shown = shortened(landing.place, root)
     return f"{shown}/" if landing.folder else shown
 
 

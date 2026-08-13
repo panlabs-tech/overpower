@@ -55,7 +55,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, cast
 
 from json5.dumper import BaseDumper, ModelDumper, dumps
@@ -130,7 +130,7 @@ class MalformedDocumentError(RefusedError):
 
     The refusal lands **before the first byte** rather than mid-write, because
     `--dry-run` has to mirror the exit code of the real run — which is what
-    `overpower.planning.broken_documents` is for.
+    `overpower.planning.refuse_broken_documents` is for.
     """
 
     def __init__(self, path: Path, why: str) -> None:
@@ -166,14 +166,24 @@ def write_document(path: Path, text: str) -> None:
         _ = handle.write(text)
 
 
-def refuse_if_broken(path: Path, text: str) -> None:
-    """Refuse `text` unless it is a JSON object this module can graft into.
+def refuse_if_broken(path: Path, text: str, root_key: str) -> None:
+    """Refuse `text` unless `grafted` could put a key under `root_key` in it.
 
     Separate from `grafted` because of *when*: the caller runs it over every
     document the plan touches **before the first write**, so a `--dry-run`
     reports the same refusal the real run would give.
+
+    It takes the root key rather than only the path because *broken* is a
+    question about the place the graft is going, not just about the file: a
+    document whose `mcpServers` is a string parses perfectly and still has
+    nowhere to receive a server. Checking only the top level was measured
+    answering **0** to a dry run whose real run answers 3.
     """
-    _document(path, text)
+    model = _document(path, text)
+    root = _object_at(path, model.value, "its top level")
+    index = _index_of(root, root_key)
+    if index is not None:
+        _object_at(path, root.values[index], f"`{root_key}`")
 
 
 def grafted(path: Path, text: str, root_key: str, name: str, value: Mapping[str, JsonValue]) -> str:
@@ -187,8 +197,7 @@ def grafted(path: Path, text: str, root_key: str, name: str, value: Mapping[str,
     root = _object_at(path, model.value, "its top level")
     unit = _unit(text)
     newline = "\r\n" if "\r\n" in text else "\n"
-    layout = _holder(path, root, root_key, unit, newline)
-    holder, inside = layout
+    holder, inside = _holder(path, root, root_key, unit, newline)
     _set(holder, name, _node(value, inside), inside)
     return dumps(model, dumper=_model_dumper())
 
@@ -236,15 +245,19 @@ def _holder(
     key is ours to write, and a graft that refused a file for not already
     carrying `mcpServers` would refuse every first install.
     """
-    outer = _indent_of(root.leading_wsc) or unit
+    # The root object's own entries sit at `outer`; anything inside one of them
+    # is one level deeper, which is what `.inner` means.
+    at_root = _Layout(unit, newline, _indent_of(root.leading_wsc) or unit, "")
     index = _index_of(root, root_key)
     if index is None:
         holder = JSONObject()
-        _appended(root, root_key, holder, _Layout(unit, newline, outer, ""))
-        return holder, _Layout(unit, newline, outer + unit, outer)
+        _appended(root, root_key, holder, at_root)
+        return holder, at_root.inner
     holder = _object_at(path, root.values[index], f"`{root_key}`")
-    entry = _indent_of(holder.leading_wsc) or (outer + unit)
-    return holder, _Layout(unit, newline, entry, outer)
+    entry = _indent_of(holder.leading_wsc)
+    # The holder was already there, so its entries are laid out however **it**
+    # lays them out — computed only when it has none to read from.
+    return holder, at_root.inner if entry is None else replace(at_root.inner, entry=entry)
 
 
 def _set(holder: JSONObject, name: str, value: Value, layout: _Layout) -> None:

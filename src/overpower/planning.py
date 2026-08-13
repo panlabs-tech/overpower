@@ -52,7 +52,7 @@ from typing import TYPE_CHECKING
 
 from overpower.errors import BadInvocationError, RefusedError
 from overpower.grafting import read_document, refuse_if_broken
-from overpower.rendering import render
+from overpower.rendering import Fragment, render
 from overpower.runtimes import (
     RUNTIMES_BY_KEY,
     Scope,
@@ -69,7 +69,6 @@ if TYPE_CHECKING:
 
     from overpower.discovery import Artifact, Bundle, Catalog, Framework
     from overpower.recipes import Recipe
-    from overpower.rendering import Fragment
     from overpower.runtimes import Environment, McpPlace, Runtime
 
 
@@ -179,7 +178,14 @@ class Landing:
 
     @property
     def folder(self) -> bool:
-        """Whether `place` is a folder, which is what earns a trailing separator."""
+        """Whether `place` is a folder, which is what earns a trailing separator.
+
+        Uniform by construction, the way `mode` is: the form of a destination
+        follows from the **place**, and a place is either a directory runtimes
+        read or a document they parse — never both. `all` rather than the first
+        write because that is the claim, and a landing that ever mixed the two
+        would answer *document* here and be read as one.
+        """
         return all(isinstance(write.destination, DirectoryTree) for write in self.writes)
 
     @property
@@ -468,19 +474,32 @@ def plan_for(request: Request, catalog: Catalog, root: Path, environment: Enviro
     )
 
 
-def broken_documents(plan: Plan) -> None:
+def refuse_broken_documents(plan: Plan) -> None:
     """Refuse before the first byte if a document this plan grafts into is broken.
 
     Here rather than in `overpower.writing` because of **`--dry-run`**: the
     report has to mirror the exit code of the real run, and a check that only
     the writer ran would let the dry run answer 0 to a line the real one refuses
-    with 3. Reading is all it does — the same shape `existing_destinations` has,
-    and the same reason: a refusal that is detectable in advance is a refusal
-    that costs nothing to detect in advance.
+    with 3. It is also what makes the refusal land before the first byte on a
+    line that mixes a copy with a graft — the writer would already have written
+    the skills by the time it reached the document.
+
+    It raises rather than answering, unlike `existing_destinations`: a broken
+    file has no second reading a terminal could turn into a question.
+
+    It reads **every write** and not every path, because what makes a document
+    unusable is the pair (file, root key): a `mcpServers` that is a string
+    parses and still has nowhere to receive a server.
     """
-    for path in _grafted_documents(plan):
-        if path.is_file():
-            refuse_if_broken(path, read_document(path))
+    for write in plan.writes:
+        destination = write.destination
+        source = write.source
+        if (
+            isinstance(destination, DocumentKey)
+            and isinstance(source, Fragment)
+            and destination.path.is_file()
+        ):
+            refuse_if_broken(destination.path, read_document(destination.path), source.root_key)
 
 
 def pending_activation(plan: Plan, scope: Scope) -> tuple[Path, ...]:
@@ -513,17 +532,6 @@ def _born_pending(readers: Sequence[str], scope: Scope) -> bool:
         if document is not None and document.born_pending:
             return True
     return False
-
-
-def _grafted_documents(plan: Plan) -> tuple[Path, ...]:
-    """Every document this plan writes a key into, in plan order, without repeats."""
-    return tuple(
-        dict.fromkeys(
-            write.destination.path
-            for write in plan.writes
-            if isinstance(write.destination, DocumentKey)
-        )
-    )
 
 
 def _refuse_a_runtime_with_no_document(runtimes: Sequence[Runtime], scope: Scope) -> None:

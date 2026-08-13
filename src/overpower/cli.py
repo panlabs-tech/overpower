@@ -48,10 +48,10 @@ from overpower.packaged import catalog_file, content_root
 from overpower.planning import (
     DestinationExistsError,
     Request,
-    broken_documents,
     existing_destinations,
     pending_activation,
     plan_for,
+    refuse_broken_documents,
 )
 from overpower.remote import catalog_from
 from overpower.runtimes import Environment, Scope
@@ -76,6 +76,7 @@ from overpower.screens import (
     opened,
     plan_screen,
     railed,
+    shortened,
     summary_screen,
 )
 from overpower.wizard import QUESTIONARY_STYLE, run_wizard
@@ -567,7 +568,7 @@ def _perform(
     # paths: a `--dry-run` that answered 0 to a line the real run refuses with 3
     # would be a report about a different installation
     # (https://github.com/panlabs-tech/overpower/issues/76).
-    broken_documents(plan)
+    refuse_broken_documents(plan)
     conflicts = existing_destinations(plan, request)
     if conflicts and (request.dry_run or not _asking(request)):
         raise DestinationExistsError(conflicts)
@@ -638,7 +639,7 @@ def _warn_about_activation(plan: Plan, scope: Scope, root: Path) -> None:
     pending = pending_activation(plan, scope)
     if not pending:
         return
-    listed = ", ".join(_relative(path, root) for path in pending)
+    listed = ", ".join(shortened(path, root) for path in pending)
     _out.print(
         Text.assemble(
             ("pending approval", "op.warn"),
@@ -652,13 +653,6 @@ def _warn_about_activation(plan: Plan, scope: Scope, root: Path) -> None:
             ),
         )
     )
-
-
-def _relative(path: Path, root: Path) -> str:
-    """A written path the way every other screen spells one: short, with `/`."""
-    if path.is_relative_to(root):
-        return path.relative_to(root).as_posix()
-    return path.as_posix()  # pragma: no cover — a graft lands under the scope's root
 
 
 @app.command()

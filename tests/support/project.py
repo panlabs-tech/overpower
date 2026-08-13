@@ -141,11 +141,27 @@ def _skill(skill: Path, name: str, extra: Sequence[str]) -> None:
         path.write_text(f"{name}: {relative}\n", encoding="utf-8")
 
 
+STDIO = "stdio"
+"""What a value in the `mcps` mapping says instead of a URL to get a stdio recipe.
+
+The two transports render differently — stdio is the one that carries an array
+and a nested table — so a suite that could only build an HTTP recipe could never
+assert on disk what those two look like once written.
+"""
+
+
 def _recipe(path: Path, slug: str, url: str) -> None:
     """One MCP recipe on disk, in the smallest shape the reader accepts."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    body = (
+        f'command = "uvx"\nargs = ["{slug}-server", "--repository", "."]\n'
+        f'\n[server.env]\nPANEL_URL = "https://panel.example.com"\n'
+        if url == STDIO
+        else f'url = "{url}"\n'
+    )
+    transport = STDIO if url == STDIO else "http"
     path.write_text(
-        f'description = "The {slug} server."\ntransport = "http"\n\n[server]\nurl = "{url}"\n',
+        f'description = "The {slug} server."\ntransport = "{transport}"\n\n[server]\n{body}',
         encoding="utf-8",
         newline="\n",
     )

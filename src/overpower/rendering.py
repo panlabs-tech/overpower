@@ -58,11 +58,10 @@ class Fragment:
 
     @property
     def dotted(self) -> str:
-        """`mcpServers.cloudflare` — what the plan names before it is accepted.
+        """`mcpServers.cloudflare` — the whole path, which is what the plan names.
 
-        The whole path and not just the leaf, because with unconditional
-        overwriting (ADR 0013) this line is the only chance the reader has to
-        notice that the key about to be replaced is theirs.
+        Why the whole path rather than the leaf is on
+        `overpower.planning.DocumentKey.key`, where the datum lives.
         """
         return f"{self.root_key}.{self.name}"
 

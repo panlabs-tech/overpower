@@ -57,7 +57,7 @@ O hook local **não é o portão, é o atalho**: ele pega barato o erro barato. 
 
 | job | conteúdo |
 |---|---|
-| `static` | `ruff check` · `ruff format --check` · `pyright` · **P1** · **P2** — ubuntu, um Python |
+| `static` | `ruff check` · `ruff format --check` · `pyright` · **P1** · **P2** · **P3** — ubuntu, um Python |
 | `test` | `pytest`, matriz de 3 SOs × 3 versões de Python |
 | `gate` | `needs: [static, test]` com `if: always()` e asserção dos dois resultados |
 | `release-ready` | versão movida, `CHANGELOG.md` fechado, `changelog.d/` vazio e nível ≥ o que os fragmentos pedem — só quando o PR muda o wheel |
@@ -73,6 +73,8 @@ Todos bloqueantes: portão que não bloqueia é documentação. O `gate` existe 
 Três armadilhas medidas, que quem mexer nos portões precisa conhecer: **P1 passa por vacuidade** se `src/overpower/content/` não existir (sai `exit=0` com saída vazia); **`pytest` sem nenhum teste sai 5**, o que sob ruleset é deadlock de merge e não feiura; e a do `gate` acima. As duas primeiras eram previstas, a terceira não.
 
 > **Estado em 2026-08-07: a raiz de conteúdo existe** ([#45](https://github.com/panlabs-tech/overpower/issues/45)), e com ela a guarda do P1 inverteu de sentido. Enquanto não havia conteúdo, `test -d` transformava a vacuidade num aviso e num `exit 0`; agora que a árvore é rastreada, sujeito vazio é **regressão**, e os dois P1 — o da CI e o do `lefthook` — falham em vez de passar. O P2 também deixou de comparar dois conjuntos vazios: são **82 caminhos** dos dois lados.
+
+**O P3 é a lição da vacuidade aplicada antes de doer** ([#71](https://github.com/panlabs-tech/overpower/issues/71), [ADR 0013](../adr/0013-o-sdist-declara-o-que-carrega.md)). Ele asserta que todo arquivo do sdist é rastreado pelo git e que todo rastreado sob `src/` está no sdist — mas **não é ele quem impede o vazamento de arquivo não rastreado**. Esse fecha por construção, na allowlist do `pyproject.toml`, porque o único ambiente onde o P3 roda é a CI e o `actions/checkout` não materializa arquivo não rastreado: um portão escrito para pegar aquilo sairia verde para sempre, exatamente como o P1 saía. O que o P3 pega é a **allowlist envelhecendo** — medido vermelho com `include` estreitado, 15 `.py` rastreados ausentes. Custa zero build: ele lê o `dist/` que o P2 já construiu.
 
 **A matriz 3×3 pagou na primeira rodada.** `WindowsPath("/home/dev").is_absolute()` é `False` — falta letra de unidade —, e 79 dos 257 testes falhavam só nas três células Windows. O produto estava certo e os fixtures é que eram POSIX-only. É exatamente a classe que a [doutrina de teste](testing.md) previu que passaria verde numa célula só.
 

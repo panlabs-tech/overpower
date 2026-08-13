@@ -591,6 +591,32 @@ def test_grafting_the_same_server_twice_writes_again_and_exits_zero(
     assert (root / MCP_JSON).read_text(encoding="utf-8") == once
 
 
+def test_two_servers_on_one_line_both_reach_the_same_document(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The second graft reads what the first one wrote, rather than the file it found.
+
+    Two writes, one document, and they are performed in plan order — so a writer
+    that had kept the original text in hand would land the second server over
+    the first and report two writes for one key.
+    """
+    # given
+    catalog_of(
+        tmp_path,
+        monkeypatch,
+        mcps={"cloudflare": CLOUDFLARE, "hostinger-vps": "https://mcp.hostinger.com/mcp"},
+    )
+    root = target(tmp_path, monkeypatch)
+
+    code, output = run(
+        capsys, "install", "--mcp", "cloudflare,hostinger-vps", "--runtime", "claude-code"
+    )
+
+    assert code == 0
+    assert document_keys(root / MCP_JSON) == keys_in(output)
+    assert {"mcpServers.cloudflare", "mcpServers.hostinger-vps"} <= keys_in(output)
+
+
 def test_the_document_is_created_when_the_repository_has_none(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

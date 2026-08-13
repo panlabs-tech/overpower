@@ -112,6 +112,29 @@ def test_a_runtime_with_no_mcp_document_refuses_the_whole_line(
     assert not (root / ".mcp.json").exists()
 
 
+def test_the_machine_scope_has_no_mcp_document_yet_and_says_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The table is a function of (runtime, **scope**), and it is partial on both axes.
+
+    Where a machine-scope MCP document hangs off is
+    https://github.com/panlabs-tech/overpower/issues/81 — until it answers, the
+    pair does not exist, and inventing `~/.claude.json` would be the guess this
+    product exists not to make.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": "https://mcp.example.com/mcp"})
+    target(tmp_path, monkeypatch)
+
+    code, output = run(
+        capsys, *("install", "--mcp", "cloudflare", "--runtime", "claude-code", "--global")
+    )
+
+    assert code == 3
+    assert "global" in joined(output)
+    assert not (tmp_path / ".mcp.json").exists()
+
+
 def test_comma_and_repetition_both_accumulate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

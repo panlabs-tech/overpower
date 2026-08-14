@@ -1274,7 +1274,15 @@ def test_a_line_with_skill_and_mcp_without_runtime_exits_two(
 def test_a_line_with_skill_and_mcp_without_runtime_in_a_terminal_never_opens_the_wizard(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:
-    """The same refusal, and in a terminal it fires before any screen is drawn (#97)."""
+    """The same refusal, and in a terminal it fires before any screen is drawn (#97).
+
+    Absence of the banner is the seam: a terminal session that reached
+    `run_wizard` would have printed it first (`_print_banner()` runs before the
+    wizard opens), so its absence is what proves no screen was drawn — the same
+    assertion `test_the_banner_is_suppressed_without_a_tty` makes for the pipe
+    case. `run_wizard` is stubbed to fail loudly besides, so a refusal that
+    slipped would not hang the suite on a prompt with no real terminal behind it.
+    """
     # given
     project.catalog_of(tmp_path, monkeypatch, "alpha", mcps={"cloudflare": MCP_URL})
     project.target(tmp_path, monkeypatch)
@@ -1284,13 +1292,19 @@ def test_a_line_with_skill_and_mcp_without_runtime_in_a_terminal_never_opens_the
     code, output = project.run(capsys, "install", "--skill", "alpha", "--mcp", "cloudflare")
 
     assert code == 2
+    assert "_____" not in output
     assert "--runtime" in project.joined(output)
 
 
 def test_an_mcp_name_outside_the_catalog_in_a_terminal_exits_two_before_the_wizard_opens(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:
-    """The same typo the flag path already caught, now caught before the wizard asks anything."""
+    """The same typo the flag path already caught, now caught before the wizard asks anything.
+
+    Absence of the banner is the seam, for the reason the sibling test above
+    gives; `run_wizard` is stubbed besides, so a refusal that slipped fails
+    loudly instead of hanging on a prompt with no real terminal behind it.
+    """
     # given
     project.catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": MCP_URL})
     root = project.target(tmp_path, monkeypatch)
@@ -1300,6 +1314,7 @@ def test_an_mcp_name_outside_the_catalog_in_a_terminal_exits_two_before_the_wiza
     code, output = project.run(capsys, "install", "--mcp", "cloudfare")
 
     assert code == 2
+    assert "_____" not in output
     assert "cloudflare" in project.joined(output)
     assert list(root.iterdir()) == []
 

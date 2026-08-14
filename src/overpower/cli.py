@@ -626,29 +626,39 @@ def _refuse_a_line_from_cannot_answer(
 def _refuse_an_mcp_name_from_the_wrong_class(catalog: Catalog, mcps: Sequence[str]) -> None:
     """Refuse a `--mcp` name the recipe table misses, before the wizard opens.
 
-    `plan_for` already raises `UnknownNameError` for the plain miss — this does
-    not replace it, it moves the same question earlier and sharpens the answer
-    when the name turns out to be real, just filed under a different flag
-    (https://github.com/panlabs-tech/overpower/issues/97).
+    `plan_for` already raises `UnknownNameError` for the plain miss through
+    `catalog.mcp(name)` — this does not replace that lookup, it calls it early
+    and sharpens the answer when the name turns out to be real, just filed
+    under a different flag (https://github.com/panlabs-tech/overpower/issues/97).
     """
     for name in mcps:
-        if any(recipe.name == name for recipe in catalog.mcps):
+        try:
+            catalog.mcp(name)
+        except UnknownNameError:
+            other = _flag_already_claiming(catalog, name)
+            if other is not None:
+                raise McpNameBelongsToAnotherFlagError(name, other) from None
+            raise
+
+
+def _flag_already_claiming(catalog: Catalog, name: str) -> str | None:
+    """Which other selector's lookup already answers `name`, or `None`.
+
+    Through the catalog's own closed-list lookups — the same ones
+    `UnknownNameError` already backs — rather than a hand-rolled scan of each
+    sequence, so this cannot drift from what `--ai-framework`/`--skill`/`--bundle`
+    themselves accept.
+    """
+    for flag, lookup in (
+        (AI_FRAMEWORK_FLAG, catalog.framework),
+        (SKILL_FLAG, catalog.artifact),
+        (BUNDLE_FLAG, catalog.bundle),
+    ):
+        try:
+            lookup(name)
+        except UnknownNameError:
             continue
-        other = _flag_naming(catalog, name)
-        if other is not None:
-            raise McpNameBelongsToAnotherFlagError(name, other)
-        unit = "MCP server"
-        raise UnknownNameError(unit, name, (recipe.name for recipe in catalog.mcps))
-
-
-def _flag_naming(catalog: Catalog, name: str) -> str | None:
-    """Which other selector's namespace already carries `name`, or `None`."""
-    if any(item.name == name for item in catalog.frameworks):
-        return AI_FRAMEWORK_FLAG
-    if any(item.name == name for item in catalog.pool):
-        return SKILL_FLAG
-    if any(item.name == name for item in catalog.bundles):
-        return BUNDLE_FLAG
+        return flag
     return None
 
 

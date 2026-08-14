@@ -23,6 +23,7 @@ from overpower.runtimes import (
     Evidence,
     Runtime,
     Scope,
+    detected_mcp_runtimes,
     detected_runtimes,
     mcp_document_of,
     mcp_places_of,
@@ -64,6 +65,7 @@ REPO = absolute("srv", "repo")
 def environment(
     variables: Mapping[str, str] | None = None,
     present: frozenset[Path] = frozenset(),
+    file_present: frozenset[Path] = frozenset(),
     platform: str = sys.platform,
 ) -> Environment:
     """An environment with nothing set and nothing on disk unless asked.
@@ -71,12 +73,18 @@ def environment(
     `platform` defaults to the one running the test, so a case that is not about
     the operating system stays about the table. The matrix cases name it, which
     is what lets one runner assert all nine of them.
+
+    `present` and `file_present` are separate sets and not one: `directory_exists`
+    and `file_exists` probe two different classes of destination — a skills
+    directory and an MCP document — and a test of one has no reason to also mark
+    the other.
     """
     return Environment(
         home=HOME,
         variables=variables or {},
         directory_exists=present.__contains__,
         platform=platform,
+        file_exists=file_present.__contains__,
     )
 
 
@@ -651,3 +659,41 @@ def test_detection_never_offers_a_runtime_the_scope_would_refuse() -> None:
     )
     detected = detected_runtimes(Scope.GLOBAL, REPO, env)
     assert detected == {r.key for r in runtimes_in(Scope.GLOBAL)}
+
+
+# --- the wizard's pre-mark, graft class: detected_mcp_runtimes --------------
+#
+# The twin of the block above, and simpler for the reason the function's own
+# docstring gives: each row already carries its own base, so there is no
+# repository-carries-nothing fallback to test for.
+
+
+def test_project_scope_pre_checks_only_the_mcp_document_that_exists() -> None:
+    env = environment(file_present=frozenset({REPO / ".mcp.json"}))
+    assert detected_mcp_runtimes(Scope.PROJECT, REPO, env) == frozenset({"claude-code"})
+
+
+def test_project_scope_with_no_document_on_disk_detects_nothing() -> None:
+    assert detected_mcp_runtimes(Scope.PROJECT, REPO, environment()) == frozenset()
+
+
+def test_project_scope_does_not_fall_back_to_the_personal_file() -> None:
+    """Unlike `detected_runtimes`, there is no fallback here — asserted, not assumed.
+
+    A project document and a machine document are two different files, never the
+    same folder under two roots, so a project with no `.mcp.json` says nothing
+    about `~/.claude.json` — the reason `detected_mcp_runtimes` never probes the
+    other base the way `detected_runtimes` falls back to `~`.
+    """
+    env = environment(file_present=frozenset({HOME / ".claude.json"}))
+    assert detected_mcp_runtimes(Scope.PROJECT, REPO, env) == frozenset()
+
+
+def test_global_scope_pre_checks_the_personal_file_that_exists() -> None:
+    env = environment(file_present=frozenset({HOME / ".claude.json"}))
+    assert detected_mcp_runtimes(Scope.GLOBAL, REPO, env) == frozenset({"claude-code"})
+
+
+def test_global_scope_never_probes_the_project_document() -> None:
+    env = environment(file_present=frozenset({REPO / ".mcp.json"}))
+    assert detected_mcp_runtimes(Scope.GLOBAL, REPO, env) == frozenset()

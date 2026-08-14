@@ -1,0 +1,8 @@
+◇  summary ────────────────────────────────────────────────╮
+│                                                          │
+│  cloudflare  1 mcp server                                │
+│                                                          │
+│    .mcp.json › mcpServers.cloudflare  ←           1 key  │
+│    claude-code                                           │
+│                                                          │
+├──────────────────────────────────────────────────────────╯

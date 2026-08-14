@@ -23,6 +23,25 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.14.0] - 2026-08-14
+
+### Changed
+
+- **`install --mcp <slug>` funciona pelo wizard, num terminal e sem `--runtime`.** O passo de runtime passa a conhecer a classe que a linha carrega: numa linha de MCP ele vira outro passo, sem o grupo universal travado, contando só os runtimes que recebem documento naquele escopo e rotulando cada opção pelo arquivo que vai receber o servidor — não pelo diretório de skill.
+
+  **A validação sobe para antes da primeira tela.** Slug de MCP inexistente, slug que na verdade é de outra classe (`--mcp` nomeando um skill, por exemplo) e linha que mistura skill e MCP sem `--runtime` saem em exit 2 sem desenhar banner nem passo algum, em vez de custar o wizard inteiro para falhar no fim.
+
+  **`vscode` ganha linha em `RUNTIMES`, sem destino de skill** (ADR 0018, que revisita e não repete a ADR 0017): é o que deixa o novo passo nomear `VS Code`. Pertencer à tabela deixou de provar destino de skill — `runtimes_in` passa a filtrar pelo campo, e a tabela cresce de 76 para 77 linhas. ([#97](https://github.com/panlabs-tech/overpower/issues/97))
+
+### Fixed
+
+- **`list --mcp <slug>` parou de pagar o produto cartesiano.** A tela mostrava um par por linha — cada runtime uma vez por escopo, seis linhas para três alvos — quando alvo e escopo são dois eixos e cabem em duas linhas, uma por eixo. Uma receita sem alvo nenhum continua dizendo isso.
+
+  **O painel `installed` recupera a chave do enxerto.** A última tela, a que confirma o que já foi escrito, degradava um enxerto ao caminho do documento e jogava a chave fora; passa a imprimir `documento › chave`, como o plano e o portão já fazem — a única defesa do leitor sob sobrescrita incondicional.
+
+  Os goldens de `list --mcp`, `summary` e `installed` passam a ser gravados com o que o produto realmente produz — alvos reais e uma variante com enxerto — em vez de um par construído à mão, que é o que deixou o produto cartesiano invisível em snapshot até agora. ([#98](https://github.com/panlabs-tech/overpower/issues/98))
+
+
 ## [0.13.0] - 2026-08-14
 
 ### Changed

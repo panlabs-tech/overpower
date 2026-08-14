@@ -243,18 +243,6 @@ bytes are ours, so no curation refresh can move a recorded screen."""
 
 MCP_TARGET = Target(runtime="claude-code", scope=Scope.PROJECT)
 
-RECORDED_TARGETS = (MCP_TARGET,)
-"""What the recorded recipe screens are drawn with: one pair, and ours.
-
-Spelled here rather than derived, for the reason every recorded screen is drawn
-from a fixture: a recording that moved when the *table* grew would spend the
-signal that says which screens a change had licence to move. The table has since
-grown — https://github.com/panlabs-tech/overpower/issues/80 put a second row on
-it — and these recordings did not move, which is the property working rather than
-a recording gone stale. That the screen shows what `targets_of` actually answers
-is the wiring, and it is asserted through the command in `test_cli.py`.
-"""
-
 
 def recorded_recipe() -> Recipe:
     """The HTTP recipe the detail screen is recorded against: fixed, and ours."""
@@ -264,6 +252,21 @@ def recorded_recipe() -> Recipe:
         description=MCP_LONG,
         server=HttpServer(url="https://mcp.cloudflare.com/mcp"),
     )
+
+
+RECORDED_TARGETS = targets_of(recorded_recipe())
+"""What the recorded recipe screens are drawn with — the real answer, not a hand pair.
+
+**Used to be one pair, spelled here rather than derived** — the reasoning was
+that a recording moving when the table grew would spend the signal that says
+which screens a change had licence to move, and the wiring was asserted through
+the command in `test_cli.py` instead. That is exactly what let the cartesian
+product go unrecorded (#98): `targets_of` genuinely answers six pairs since
+https://github.com/panlabs-tech/overpower/issues/80, and a fixture that answered
+one could never have shown a screen paying for the other five, or the day the
+factoring in `_target_facts` stopped matching what the table actually returns.
+The signal a moving recording buys is worth less than the bug a static one hid.
+"""
 
 
 def recorded_stdio_recipe() -> Recipe:
@@ -703,6 +706,46 @@ def test_the_graft_plan_matches_its_snapshot(request: pytest.FixtureRequest, wid
     rendered = render(plan_screen(recorded_graft()), width)
 
     assert_matches_snapshot(request, f"plan-graft-{width}", rendered)
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_gate_names_the_document_and_the_key_of_a_graft(width: int) -> None:
+    """The gate is the plan one flag apart — it must not degrade the graft on the way."""
+    joined = unwrapped(render(summary_screen(recorded_graft()), width))
+
+    assert ".mcp.json › mcpServers.cloudflare" in joined
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_summary_screen_of_a_graft_matches_its_snapshot(
+    request: pytest.FixtureRequest, width: int
+) -> None:
+    rendered = render(summary_screen(recorded_graft()), width)
+
+    assert_matches_snapshot(request, f"summary-graft-{width}", rendered)
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_closing_panel_recovers_the_key_a_graft_wrote(width: int) -> None:
+    """#98: the closing screen used to degrade a graft to its bare document path.
+
+    `document › key` is the one line that names what actually landed — under
+    unconditional overwriting (ADR 0013) it is the reader's only record of which
+    entry was replaced, and it must survive to the very last screen or the
+    record it closes with says less than the write did.
+    """
+    joined = unwrapped(render(installed_screen(recorded_graft(), writes=1, files=1), width))
+
+    assert ".mcp.json › mcpServers.cloudflare" in joined
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_installed_screen_of_a_graft_matches_its_snapshot(
+    request: pytest.FixtureRequest, width: int
+) -> None:
+    rendered = render(installed_screen(recorded_graft(), writes=1, files=1), width)
+
+    assert_matches_snapshot(request, f"installed-graft-{width}", rendered)
 
 
 # --------------------------------------------------------------------------- #
@@ -1197,29 +1240,34 @@ def test_the_mcp_screen_names_the_command_the_arguments_and_the_environment(widt
 def test_the_mcp_screen_names_which_targets_the_recipe_serves(width: int) -> None:
     """The question that decides whether a server serves the reader at all.
 
-    Runtime **and** scope, never the runtime alone: `claude-code` reads
-    `.mcp.json` in a repository and reads nothing on the machine, so a line that
-    named only the runtime would promise the half that does not exist.
+    Target and scope are two axes (#98): `targets` names the runtimes, `scopes`
+    names where they read — never a runtime alone, because `claude-code` reads
+    `.mcp.json` in a repository and reads nothing on the machine, so naming only
+    the runtime would promise the half that does not exist.
     """
     rendered = rows(render(mcp_screen(recorded_recipe(), RECORDED_TARGETS), width))
 
-    assert "targets claude-code · project" in rendered
+    targets = next(row for row in rendered if row.startswith("targets "))
+    scopes = next(row for row in rendered if row.startswith("scopes "))
+    assert "claude-code" in targets
+    assert "project" in scopes
 
 
 @pytest.mark.parametrize("width", WIDTH_CASES)
-def test_each_target_of_a_recipe_gets_a_row_of_its_own(width: int) -> None:
-    """Two targets are two rows, because a run picks one scope and one runtime.
+def test_two_scopes_of_one_runtime_factor_into_two_lines_not_two_pairs(width: int) -> None:
+    """The cartesian product #98 measured: six lines for three targets, paid for one.
 
-    Written out rather than joined into a sentence: the pairs do not compose —
-    a runtime that reads a repository is not the same target as the same runtime
-    reading the machine — so the line that lists them may not read as if they did.
+    `claude-code` in both scopes used to cost a row per pair; the two axes
+    factor into one `targets` row and one `scopes` row, each runtime and each
+    scope named exactly once.
     """
     machine = Target(runtime="claude-code", scope=Scope.GLOBAL)
 
     rendered = rows(render(mcp_screen(recorded_recipe(), (MCP_TARGET, machine)), width))
 
-    assert "targets claude-code · project" in rendered
-    assert "claude-code · global" in rendered
+    assert "targets claude-code" in rendered
+    assert sum(1 for row in rendered if "claude-code" in row) == 1
+    assert "scopes project, global" in rendered
 
 
 @pytest.mark.parametrize("width", WIDTH_CASES)

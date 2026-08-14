@@ -9,6 +9,7 @@
 │    command  uvx                                          │
 │    args     mcp-server-coolify --panel                   │
 │    env      COOLIFY_BASE_URL  https://vps.panlabs.tech   │
-│    targets  claude-code · project                        │
+│    targets  claude-code, vscode, devin                   │
+│    scopes   project, global                              │
 │                                                          │
 ╰──────────────────────────────────────────────────────────╯

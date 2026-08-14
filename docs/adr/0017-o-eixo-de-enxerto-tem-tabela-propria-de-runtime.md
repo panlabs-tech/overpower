@@ -1,5 +1,7 @@
 # O eixo de enxerto tem tabela própria de runtime
 
+> **Emenda, 2026-08-14 ([ADR 0018](0018-vscode-ganha-linha-sem-destino-de-skill.md)):** a primeira opção considerada abaixo — dar a `vscode` uma linha em `RUNTIMES` — voltou a ser cogitada e desta vez venceu, mas não a mesma opção: a versão que ganhou não inventa `project_dir`, entra com `None` nos dois campos de destino, e por isso não fere a razão de perder registrada aqui. `RUNTIMES_BY_KEY` deixou de provar destino de skill; `runtimes_in` é quem prova agora. O resto desta ADR — a tabela de MCP como chave própria, a recusa por classe, a ordem da tela — continua de pé.
+
 O VS Code lê `.vscode/mcp.json`, e **nenhum outro runtime lê esse arquivo**. Ele também não tem linha na tabela de skills: o upstream do `vercel-labs/skills` não declara nenhuma para ele, e a nossa tabela é uma **transcrição** ([#27](https://github.com/panlabs-tech/overpower/issues/27)). Para o [Alvo VS Code](https://github.com/panlabs-tech/overpower/issues/79) existir é preciso que `--runtime vscode` seja aceitável, e isso obriga a escolher entre duas coisas que pareciam a mesma.
 
 > **O conjunto de runtimes de enxerto é a chave de `MCP_DOCUMENTS`, e não um subconjunto de `RUNTIMES`.**

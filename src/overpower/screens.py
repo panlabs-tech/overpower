@@ -582,15 +582,16 @@ def mcp_screen(recipe: Recipe, targets: Sequence[Target]) -> RenderableType:
 def _recipe_facts(
     recipe: Recipe, targets: Sequence[Target]
 ) -> Sequence[tuple[str, RenderableType]]:
-    """What the recipe declares, then the one answer that is derived from it.
+    """What the recipe declares, then the one or two answers derived from it.
 
     Every label but the last is a **field of the recipe**, spelled the way the
     TOML spells it — `command`, `args`, `env`, `url`. That is deliberate, and it
-    is what makes the last row read as what it is: `targets` is the only line on
-    the screen with no field behind it, because which targets a recipe serves is
-    derived from (transport, slot roles, target) and never declared (rule 4).
+    is what makes the last rows read as what they are: `targets` and `scopes`
+    are the only lines on the screen with no field behind them, because which
+    targets a recipe serves is derived from (transport, slot roles, target) and
+    never declared (rule 4).
     """
-    return (*_declared(recipe.server), ("targets", _targets(targets)))
+    return (*_declared(recipe.server), *_target_facts(targets))
 
 
 def _declared(server: Server) -> tuple[tuple[str, RenderableType], ...]:
@@ -625,17 +626,19 @@ def _pairs(environment: Mapping[str, str]) -> RenderableType:
     )
 
 
-def _targets(targets: Sequence[Target]) -> RenderableType:
-    """Who can receive this server, one pair per line — or the word that says nobody.
+def _target_facts(targets: Sequence[Target]) -> tuple[tuple[str, RenderableType], ...]:
+    """Who can receive this server: the runtimes on one line, the scopes on another.
 
-    Runtime **and** scope, because the pair is the unit: the same runtime reads
-    a document in a repository and may read none at all on the machine, so a
-    line that named only the runtime would promise the half that does not exist.
-
-    One `Text` carrying the newlines rather than a grid of its own: it lands in
-    the value column of `_stacked`, which already folds, so a second grid here
-    would be a second place for the truncation rule to be forgotten — the very
-    thing that function exists to prevent.
+    **Target and scope are two axes, and the screen used to fold them into
+    one** (https://github.com/panlabs-tech/overpower/issues/98): a pair per
+    line paid the full cross product — six lines for three runtimes across two
+    scopes — for information that factors into two. Nothing here is redundant;
+    the factoring was wrong. So this asserts the factoring holds — every
+    runtime reaches every named scope — and raises rather than drawing a
+    silently partial screen the day it does not: today no dialect declares a
+    document in one scope and not the other, so the assertion costs nothing and
+    the day it would fire is the day the two-line shape stops being able to
+    say what it currently says without inventing a pairing.
 
     Empty is an answer and is drawn as one, in the ink that says *stop reading
     for your case*. A blank cell would read as a screen that failed to draw,
@@ -643,9 +646,18 @@ def _targets(targets: Sequence[Target]) -> RenderableType:
     spell this recipe.
     """
     if not targets:
-        return Text("none", style="op.warn")
-    return Text(
-        "\n".join(f"{target.runtime} · {target.scope}" for target in targets), style="op.key"
+        return (("targets", Text("none", style="op.warn")),)
+    runtimes = list(dict.fromkeys(target.runtime for target in targets))
+    scopes = list(dict.fromkeys(target.scope for target in targets))
+    if len(targets) != len(runtimes) * len(scopes):
+        message = (
+            "targets_of returned a set that does not factor into runtimes x scopes; "
+            "the two-line screen would silently drop a pairing"
+        )
+        raise AssertionError(message)
+    return (
+        ("targets", Text(", ".join(runtimes), style="op.key")),
+        ("scopes", Text(", ".join(str(scope) for scope in scopes), style="op.key")),
     )
 
 
@@ -957,12 +969,14 @@ class _InstalledScreen:
         del console
         tick = "v" if options.ascii_only else "✓"
         arrow = "<-" if options.ascii_only else "←"
+        glyphs = _Glyphs.of(options)
         blocks: list[RenderableType] = []
         for selection in self.plan.selections:
             places = Table.grid()
             places.add_column(overflow="fold")
             for landing in selection.landings:
-                places.add_row(Text(_shown(self.plan.root, landing), style="op.dim"))
+                for row in _installed_rows(landing, self.plan.root, glyphs):
+                    places.add_row(row)
             blocks.append(
                 Group(
                     Text.assemble(
@@ -1129,6 +1143,23 @@ def _shown(root: Path, landing: Landing) -> str:
     """
     shown = shortened(landing.place, root)
     return f"{shown}/" if landing.folder else shown
+
+
+def _installed_rows(landing: Landing, root: Path, glyphs: _Glyphs) -> Iterable[Text]:
+    """The closing panel's rows for one landing: the folder whole, or one row per key.
+
+    The mirror of `_place_rows` for the last screen (#98): a folder earns one
+    row exactly as it always did, and a graft — which used to collapse to the
+    bare document path here, silently dropping the key `_place_rows` already
+    prints on the plan and the gate — now names `document › key` per key, the
+    one spelling this product uses everywhere a key is the reader's defence.
+    """
+    if landing.folder:
+        yield Text(_shown(root, landing), style="op.dim")
+        return
+    shown = _shown(root, landing)
+    for key in landing.keys:
+        yield Text.assemble(shown, " ", (glyphs.into, "op.dim"), " ", (key, "op.key"))
 
 
 def _readers(keys: Sequence[str]) -> str:

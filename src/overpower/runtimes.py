@@ -263,16 +263,23 @@ class GlobalSkillsDir:
 
 @dataclass(frozen=True)
 class Runtime:
-    """One row of the table: a runtime and its two skill destinations.
+    """One row of the table: a runtime and, where it has one, its skill destinations.
 
     `global_dir` is `None` for the two runtimes upstream declares
     `globalSkillsDir: undefined` — they are project-only, and a global install
     has nowhere to put their skills.
+
+    `project_dir` is `None` for exactly one row — `vscode` — and for a
+    different reason (ADR 0018): it is not a transcribed runtime at all, it is
+    the graft axis's own target given a display name so the wizard's MCP step
+    can name it. Membership in this table stopped proving a skill destination
+    the day that row was added; `runtimes_in` is what still answers *that*
+    question, by filtering on the field rather than on presence in the tuple.
     """
 
     key: str
     display_name: str
-    project_dir: ProjectSkillsDir
+    project_dir: ProjectSkillsDir | None
     global_dir: GlobalSkillsDir | None
     in_universal_list: bool = True
     in_universal_prompt: bool = True
@@ -301,6 +308,15 @@ class Environment:
     where a path resolves, never whether a test can execute.
     """
 
+    file_exists: Callable[[Path], bool] = Path.is_file
+    """Whether an MCP document already sits at a resolved path — `detected_mcp_runtimes`'s probe.
+
+    `directory_exists` cannot answer this: an MCP document is a *file*, and
+    `Path.is_dir()` is false of every one of them by construction. Defaulted
+    rather than threaded through every existing call site — the graft class is
+    the only reader, and every other construction of this type is unaffected.
+    """
+
     @classmethod
     def from_process(cls) -> Environment:
         """Read the environment of the running process.
@@ -313,12 +329,23 @@ class Environment:
             variables=os.environ,
             directory_exists=Path.is_dir,
             platform=sys.platform,
+            file_exists=Path.is_file,
         )
 
 
 def resolve_project_dir(runtime: Runtime, root: Path) -> Path:
-    """Absolute path a project-scope install writes to, under `root`."""
-    return _join(root, runtime.project_dir.relative)
+    """Absolute path a project-scope install writes to, under `root`.
+
+    `None` is a real answer for `vscode` (ADR 0018), so a caller reaches here
+    only after filtering through `runtimes_in` — same contract
+    `resolve_global_dir` already has, mirrored rather than returning `None`
+    itself, because every other row really does have one.
+    """
+    project_dir = runtime.project_dir
+    if project_dir is None:  # pragma: no cover — every caller filters by `runtimes_in` first
+        message = f"`{runtime.key}` has no project destination, despite `runtimes_in`"
+        raise AssertionError(message)
+    return _join(root, project_dir.relative)
 
 
 def resolve_global_dir(runtime: Runtime, environment: Environment) -> Path | None:
@@ -534,6 +561,24 @@ def _runtime(  # noqa: PLR0913 — six parameters because a table row has six co
     )
 
 
+def _graft_only(key: str, display_name: str) -> Runtime:
+    """A row with no skill destination in either scope — `vscode`, and alone (ADR 0018).
+
+    A named constructor and not a seventh, defaultable column on `_runtime`:
+    that builder's `project_relative` is a required upstream fact for all 76
+    transcribed rows, and letting it take `None` would let a future
+    transcription mistake an omission for this one deliberate exception.
+    """
+    return Runtime(
+        key=key,
+        display_name=display_name,
+        project_dir=None,
+        global_dir=None,
+        in_universal_list=False,
+        in_universal_prompt=False,
+    )
+
+
 RUNTIMES: tuple[Runtime, ...] = (
     # Upstream declaration order, which is the order the selection screen shows.
     _runtime("aider-desk", "AiderDesk", ".aider-desk/skills", _home(".aider-desk/skills")),
@@ -688,6 +733,11 @@ RUNTIMES: tuple[Runtime, ...] = (
         in_universal_prompt=False,
     ),
     _runtime("adal", "AdaL", ".adal/skills", _home(".adal/skills")),
+    # Not upstream's, and not a skill destination — the graft axis's own target,
+    # given a row so the wizard's MCP step can name it (ADR 0018). It sits after
+    # every transcribed row and before the synthetic `universal` one, which is
+    # this table's other non-transcribed member.
+    _graft_only("vscode", "VS Code"),
     _runtime(
         "universal",
         "Universal",
@@ -696,7 +746,7 @@ RUNTIMES: tuple[Runtime, ...] = (
         in_universal_list=False,
     ),
 )
-"""The 76 rows, in upstream declaration order."""
+"""The 76 transcribed rows, plus `vscode` — 77 total (ADR 0018)."""
 
 RUNTIMES_BY_KEY: Mapping[str, Runtime] = MappingProxyType(
     {runtime.key: runtime for runtime in RUNTIMES}
@@ -842,13 +892,16 @@ dialect's docstring and in `docs/research/mcp-config-formats.md`, because no cod
 reads it — a field with no reader is a field that goes stale unnoticed. The day
 something branches on it, it becomes a column.
 
-**This table is the closed set of MCP runtimes, and it is not a subset of
-`RUNTIMES`.** `vscode` has no row in the skills transcription — upstream has
-none, and the transcription is a transcription — yet it is the target that owns
-`.vscode/mcp.json`, which no other runtime reads. So the key is a `str` and not
-a `Runtime`: *which classes a runtime can receive* is a per-class table, and the
-two tables intersect without either containing the other
-(https://github.com/panlabs-tech/overpower/issues/79).
+**This table is the closed set of MCP runtimes, and `RUNTIMES` no longer proves
+the other direction.** Since ADR 0018 every key here also has a row in
+`RUNTIMES` — `vscode` joined `claude-code` and `devin` there, given a display
+name and no skill destination — so the key sets nest one way now. They do not
+nest the other way: `cursor` has a skills row and no MCP document anywhere, which
+is what keeps this a pair of tables rather than a hierarchy. The key stays a
+`str` and not a `Runtime` regardless: presence in `RUNTIMES` answers "does this
+key have a display name", never "which classes can it receive" — that is still
+per-class, this table for the graft half and `runtimes_in` for the copy half
+(https://github.com/panlabs-tech/overpower/issues/79, ADR 0018).
 
 Where the pair has no row the pair **does not exist**: `overpower.planning`
 refuses the whole line with exit 3 rather than inventing a file, which is ADR
@@ -885,12 +938,12 @@ def mcp_document_of(key: str, scope: Scope) -> McpDocument | None:
     runtime rather than invent a file for it, the same contract
     `resolve_global_dir` already has.
 
-    A **key** and not a `Runtime`, because the two axes are two tables and
-    neither one contains the other: `vscode` owns `.vscode/mcp.json` and has no
-    row in the skills transcription, and `cursor` has a row there and no MCP
-    document anywhere. Taking a `Runtime` would have made the graft axis a subset
-    of the copy axis by signature, which measured it is not
-    (https://github.com/panlabs-tech/overpower/issues/79).
+    A **key** and not a `Runtime`, because a row in `RUNTIMES` no longer implies
+    anything about this table (ADR 0018): `vscode` has one and no skills
+    destination, `cursor` has one and no MCP document anywhere. Taking a
+    `Runtime` would read as a promise that the argument's other fields mean
+    something here, which since ADR 0018 is not even true of the row's own
+    `project_dir` (https://github.com/panlabs-tech/overpower/issues/79).
     """
     return MCP_DOCUMENTS.get((key, scope))
 
@@ -913,20 +966,20 @@ def mcp_runtimes_in(scope: Scope) -> tuple[str, ...]:
 def known_runtimes() -> tuple[str, ...]:
     """Every key `--runtime` accepts anywhere, in table order — **both** axes of it.
 
-    The skills transcription stopped being the whole table. `vscode` owns
-    `.vscode/mcp.json`, which no other runtime reads, and upstream has no row for
-    it — so what a `--runtime` value is checked against is the **union** of the
-    two, and a graft-only target is nameable without a row being invented inside
-    a transcription (ADR 0017).
+    What a `--runtime` value is checked against is the **union** of `RUNTIMES`
+    and the MCP table's keys. Since ADR 0018 every graft target has a row in
+    `RUNTIMES` — `vscode` was the one exception, and it joined the table with no
+    skill destination rather than staying outside it — so the union costs one
+    walk of `RUNTIMES_BY_KEY` for the ordinary case and only reaches into the
+    graft table for a key that table declares and this one never will: none
+    exist today, and the shape stays ready for the day one does.
 
     Here and not in `overpower.planning` for the reason `runtimes_in` is here:
     the tables live in this module, and a caller that walked them itself would be
     a second place that has to learn about a third one.
 
-    Upstream's order first and unchanged, then the graft-only targets in the
-    order the MCP table declares them: the order the plan lists places in is the
-    order the writer performs them, and the targets upstream never heard of come
-    after the ones it did.
+    `RUNTIMES`' own order first, then any graft-only key it does not carry: the
+    order the plan lists places in is the order the writer performs them.
     """
     grafts = dict.fromkeys(key for key, _ in MCP_DOCUMENTS)
     return (*RUNTIMES_BY_KEY, *(key for key in grafts if key not in RUNTIMES_BY_KEY))
@@ -971,21 +1024,25 @@ def _mcp_base(document: McpDocument, root: Path, environment: Environment) -> Pa
 
 
 def runtimes_in(scope: Scope) -> tuple[Runtime, ...]:
-    """The runtimes `--runtime` accepts in `scope`, in upstream declaration order.
+    """The runtimes `--runtime` accepts for a **skill** in `scope`, in table order.
 
     The set is a function of the scope, and that is not a formality: `eve` and
-    `promptscript` declare no global destination, so a global install has 74
-    rows to offer and refuses the other two instead of inventing a path for
-    them — ADR 0009. In project scope every row has a destination, so the
-    answer is the whole table and the rule is inert.
+    `promptscript` declare no global destination, so a global install has 74 of
+    the 76 skill-capable rows to offer and refuses the other two instead of
+    inventing a path for them — ADR 0009.
+
+    **Filtered by *has a skill destination in this scope*, not by membership in
+    `RUNTIMES`** (ADR 0018). Before `vscode` joined the table the two questions
+    had the same answer in project scope, so the row was returned whole; they no
+    longer do, and returning it whole would offer a graft-only target the next
+    step refuses — exactly the failure ADR 0008 was written against, arriving
+    through this function instead of through the screen.
 
     One implementation, so that the screen and the validator cannot disagree.
-    A wizard that offers what the next step refuses is exactly the failure ADR
-    0008 was written against, one layer earlier.
     """
     match scope:
         case Scope.PROJECT:
-            return RUNTIMES
+            return tuple(runtime for runtime in RUNTIMES if runtime.project_dir is not None)
         case Scope.GLOBAL:
             return tuple(runtime for runtime in RUNTIMES if runtime.global_dir is not None)
         case _ as unreachable:
@@ -1040,7 +1097,8 @@ def _reads_universally(runtime: Runtime, scope: Scope) -> bool:
     """
     match scope:
         case Scope.PROJECT:
-            return runtime.project_dir.relative == UNIVERSAL_PROJECT_DIR
+            project_dir = runtime.project_dir
+            return project_dir is not None and project_dir.relative == UNIVERSAL_PROJECT_DIR
         case Scope.GLOBAL:
             global_dir = runtime.global_dir
             return (
@@ -1102,3 +1160,24 @@ def _present_at(
         for runtime in candidates
         if (place := resolve(runtime)) is not None and environment.directory_exists(place)
     )
+
+
+def detected_mcp_runtimes(scope: Scope, root: Path, environment: Environment) -> frozenset[str]:
+    """Runtime keys whose MCP document already exists on disk — the graft class's pre-mark.
+
+    `detected_runtimes`' twin, and simpler: a skills directory is the same name
+    under two different bases, so a repository with no signal falls back to `~`
+    to avoid pre-checking nothing. An MCP document does not need the fallback —
+    every row already carries its own base (`McpDocument.anchor`), project and
+    machine are genuinely different files rather than the same folder under two
+    roots, so probing the one `scope` names is the whole answer.
+    """
+    found: set[str] = set()
+    for key in mcp_runtimes_in(scope):
+        document = mcp_document_of(key, scope)
+        if document is None:  # pragma: no cover — `mcp_runtimes_in` reads the same table
+            continue
+        path = _join(_mcp_base(document, root, environment), document.relative)
+        if environment.file_exists(path):
+            found.add(key)
+    return frozenset(found)

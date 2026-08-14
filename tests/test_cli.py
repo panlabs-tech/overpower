@@ -287,14 +287,9 @@ def test_the_mcp_screen_shows_one_recipe_and_not_the_catalog(
 
     That the description arrives whole and that the rows are laid out at both
     widths is a screen property, asserted next door in `test_screens.py`. What
-    only this seam can answer is that the targets line the user sees is the one
-    the **product** computes off its own table — a screen drawn with a fixture
-    could agree with itself all the way to a wrong answer.
-
-    Both pairs, because the second one is what turns *"the line is derived"* from
-    a claim into something the reader can see: the recorded screens are still
-    drawn against one target, so a line that had gone stale would look right
-    everywhere except here.
+    only this seam can answer is that the targets and scopes lines the user sees
+    are the ones the **product** computes off its own table — a screen drawn
+    with a fixture could agree with itself all the way to a wrong answer.
     """
     catalog = load_catalog(content_root(), catalog_file())
     recipe = catalog.mcps[0]
@@ -304,8 +299,9 @@ def test_the_mcp_screen_shows_one_recipe_and_not_the_catalog(
     assert code == 0
     assert recipe.name in output
     joined = project.joined(output)
-    assert "claude-code · project" in joined
-    assert "devin · project" in joined
+    assert "claude-code" in joined
+    assert "devin" in joined
+    assert "project, global" in joined
     assert "AI Frameworks" not in output
     assert "Bundles" not in output
 
@@ -1253,6 +1249,128 @@ def test_a_line_that_mixes_a_skill_and_a_server_writes_both(
     assert "mcpServers.cloudflare" in project.document_keys(root / ".mcp.json")
 
 
+# --------------------------------------------------------------------------- #
+# #97: the validation boundary moves up — before the wizard's first screen
+# --------------------------------------------------------------------------- #
+
+
+def test_a_line_with_skill_and_mcp_without_runtime_exits_two(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """Two classes, no `--runtime` to split them: name the runtimes, or split the line."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha", mcps={"cloudflare": MCP_URL})
+    root = project.target(tmp_path, monkeypatch)
+
+    code, output = project.run(capsys, "install", "--skill", "alpha", "--mcp", "cloudflare")
+
+    assert code == 2
+    joined = project.joined(output)
+    assert "--runtime" in joined
+    assert "separate" in joined
+    assert list(root.iterdir()) == []
+
+
+def test_a_line_with_skill_and_mcp_without_runtime_in_a_terminal_never_opens_the_wizard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The same refusal, and in a terminal it fires before any screen is drawn (#97).
+
+    Absence of the banner is the seam: a terminal session that reached
+    `run_wizard` would have printed it first (`_print_banner()` runs before the
+    wizard opens), so its absence is what proves no screen was drawn — the same
+    assertion `test_the_banner_is_suppressed_without_a_tty` makes for the pipe
+    case. `run_wizard` is stubbed to fail loudly besides, so a refusal that
+    slipped would not hang the suite on a prompt with no real terminal behind it.
+    """
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha", mcps={"cloudflare": MCP_URL})
+    project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    monkeypatch.setattr(cli, "run_wizard", _never_called)
+
+    code, output = project.run(capsys, "install", "--skill", "alpha", "--mcp", "cloudflare")
+
+    assert code == 2
+    assert "_____" not in output
+    assert "--runtime" in project.joined(output)
+
+
+def test_an_mcp_name_outside_the_catalog_in_a_terminal_exits_two_before_the_wizard_opens(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The same typo the flag path already caught, now caught before the wizard asks anything.
+
+    Absence of the banner is the seam, for the reason the sibling test above
+    gives; `run_wizard` is stubbed besides, so a refusal that slipped fails
+    loudly instead of hanging on a prompt with no real terminal behind it.
+    """
+    # given
+    project.catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": MCP_URL})
+    root = project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    monkeypatch.setattr(cli, "run_wizard", _never_called)
+
+    code, output = project.run(capsys, "install", "--mcp", "cloudfare")
+
+    assert code == 2
+    assert "_____" not in output
+    assert "cloudflare" in project.joined(output)
+    assert list(root.iterdir()) == []
+
+
+def test_an_mcp_name_that_is_actually_a_skill_says_which_flag_serves(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """A closer typo than *unknown*: the name is real, just filed under another flag."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha", mcps={"cloudflare": MCP_URL})
+    root = project.target(tmp_path, monkeypatch)
+
+    code, output = project.run(capsys, "install", "--mcp", "alpha", "--runtime", "claude-code")
+
+    assert code == 2
+    joined = project.joined(output)
+    assert "alpha" in joined
+    assert "--skill" in joined
+    assert list(root.iterdir()) == []
+
+
+def test_install_mcp_without_runtime_in_a_terminal_writes_and_exits_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The acceptance criterion #97 exists for: the wizard covers the graft class too."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": MCP_URL})
+    root = project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    request = Request(mcps=("cloudflare",), runtimes=("claude-code",), scope=Scope.PROJECT)
+    monkeypatch.setattr(cli, "run_wizard", _stub_wizard(request, root))
+
+    code, _ = project.run(capsys, "install", "--mcp", "cloudflare", "--yes")
+
+    assert code == 0
+    assert (root / ".mcp.json").is_file()
+
+
+def test_install_mcp_without_runtime_in_a_terminal_writes_and_exits_zero_in_global_scope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The same acceptance criterion, the other scope."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": MCP_URL})
+    root = project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    request = Request(mcps=("cloudflare",), runtimes=("claude-code",), scope=Scope.GLOBAL)
+    monkeypatch.setattr(cli, "run_wizard", _stub_wizard(request, tmp_path))
+
+    code, _ = project.run(capsys, "install", "--mcp", "cloudflare", "--global", "--yes")
+
+    assert code == 0
+    assert (tmp_path / ".claude.json").is_file()
+    assert list(root.iterdir()) == []
+
+
 def test_a_slot_whose_variable_is_not_set_warns_and_still_exits_zero(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:
@@ -1456,6 +1574,7 @@ def _stub_wizard(filled: Request, root: Path) -> Wizard:
                 ai_frameworks=filled.ai_frameworks,
                 bundles=filled.bundles,
                 skills=filled.skills,
+                mcps=filled.mcps,
                 runtimes=filled.runtimes,
                 scope=filled.scope,
             ),
@@ -1471,7 +1590,7 @@ def _wizard_steps(
     scope: Scope = Scope.PROJECT,
     runtimes: tuple[str, ...] = ("claude-code",),
 ) -> list[str]:
-    """Stub the three seams of the wizard and record, in order, which ones opened.
+    """Stub the four seams of the wizard and record, in order, which ones opened.
 
     The seams and not `run_wizard`: what this ticket decides is *which steps a
     line opens*, and a stub of the whole wizard cannot see that.
@@ -1492,9 +1611,14 @@ def _wizard_steps(
         opened.append("runtimes")
         return runtimes
 
+    def ask_mcp_runtimes(_scope: Scope, _root: Path, _environment: Environment) -> tuple[str, ...]:
+        opened.append("mcp_runtimes")
+        return runtimes
+
     monkeypatch.setattr(wizard, "ask_artifacts", ask_artifacts)
     monkeypatch.setattr(wizard, "ask_scope", ask_scope)
     monkeypatch.setattr(wizard, "ask_runtimes", ask_runtimes)
+    monkeypatch.setattr(wizard, "ask_mcp_runtimes", ask_mcp_runtimes)
     return opened
 
 
@@ -1754,6 +1878,33 @@ def test_the_line_the_list_prints_installs_when_it_is_pasted_back(
     assert steps == ["scope", "runtimes"]
     assert "summary" in project.joined(output)
     assert (root / project.CLAUDE / "alpha" / "SKILL.md").is_file()
+
+
+def test_the_mcp_line_the_list_prints_installs_when_it_is_pasted_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """#97's own version of the journey above: `--mcp` with no `--runtime` reaches a screen.
+
+    Before #97 this exact line opened the skills runtime step, which offered
+    nothing this class could use — the command `list --mcp` prints did not
+    work pasted back. It opens the graft class's own step now.
+    """
+    # given
+    project.catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": MCP_URL})
+    root = project.target(tmp_path, monkeypatch)  # tty=False: the catalog goes through a pipe
+
+    listed_code, listed = project.run(capsys, "list", "--mcp", "cloudflare")
+    line = next(row for row in _rows(listed) if row.startswith("overpower install"))
+    project.terminal(monkeypatch)
+    steps = _wizard_steps(monkeypatch)
+    code, output = project.run(capsys, *shlex.split(line)[1:], "--yes")
+
+    assert listed_code == 0
+    assert line == "overpower install --mcp cloudflare"
+    assert code == 0
+    assert steps == ["scope", "mcp_runtimes"]
+    assert "summary" in project.joined(output)
+    assert (root / ".mcp.json").is_file()
 
 
 def _rows(output: str) -> list[str]:

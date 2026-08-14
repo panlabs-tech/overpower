@@ -6,10 +6,20 @@ consumes is a value the reader already validated. The doctrine says so in as
 many words: *"no double is born for the renderer; what needs a fixture is the
 recipe, which is a value."*
 
-This is where the matrix of target by dialect is asserted. Two columns since
-https://github.com/panlabs-tech/overpower/issues/79, and the assertions are
-about **what each column spells** — the root key it lands under, the explicit
-`type`, the fields each transport carries, and the grafts one recipe becomes.
+This is where the matrix of target by dialect is asserted. Three columns —
+Claude Code (https://github.com/panlabs-tech/overpower/issues/76), VS Code
+(https://github.com/panlabs-tech/overpower/issues/79) and Devin
+(https://github.com/panlabs-tech/overpower/issues/80) — and the assertions are
+about **what each column spells**: the root key it lands under, how it
+discriminates the transport, the fields each transport carries, and the grafts
+one recipe becomes.
+
+Claude and Devin share a root key and disagree about everything else past it,
+which is the point of reading them side by side. Claude Code writes an explicit
+`type` and expands `${VAR}`; VS Code writes `servers` and a slot as two grafts,
+`${input:<id>}` plus an `inputs[]` entry; Devin writes `transport` on HTTP only,
+infers stdio from `command`, and expands `${env:VAR}` — the third spelling in a
+trio of three targets, so rule 4 leaves this slice firmer than it arrived.
 
 It is also where *"which targets a recipe serves"* is proved to be **derived**
 (rule 4): the answer is read off the table of documents, so the same recipe —
@@ -20,6 +30,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -35,6 +46,7 @@ from overpower.recipes import (
 )
 from overpower.rendering import (
     CLAUDE_TRANSPORTS,
+    DEVIN_TRANSPORTS,
     VSCODE_TRANSPORTS,
     Fragment,
     Inputs,
@@ -43,6 +55,11 @@ from overpower.rendering import (
     targets_of,
 )
 from overpower.runtimes import MCP_DOCUMENTS, McpDocument, Scope
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
+
+    from overpower.rendering import JsonValue
 
 CLAUDE_PROJECT = MCP_DOCUMENTS[("claude-code", Scope.PROJECT)]
 """The Claude row, read from the table rather than rebuilt here.
@@ -54,6 +71,14 @@ that decides where the file is.
 
 VSCODE_PROJECT = MCP_DOCUMENTS[("vscode", Scope.PROJECT)]
 """The VS Code row, read from the table for the same reason."""
+
+DEVIN_PROJECT = MCP_DOCUMENTS[("devin", Scope.PROJECT)]
+"""The Devin row, read the same way and for the same reason.
+
+It shares `mcpServers` with Claude's — which is exactly why it must come off
+the table: two rows that agree on the root key and disagree on the spelling are
+the case a hand-written fixture makes look like one row.
+"""
 
 
 def recipe(name: str, server: HttpServer | StdioServer, *slots: Slot) -> Recipe:
@@ -429,6 +454,170 @@ def test_the_two_dialects_spell_one_recipe_two_ways_with_the_recipe_untouched() 
     assert server_of(asked, VSCODE_PROJECT).value["env"] == {"GIT_TOKEN": "${input:git-token}"}
 
 
+# --------------------------------------------------------------------------- #
+# the Devin dialect: the same root key, and none of the same spellings
+# --------------------------------------------------------------------------- #
+
+
+def test_the_devin_dialect_lands_under_the_root_key_its_document_names() -> None:
+    """`mcpServers`, same word as Claude Code's — and the only thing they share.
+
+    Read off the row rather than asserted as a constant, because the interesting
+    property is that two rows agreeing on the root key still disagree on
+    everything under it.
+    """
+    fragment = server_of(recipe("cloudflare", HttpServer(url="https://x/mcp")), DEVIN_PROJECT)
+
+    assert fragment.root_key == DEVIN_PROJECT.root_key == "mcpServers"
+    assert fragment.dotted == "mcpServers.cloudflare"
+
+
+def test_a_devin_http_server_names_the_transport_in_a_field_of_its_own() -> None:
+    """`transport`, not `type` — the same fact spelled with a different key.
+
+    Vendor documentation, not measurement (`docs/research/mcp-config-formats.md`
+    § Adendo 2026-08-13): the `devin` binary is not on the machine this was
+    written on, so this row carries the weaker grade of evidence that the Cursor
+    row does. `transport` defaults to `"http"` when absent, and it is written
+    anyway for the reason `type` is: the field that ends the guessing costs
+    nothing.
+    """
+    fragment = server_of(
+        recipe("cloudflare", HttpServer(url="https://mcp.example.com/mcp")), DEVIN_PROJECT
+    )
+
+    assert fragment.value == {"transport": "http", "url": "https://mcp.example.com/mcp"}
+
+
+def test_a_devin_stdio_server_carries_no_discriminator_because_none_is_documented() -> None:
+    """The loader infers stdio from `command`, and there is no `transport` value for it.
+
+    Documented transports are `"http"` and `"sse"`; stdio has no spelling. Making
+    one up — `"transport": "stdio"` — would be an unknown value in a target whose
+    behaviour on unknown values is the third of the three open doubts, and the
+    measured neighbours fail that case **silently, at exit 0**. So the field is
+    absent, which is the documented shape.
+    """
+    server = StdioServer(
+        command="uvx", args=("mcp-server-git", "."), env={"PANEL": "https://panel.example.com"}
+    )
+
+    fragment = server_of(recipe("git", server), DEVIN_PROJECT)
+
+    assert fragment.value == {
+        "command": "uvx",
+        "args": ["mcp-server-git", "."],
+        "env": {"PANEL": "https://panel.example.com"},
+    }
+    assert "transport" not in fragment.value
+
+
+def test_a_devin_stdio_server_with_nothing_to_say_writes_no_empty_fields() -> None:
+    fragment = server_of(recipe("bare", StdioServer(command="uvx")), DEVIN_PROJECT)
+
+    assert fragment.value == {"command": "uvx"}
+
+
+def test_a_devin_env_slot_renders_the_third_spelling_of_the_trio() -> None:
+    """`${env:VAR}`, which is Cursor's and VS Code's word and not Claude Code's.
+
+    Three targets, three spellings of one name — this is the row that makes rule
+    4 an argument rather than a preference. A recipe that stored `${VAR}` would
+    be right in `.mcp.json` and reach this server process **literally**, which is
+    the measured Copilot CLI failure wearing a different file name.
+
+    **Open doubt, stated rather than papered over.** The vendor documents the
+    expansion *"for sensitive fields such as `oauthClientSecret`"*; whether it
+    reaches `env` is not documented and could not be measured here. If it does
+    not, this string arrives raw at the server. The alternative — writing the
+    secret's value — is the defect this class exists not to have, so the
+    reference is written either way.
+    """
+    fragment = server_of(
+        recipe("hostinger-vps", StdioServer(command="npx"), EnvSlot(name="HOSTINGER_API_TOKEN")),
+        DEVIN_PROJECT,
+    )
+
+    assert fragment.value["env"] == {"HOSTINGER_API_TOKEN": "${env:HOSTINGER_API_TOKEN}"}
+
+
+def test_a_devin_literal_and_a_slot_share_the_environment_table_without_mixing() -> None:
+    """The address of the panel is written; the token is a reference. Same table."""
+    server = StdioServer(command="npx", env={"COOLIFY_BASE_URL": "https://vps.panlabs.tech"})
+
+    fragment = server_of(
+        recipe("coolify", server, EnvSlot(name="COOLIFY_ACCESS_TOKEN")), DEVIN_PROJECT
+    )
+
+    assert fragment.value["env"] == {
+        "COOLIFY_BASE_URL": "https://vps.panlabs.tech",
+        "COOLIFY_ACCESS_TOKEN": "${env:COOLIFY_ACCESS_TOKEN}",
+    }
+
+
+def test_a_devin_bearer_slot_assembles_the_authorization_header_out_of_the_role() -> None:
+    """The word `Bearer` is the renderer's in both dialects; only the reference moves."""
+    fragment = server_of(
+        recipe(
+            "github",
+            HttpServer(url="https://api.githubcopilot.com/mcp"),
+            BearerSlot(name="GITHUB_PAT_TOKEN"),
+        ),
+        DEVIN_PROJECT,
+    )
+
+    assert fragment.value["headers"] == {"Authorization": "Bearer ${env:GITHUB_PAT_TOKEN}"}
+
+
+def test_a_devin_header_slot_fills_the_header_it_names() -> None:
+    fragment = server_of(
+        recipe(
+            "paneled",
+            HttpServer(url="https://panel.example.com/mcp"),
+            HeaderSlot(name="PANEL_TOKEN", header="X-Panel-Token"),
+        ),
+        DEVIN_PROJECT,
+    )
+
+    assert fragment.value["headers"] == {"X-Panel-Token": "${env:PANEL_TOKEN}"}
+
+
+def test_the_legacy_transport_devin_would_accept_never_reaches_the_file() -> None:
+    """Devin reads `sse`; nothing in this product can ask for it (`Transport`).
+
+    Refusal lives at the **recipe**, not at the target: the closed set has two
+    members, so there is no value a recipe could carry that renders to `"sse"`.
+    Asserted from the outside — every member of the closed set, rendered, and the
+    deprecated word absent from all of it — because *"the enum has two members"*
+    is a fact about the enum and this is a fact about the file.
+    """
+    written = {
+        str(server_of(recipe("probe", server), DEVIN_PROJECT).value)
+        for server in SERVERS_BY_TRANSPORT.values()
+    }
+
+    assert all("sse" not in fragment for fragment in written)
+
+
+def test_the_devin_dialect_writes_no_field_that_has_no_reader() -> None:
+    """`disabled`, `oauthClientId` and `${file:/path}` are documented and unwritten.
+
+    A field with no consumer is a field that goes stale unnoticed — the reasoning
+    `McpDocument` states about the file type. `${file:}` in particular is a
+    mechanism no other measured target has, and adopting it would put a secret's
+    **location** in a committed file on the strength of a doc nobody could run.
+    """
+    server = StdioServer(command="npx", env={"PANEL": "https://panel.example.com"})
+
+    written = str(
+        server_of(recipe("coolify", server, EnvSlot(name="TOKEN")), DEVIN_PROJECT).value
+    )
+
+    assert "disabled" not in written
+    assert "oauth" not in written
+    assert "${file:" not in written
+
+
 @pytest.mark.parametrize(
     "slotted",
     [
@@ -447,6 +636,28 @@ def test_the_vscode_dialect_never_reads_the_environment_either(
     assert "SUPER-SECRET-42" not in str(render(slotted, VSCODE_PROJECT))
 
 
+@pytest.mark.parametrize(
+    "slotted",
+    [
+        pytest.param(recipe("env", StdioServer(command="npx"), EnvSlot(name="TOKEN")), id="env"),
+        pytest.param(
+            recipe("bearer", HttpServer(url="https://x/mcp"), BearerSlot(name="TOKEN")), id="bearer"
+        ),
+    ],
+)
+def test_a_devin_slot_is_a_reference_and_never_the_value_behind_it(
+    slotted: Recipe, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One dialect that resolved would be enough to ship the defect, so both are asserted."""
+    monkeypatch.setenv("TOKEN", "SUPER-SECRET-42")
+
+    rendered = str(server_of(slotted, DEVIN_PROJECT).value)
+
+    assert "SUPER-SECRET-42" not in rendered
+    assert "${env:TOKEN}" in rendered
+    assert ":-" not in rendered
+
+
 # --------------------------------------------------------------------------- #
 # which targets a recipe serves — derived, never declared
 # --------------------------------------------------------------------------- #
@@ -457,12 +668,15 @@ CLAUDE_TARGET = Target(runtime="claude-code", scope=Scope.PROJECT)
 VSCODE_TARGET = Target(runtime="vscode", scope=Scope.PROJECT)
 """The second pair, and the one that makes the matrix a matrix."""
 
+DEVIN_TARGET = Target(runtime="devin", scope=Scope.PROJECT)
+"""The third pair, read off the table in the order it declares them."""
+
 
 def test_a_recipe_is_offered_every_pair_whose_document_can_spell_it() -> None:
-    """The answer is a walk of the table, so it is every row on it."""
+    """The answer is a walk of the table, in table order, so it is every row on it."""
     served = targets_of(recipe("cloudflare", HttpServer(url="https://x/mcp")))
 
-    assert served == (CLAUDE_TARGET, VSCODE_TARGET)
+    assert served == (CLAUDE_TARGET, VSCODE_TARGET, DEVIN_TARGET)
 
 
 SERVERS_BY_TRANSPORT = {
@@ -476,67 +690,90 @@ test here instead of as a case nobody wrote.
 """
 
 
-def test_both_transports_are_served_by_every_target_that_is_measured() -> None:
+def test_both_transports_are_served_by_every_target_that_spells_both() -> None:
     """They coincide, and the *reason* they coincide is the point of the test.
 
-    `.mcp.json` discriminates the transport with an explicit `type` and writes
-    both bindings, and `.vscode/mcp.json` does the same — measured
-    (`docs/research/mcp-config-formats.md`) — so the honest answer for `stdio`
-    and for `http` is the same set. The two are asserted side by side rather
-    than in one parametrised case so that the day a dialect lands that writes
-    only one of them, exactly one of these two tests goes red and names which
-    half moved.
+    All three documents discriminate the transport with an explicit field —
+    `type` in `.mcp.json` and in `.vscode/mcp.json`, both measured, `transport`
+    in `.devin/mcp_config.json`, from vendor documentation — so the honest answer
+    for `stdio` and for `http` is the same set. The two are asserted side by side
+    rather than in one parametrised case so that the day a dialect lands that
+    writes only one of them, exactly one of these goes red and names which half
+    moved.
 
-    **The known limit, stated rather than papered over.** The second target
-    landed (https://github.com/panlabs-tech/overpower/issues/79) and did *not*
-    lift it: VS Code spells both transports too, so *no recipe can still tell
-    the transport half of the derivation from a tautology* — a predicate that
-    ignored the transport entirely would keep every test in this file green.
-    What moves it is not another target, it is a target that **cannot** spell
-    one of them: the Devin CLI is the candidate on the table
-    (https://github.com/panlabs-tech/overpower/issues/80). Until then what is
-    pinned is the capability itself against the renderer that has to honour it —
-    the test below, now over both dialects — and the table half, which
-    `test_the_answer_follows_the_table_and_never_the_recipe` moves for real.
+    **The known limit, still stated.** Three dialects that all write both leaves
+    the transport half of the derivation short of observable: a predicate that
+    ignored the transport entirely would keep every test in this file green. What
+    is pinned today is the capability against the renderer that has to honour it
+    — the test below, now per dialect — and the table half, which
+    `test_the_answer_follows_the_table_and_never_the_recipe` moves for real. A
+    target that spells one binding is what would make the rest observable.
     """
     over_http = targets_of(recipe("cloudflare", HttpServer(url="https://x/mcp")))
     over_stdio = targets_of(recipe("git", StdioServer(command="uvx")))
 
-    assert over_http == (CLAUDE_TARGET, VSCODE_TARGET)
-    assert over_stdio == (CLAUDE_TARGET, VSCODE_TARGET)
+    assert over_http == (CLAUDE_TARGET, VSCODE_TARGET, DEVIN_TARGET)
+    assert over_stdio == (CLAUDE_TARGET, VSCODE_TARGET, DEVIN_TARGET)
 
 
-@pytest.mark.parametrize(
-    ("document", "claimed"),
-    [
-        pytest.param(CLAUDE_PROJECT, CLAUDE_TRANSPORTS, id="claude"),
-        pytest.param(VSCODE_PROJECT, VSCODE_TRANSPORTS, id="vscode"),
-    ],
-)
+def _type_discriminator(value: Mapping[str, JsonValue]) -> str:
+    """What `.mcp.json` and `.vscode/mcp.json` will be read as: the explicit field, always present."""
+    return str(value["type"])
+
+
+def _devin_discriminator(value: Mapping[str, JsonValue]) -> str:
+    """What `.devin/mcp_config.json` will be read as, by the loader's own rule.
+
+    `transport` when it is there, and otherwise stdio inferred from `command` —
+    which is the documented inference, transcribed here so the read-back checks
+    the file against the loader rather than against the writer.
+    """
+    if "transport" in value:
+        return str(value["transport"])
+    assert "command" in value, "a server with no transport field and no command reads as nothing"
+    return str(Transport.STDIO)
+
+
+DIALECTS = [
+    pytest.param(CLAUDE_PROJECT, CLAUDE_TRANSPORTS, _type_discriminator, id="claude"),
+    pytest.param(VSCODE_PROJECT, VSCODE_TRANSPORTS, _type_discriminator, id="vscode"),
+    pytest.param(DEVIN_PROJECT, DEVIN_TRANSPORTS, _devin_discriminator, id="devin"),
+]
+"""Each dialect with the set it claims and the rule its loader reads it back by.
+
+One case per dialect and never a loop inside one test: a dialect whose promise
+and renderer drift apart has to go red **by name**, and a single case covering
+all three would only say that one of them did.
+"""
+
+
+@pytest.mark.parametrize(("document", "claimed", "discriminator"), DIALECTS)
 def test_the_capability_table_claims_exactly_what_the_dialect_writes(
-    document: McpDocument, claimed: frozenset[Transport]
+    document: McpDocument,
+    claimed: frozenset[Transport],
+    discriminator: Callable[[Mapping[str, JsonValue]], str],
 ) -> None:
-    """A transport set is a promise, and the branch that renders it is who keeps it.
+    """The `*_TRANSPORTS` set is a promise, and the renderer is who keeps it.
 
     The two are one edit apart and drift in silence: a transport added to the
     set without a branch in the renderer offers a target that cannot be written,
     and a branch removed without shrinking the set does the same. So the claim
-    is read back out of the **rendered fragment** — the `type` that will be in
-    the user's file — and compared with the set that decides who is offered.
+    is read back out of the **rendered fragment** — what will be in the user's
+    file — and compared with the set that decides who is offered.
 
     Parametrised over the dialects rather than written once per dialect, because
-    the claim is about the *pairing* and not about either half: a third dialect
-    is a row here and no new prose.
+    the claim is about the *pairing* and not about either half: a new dialect is
+    a row here and no new prose.
 
     **Every member of the closed set is rendered, never only the claimed ones.**
-    Measured while writing this: filtering the left side by the claimed set
-    makes both sides shrink together, so narrowing the set to `{http}` left the
-    test green — the same self-consistency P3 refuses in the sdist gate.
+    Measured while writing this: filtering the left side by the claimed set makes
+    both sides shrink together, so narrowing the set to `{http}` left the test
+    green — the same self-consistency P3 refuses in the sdist gate.
     """
     assert set(SERVERS_BY_TRANSPORT) == set(Transport), "a transport with no server to render"
 
     written = {
-        str(server_of(recipe("probe", server), document).value["type"])
+        discriminator(server_of(recipe("probe", server), document).value)
         for server in SERVERS_BY_TRANSPORT.values()
     }
 
@@ -554,7 +791,7 @@ def test_the_answer_follows_the_table_and_never_the_recipe() -> None:
     asked = recipe("cloudflare", HttpServer(url="https://x/mcp"))
 
     assert targets_of(asked, {}) == ()
-    assert targets_of(asked, MCP_DOCUMENTS) == (CLAUDE_TARGET, VSCODE_TARGET)
+    assert targets_of(asked, MCP_DOCUMENTS) == (CLAUDE_TARGET, VSCODE_TARGET, DEVIN_TARGET)
 
 
 def test_a_second_scope_on_the_table_becomes_another_target() -> None:
@@ -573,5 +810,6 @@ def test_a_second_scope_on_the_table_becomes_another_target() -> None:
     assert served == (
         CLAUDE_TARGET,
         VSCODE_TARGET,
+        DEVIN_TARGET,
         Target(runtime="claude-code", scope=Scope.GLOBAL),
     )

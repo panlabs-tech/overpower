@@ -272,6 +272,11 @@ def test_the_mcp_screen_shows_one_recipe_and_not_the_catalog(
     only this seam can answer is that the targets line the user sees is the one
     the **product** computes off its own table — a screen drawn with a fixture
     could agree with itself all the way to a wrong answer.
+
+    Both pairs, because the second one is what turns *"the line is derived"* from
+    a claim into something the reader can see: the recorded screens are still
+    drawn against one target, so a line that had gone stale would look right
+    everywhere except here.
     """
     catalog = load_catalog(content_root(), catalog_file())
     recipe = catalog.mcps[0]
@@ -280,7 +285,9 @@ def test_the_mcp_screen_shows_one_recipe_and_not_the_catalog(
 
     assert code == 0
     assert recipe.name in output
-    assert "claude-code · project" in project.joined(output)
+    joined = project.joined(output)
+    assert "claude-code · project" in joined
+    assert "devin · project" in joined
     assert "AI Frameworks" not in output
     assert "Bundles" not in output
 
@@ -985,6 +992,82 @@ def test_a_graft_only_runtime_refuses_a_line_that_also_asks_for_a_skill(
 
     assert code == 3
     assert "no skills destination of its own" in project.joined(output)
+
+
+def test_a_target_with_no_documented_gate_gets_no_warning_invented_for_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """ADR 0014 makes the warning a requirement **where it is true**, and no wider.
+
+    The vendor documents no approval step for `.devin/mcp_config.json`, and the
+    research says in as many words that *absence in the documentation is not an
+    assertion of absence* — Codex did not document `trust_level` either. So the
+    honest move is neither warning nor reassurance: the product says what it
+    knows, and about this target it knows only that it wrote the file.
+
+    A warning printed here anyway would be a fact asserted about a runtime nobody
+    ran, and it would spend the credibility of the line that is measured next
+    door — *"a warning that appears everywhere is a warning nobody reads"*.
+    """
+    # given
+    project.catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": MCP_URL})
+    root = project.target(tmp_path, monkeypatch)
+
+    code, output = project.run(capsys, "install", "--mcp", "cloudflare", "--runtime", "devin")
+
+    assert code == 0
+    assert "pending approval" not in project.joined(output)
+    assert (root / ".devin" / "mcp_config.json").is_file()
+
+
+def test_one_line_over_two_targets_warns_only_for_the_one_that_is_born_pending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The warning is a fact of the pair, not of the run — and now there is a run that shows it.
+
+    Both documents are written, both are named on the plan, and exactly one of
+    them is named **by the warning**. A warning attached to the command rather
+    than to the pair would carry both paths and send the reader looking for a gate
+    that is not documented to exist.
+
+    So the assertion is on the sentence and not on the path: `mcp_config.json`
+    appears on this screen, as a destination, which is exactly right.
+    """
+    # given
+    project.catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": MCP_URL})
+    root = project.target(tmp_path, monkeypatch)
+
+    code, output = project.run(
+        capsys, "install", "--mcp", "cloudflare", "--runtime", "claude-code,devin"
+    )
+
+    assert code == 0
+    joined = project.joined(output)
+    warned = "is written, and the server does not connect"
+    assert f".mcp.json {warned}" in joined
+    assert f"mcp_config.json {warned}" not in joined
+    assert (root / ".devin" / "mcp_config.json").is_file()
+
+
+def test_the_second_target_has_no_machine_scope_and_the_line_is_refused_whole(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The table is partial on both axes, and `--global` is the axis it is partial on here.
+
+    Devin documents `~/.config/devin/mcp_config.json`, and the row is not on the
+    table yet (https://github.com/panlabs-tech/overpower/issues/81). Until it is,
+    the pair does not exist and ADR 0009 says the whole line is refused rather
+    than a file invented — exit 3, before any byte.
+    """
+    # given
+    project.catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": MCP_URL})
+    root = project.target(tmp_path, monkeypatch)
+
+    code, _ = project.run(
+        capsys, "install", "--mcp", "cloudflare", "--runtime", "devin", "--global"
+    )
+
+    assert code == 3
     assert list(root.iterdir()) == []
 
 

@@ -1230,6 +1230,183 @@ def test_a_broken_file_is_refused_before_the_copies_of_the_same_line_land(
 
 
 # --------------------------------------------------------------------------- #
+# #80: the second target, and the writer that does not know there are two
+# --------------------------------------------------------------------------- #
+
+DEVIN_JSON = ".devin/mcp_config.json"
+"""Where Devin reads MCP servers in a repository — vendor documentation, not measured.
+
+The binary was absent from the machine this row was written on, so the grade of
+evidence is the one the Cursor row carries and not the one `.mcp.json` carries
+(`docs/research/mcp-config-formats.md` § Adendo 2026-08-13).
+"""
+
+
+def test_the_second_target_lands_in_its_own_document_under_a_directory_it_creates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The first row whose document is not at the root, so the parent has to be made.
+
+    `.mcp.json` sits at the top of the repository and every graft written until
+    now landed in a directory that already existed. This one does not, and a
+    writer that only ever opened a file would fail on the ordinary first install.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": CLOUDFLARE})
+    root = target(tmp_path, monkeypatch)
+
+    code, output = run(capsys, "install", "--mcp", "cloudflare", "--runtime", "devin")
+
+    assert code == 0
+    assert files_under(root) == {DEVIN_JSON}
+    assert document_keys(root / DEVIN_JSON) == keys_in(output)
+
+
+def test_the_two_targets_write_two_documents_that_disagree_on_everything_but_the_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """One line, two runtimes, and the dialects part company inside the same root key.
+
+    This is the assertion that could not exist while the table had one row: the
+    recipe is the same object, the key it occupies is the same string, and what
+    lands under it differs by the discriminator **and** by the spelling of the
+    secret. A renderer that had leaked one dialect into the other would still
+    produce two files, both green, and only this comparison would say so.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"github": BEARER})
+    root = target(tmp_path, monkeypatch)
+
+    code, _ = run(capsys, "install", "--mcp", "github", "--runtime", "claude-code,devin")
+
+    assert code == 0
+    assert (root / DEVIN_JSON).read_text(encoding="utf-8") == (
+        "{\n"
+        '  "mcpServers": {\n'
+        '    "github": {\n'
+        '      "transport": "http",\n'
+        '      "url": "https://mcp.example.com/mcp",\n'
+        '      "headers": {\n'
+        f'        "Authorization": "Bearer ${{env:{SLOT_VARIABLE}}}"\n'
+        "      }\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+    )
+    claude = (root / MCP_JSON).read_text(encoding="utf-8")
+    assert '"type": "http"' in claude
+    assert f'"Bearer ${{{SLOT_VARIABLE}}}"' in claude
+    assert "${env:" not in claude
+
+
+def test_the_second_target_infers_stdio_from_the_command_and_is_written_that_way(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """No discriminator on stdio, because the vendor documents none — asserted on the file.
+
+    The formatting rule is the same one ADR 0016 buys everywhere: objects expand,
+    arrays stay inline. What is specific here is the field that is *absent*, and
+    absence is only checkable against the bytes.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"coolify": STDIO})
+    root = target(tmp_path, monkeypatch)
+
+    code, _ = run(capsys, "install", "--mcp", "coolify", "--runtime", "devin")
+
+    assert code == 0
+    assert (root / DEVIN_JSON).read_text(encoding="utf-8") == (
+        "{\n"
+        '  "mcpServers": {\n'
+        '    "coolify": {\n'
+        '      "command": "uvx",\n'
+        '      "args": ["coolify-server", "--repository", "."],\n'
+        '      "env": {\n'
+        '        "PANEL_URL": "https://panel.example.com"\n'
+        "      }\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+    )
+
+
+def test_a_slot_reaches_the_second_target_as_its_own_spelling_and_never_as_the_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The variable is set in the process on purpose: that is when a resolver leaks.
+
+    `${env:VAR}` here and `${VAR}` next door, out of one recipe that carries
+    neither — rule 4, on the two files that get committed.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"coolify": SLOTTED})
+    root = target(tmp_path, monkeypatch)
+    monkeypatch.setenv(SLOT_VARIABLE, "SUPER-SECRET-42")
+
+    code, _ = run(capsys, "install", "--mcp", "coolify", "--runtime", "devin")
+
+    assert code == 0
+    after = (root / DEVIN_JSON).read_text(encoding="utf-8")
+    assert "SUPER-SECRET-42" not in after
+    assert f'"{SLOT_VARIABLE}": "${{env:{SLOT_VARIABLE}}}"' in after
+    assert '"PANEL_URL": "https://panel.example.com"' in after
+    assert ":-" not in after
+
+
+def test_the_plan_the_screen_and_the_second_document_name_the_same_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The three-way identity, on the row that was not there when it was written.
+
+    Same shape as the first target's: what `--dry-run` announced, what the run
+    announced, and what the document holds afterwards are one set. It is repeated
+    rather than parametrised because the second target arrives with its own
+    parent directory, and `files_under(dry_root)` is the half that says the audit
+    created nothing while getting there.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": CLOUDFLARE})
+    dry_root = target(tmp_path, monkeypatch, "dry")
+    real_root = target(tmp_path, monkeypatch, "real")
+    selectors = ("install", "--mcp", "cloudflare", "--runtime", "devin")
+
+    monkeypatch.chdir(dry_root)
+    dry_code, dry_out = run(capsys, *selectors, "--dry-run")
+    monkeypatch.chdir(real_root)
+    real_code, real_out = run(capsys, *selectors)
+
+    named = keys_in(real_out)
+    assert keys_in(dry_out) == named
+    assert named == document_keys(real_root / DEVIN_JSON)
+    assert files_under(dry_root) == set()
+    assert dry_code == real_code == 0
+
+
+def test_the_second_target_leaves_the_rest_of_its_document_byte_for_byte(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """ADR 0016 is a property of the writer, and the writer never learned there are two.
+
+    The document is the user's in both targets, so the additive diff has to hold
+    in the one that arrived second — with the same comment the standard library
+    cannot parse and the same server of theirs that `json.dumps` would reflow.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": CLOUDFLARE})
+    root = target(tmp_path, monkeypatch)
+    document = root / DEVIN_JSON
+    document.parent.mkdir(parents=True)
+    document.write_text(OCCUPIED, encoding="utf-8", newline="")
+
+    code, output = run(capsys, "install", "--mcp", "cloudflare", "--runtime", "devin")
+
+    assert code == 0
+    after = document.read_text(encoding="utf-8")
+    assert lost_lines(OCCUPIED, after) == []
+    assert keys_in(output) <= document_keys(document)
+
+
+# --------------------------------------------------------------------------- #
 # #40: global scope climbs the canonical + link ladder
 # --------------------------------------------------------------------------- #
 

@@ -206,6 +206,24 @@ def test_the_list_command_shows_the_four_blocks(capsys: pytest.CaptureFixture[st
     assert "MCP servers" in output
 
 
+def test_the_runtime_help_names_the_two_tables(capsys: pytest.CaptureFixture[str]) -> None:
+    """ADR 0017 split skill and MCP into separate runtime tables; the help text still
+    read as if `--runtime` picked from one — the asymmetry only surfaced as a refusal.
+    """
+    code, output = output_of(capsys, ["install", "--help"])
+
+    assert code == 0
+    assert "not every runtime" in output
+
+
+def test_the_install_help_still_fits_eighty_columns() -> None:
+    result = piped("install", "--help")
+
+    assert result.returncode == 0
+    lines = result.stdout.decode().splitlines()
+    assert [line for line in lines if len(line) > 80] == []
+
+
 # --------------------------------------------------------------------------- #
 # the content of one item
 # --------------------------------------------------------------------------- #

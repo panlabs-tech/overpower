@@ -31,7 +31,7 @@ Era o que estava escrito. **Perdeu por assinatura:** receber `Runtime` declara, 
 
 **Cada recusa dispara só quando a linha carrega a classe.** Perguntar a um alvo de enxerto onde ele guarda skills, numa linha que não pediu skill nenhuma, recusaria um install que não tem nada de errado.
 
-**A escopo continua valendo, e agora sobre a união.** `--runtime vscode --global` sai 3 com a mensagem da ADR 0009: não há documento de MCP em escopo de máquina ([#81](https://github.com/panlabs-tech/overpower/issues/81)) e não há diretório de skills em lugar nenhum.
+**A escopo continua valendo, e agora sobre a união.** À época, `--runtime vscode --global` saía 3 com a mensagem da ADR 0009: não havia documento de MCP em escopo de máquina e não há diretório de skills em lugar nenhum. **O primeiro membro dessa conjunção caiu em [#81](https://github.com/panlabs-tech/overpower/issues/81)** — `vscode --global` hoje aterrissa no `mcp.json` do perfil de usuário. A consequência não mudou, só o exemplo: quem sai 3 agora é `--runtime eve --global --skill <x>`, e a regra continua sendo *a união decide, e o que a união não alcança recusa a linha inteira*.
 
 **`mcp_runtimes_in` passa a ler a tabela de MCP em vez de filtrar a de skills.** O filtro funcionava só enquanto todo runtime de MCP tivesse linha de skills; ele derrubaria `vscode` **em silêncio**, e o alvo existiria, renderizaria e seria innomeável.
 

@@ -49,6 +49,7 @@ from tests.support.project import (
     SLOT_VARIABLE,
     SLOTTED,
     STDIO,
+    at_home,
     catalog_of,
     document_keys,
     files_under,
@@ -1504,12 +1505,10 @@ def test_the_three_way_identity_holds_in_global_scope_including_mode(
     real_home.mkdir()
     selectors = ("install", "--skill", "alpha,beta", "--runtime", "claude-code,cursor", "--global")
 
-    monkeypatch.setenv("HOME", str(dry_home))
-    monkeypatch.setenv("USERPROFILE", str(dry_home))
+    at_home(monkeypatch, dry_home)
     dry_code, dry_out = run(capsys, *selectors, "--dry-run")
 
-    monkeypatch.setenv("HOME", str(real_home))
-    monkeypatch.setenv("USERPROFILE", str(real_home))
+    at_home(monkeypatch, real_home)
     real_code, real_out = run(capsys, *selectors, "--yes")
 
     announced = paths_in(real_out)
@@ -1530,6 +1529,46 @@ def test_the_three_way_identity_holds_in_global_scope_including_mode(
         assert not points_elsewhere(canonical)
         assert points_elsewhere(linked)
         assert (linked / "SKILL.md").is_file()
+
+
+def test_the_three_way_identity_of_a_graft_holds_in_machine_scope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """#81: the identity is a property of the product, not of the project scope.
+
+    All three targets on one line, because machine scope is where they stop
+    sharing a directory: `~/.claude.json` sits at the top of the home and the
+    other two sit under a per-system profile, so this is also the case where an
+    announced key and a written key could most easily drift apart.
+
+    The disk half is a **walk of the home**, not a lookup of three known files —
+    which is what makes *"a key written and never announced"* detectable, in the
+    one scope where a stray write lands somewhere nobody would think to look.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": "https://mcp.example.com/mcp"})
+    monkeypatch.setattr(cli, "_out", pinned(tty=False))
+    dry_home = tmp_path / "dry"
+    real_home = tmp_path / "real"
+    dry_home.mkdir()
+    real_home.mkdir()
+    selectors = (
+        *("install", "--mcp", "cloudflare"),
+        *("--runtime", "claude-code,vscode,devin", "--global"),
+    )
+
+    at_home(monkeypatch, dry_home)
+    dry_code, dry_out = run(capsys, *selectors, "--dry-run")
+    at_home(monkeypatch, real_home)
+    real_code, real_out = run(capsys, *selectors)
+
+    named = keys_in(real_out)
+    written = [path for path in real_home.rglob("*") if path.is_file()]
+    assert keys_in(dry_out) == named
+    assert len(written) == 3
+    assert {key for path in written for key in document_keys(path)} == named
+    assert files_under(dry_home) == set()
+    assert dry_code == real_code == 0
 
 
 @pytest.mark.skipif(

@@ -24,6 +24,8 @@ from overpower.runtimes import (
     Runtime,
     Scope,
     detected_runtimes,
+    mcp_document_of,
+    mcp_places_of,
     mcp_runtimes_in,
     places_of,
     resolve_global_dir,
@@ -62,12 +64,19 @@ REPO = absolute("srv", "repo")
 def environment(
     variables: Mapping[str, str] | None = None,
     present: frozenset[Path] = frozenset(),
+    platform: str = sys.platform,
 ) -> Environment:
-    """An environment with nothing set and nothing on disk unless asked."""
+    """An environment with nothing set and nothing on disk unless asked.
+
+    `platform` defaults to the one running the test, so a case that is not about
+    the operating system stays about the table. The matrix cases name it, which
+    is what lets one runner assert all nine of them.
+    """
     return Environment(
         home=HOME,
         variables=variables or {},
         directory_exists=present.__contains__,
+        platform=platform,
     )
 
 
@@ -113,7 +122,7 @@ def test_the_mcp_runtimes_of_a_scope_come_off_the_mcp_table() -> None:
     `vscode` in silence — the target would exist, render, and be unnameable.
     """
     assert set(mcp_runtimes_in(Scope.PROJECT)) == {"claude-code", "vscode", "devin"}
-    assert mcp_runtimes_in(Scope.GLOBAL) == ()
+    assert set(mcp_runtimes_in(Scope.GLOBAL)) == {"claude-code", "vscode", "devin"}
 
 
 def test_every_key_is_unique() -> None:
@@ -402,11 +411,106 @@ def test_only_openclaw_consults_the_filesystem() -> None:
         consulted.append(path)
         return False
 
-    env = Environment(home=HOME, variables={}, directory_exists=record)
+    env = Environment(home=HOME, variables={}, directory_exists=record, platform=sys.platform)
     for row in RUNTIMES:
         consulted.clear()
         resolve_global_dir(row, env)
         assert consulted == [] or row.key == "openclaw"
+
+
+# --- machine documents: the 3x3 matrix of https://github.com/panlabs-tech/overpower/issues/81
+
+
+WINDOWS, MACOS, LINUX = "win32", "darwin", "linux"
+
+MACHINE_CELLS = (
+    # `~/.claude.json`, the same file on all three: the home is the anchor, and
+    # the operating system never moves it.
+    ("claude-code", WINDOWS, (".claude.json",)),
+    ("claude-code", MACOS, (".claude.json",)),
+    ("claude-code", LINUX, (".claude.json",)),
+    # The VS Code user profile, which is a different directory per system and
+    # the same file name in all of them.
+    ("vscode", WINDOWS, ("AppData", "Roaming", "Code", "User", "mcp.json")),
+    ("vscode", MACOS, ("Library", "Application Support", "Code", "User", "mcp.json")),
+    ("vscode", LINUX, (".config", "Code", "User", "mcp.json")),
+    # Devin moves on Windows only.
+    ("devin", WINDOWS, ("AppData", "Roaming", "devin", "mcp_config.json")),
+    ("devin", MACOS, (".config", "devin", "mcp_config.json")),
+    ("devin", LINUX, (".config", "devin", "mcp_config.json")),
+)
+"""Every cell of the matrix, under a home with no variable set."""
+
+
+@pytest.mark.parametrize(
+    ("key", "platform", "under_home"),
+    MACHINE_CELLS,
+    ids=[f"{key}-{platform}" for key, platform, _ in MACHINE_CELLS],
+)
+def test_the_machine_document_of_every_cell_resolves_under_the_home(
+    key: str, platform: str, under_home: tuple[str, ...]
+) -> None:
+    """The nine cells, asserted on one runner.
+
+    `platform` is a value of `Environment` for the same reason `home` and
+    `variables` are: *where to write* is decided from facts that arrive, so a
+    matrix the CI runs one cell of at a time is still assertable whole. The
+    runner's own `sys.platform` reaches this only through `from_process`.
+
+    `REPO` is passed as the root on purpose — a machine document hangs off an
+    anchor, and a resolution that quietly used the repository would show up here
+    as a path under `REPO` rather than under `HOME`.
+    """
+    (place,) = mcp_places_of([key], Scope.GLOBAL, REPO, environment(platform=platform))
+
+    assert place.path == HOME.joinpath(*under_home)
+    assert place.readers == (key,)
+
+
+def test_the_windows_profile_follows_appdata_when_it_is_absolute() -> None:
+    env = environment({"APPDATA": str(absolute("Users", "dev", "Roaming"))}, platform=WINDOWS)
+    (place,) = mcp_places_of(["vscode"], Scope.GLOBAL, REPO, env)
+    assert place.path == absolute("Users", "dev", "Roaming", "Code", "User", "mcp.json")
+
+
+def test_the_linux_profile_follows_xdg_config_home_when_it_is_absolute() -> None:
+    env = environment({"XDG_CONFIG_HOME": str(absolute("etc", "xdg"))}, platform=LINUX)
+    (place,) = mcp_places_of(["devin"], Scope.GLOBAL, REPO, env)
+    assert place.path == absolute("etc", "xdg", "devin", "mcp_config.json")
+
+
+def test_an_unknown_platform_resolves_the_way_the_other_unixes_do() -> None:
+    """`sys.platform` is an open set — `freebsd14` has to land somewhere honest."""
+    (place,) = mcp_places_of(["vscode"], Scope.GLOBAL, REPO, environment(platform="freebsd14"))
+    assert place.path == HOME / ".config" / "Code" / "User" / "mcp.json"
+
+
+def test_the_machine_rows_keep_the_root_key_and_dialect_of_their_target() -> None:
+    """Scope moves the file, never the format: the dialect is a fact of the target."""
+    for key in ("claude-code", "vscode", "devin"):
+        project = mcp_document_of(key, Scope.PROJECT)
+        machine = mcp_document_of(key, Scope.GLOBAL)
+        assert project is not None
+        assert machine is not None
+        assert machine.root_key == project.root_key
+        assert machine.dialect is project.dialect
+
+
+def test_no_machine_document_is_born_pending() -> None:
+    """ADR 0014: the server in the personal file is the user's own, so nothing waits.
+
+    The warning falls out of this row rather than out of an `if` in the CLI —
+    `pending_activation` asks the same table that decided the file.
+    """
+    machine = [document for (_, scope), document in MCP_DOCUMENTS.items() if scope is Scope.GLOBAL]
+    assert len(machine) == 3
+    assert not any(document.born_pending for document in machine)
+
+
+def test_a_project_document_still_hangs_off_the_repository() -> None:
+    """The row decides the base, not the scope argument — rule 8, both axes."""
+    (place,) = mcp_places_of(["claude-code"], Scope.PROJECT, REPO, environment())
+    assert place.path == REPO / ".mcp.json"
 
 
 @pytest.mark.parametrize("row", RUNTIMES, ids=[r.key for r in RUNTIMES])
@@ -507,6 +611,8 @@ def test_detection_never_offers_a_runtime_the_scope_would_refuse() -> None:
     scoped set rather than the two known keys, the way
     `test_every_runtime_offered_in_a_scope_has_somewhere_to_land` already is.
     """
-    env = Environment(home=HOME, variables={}, directory_exists=lambda _path: True)
+    env = Environment(
+        home=HOME, variables={}, directory_exists=lambda _path: True, platform=sys.platform
+    )
     detected = detected_runtimes(Scope.GLOBAL, REPO, env)
     assert detected == {r.key for r in runtimes_in(Scope.GLOBAL)}

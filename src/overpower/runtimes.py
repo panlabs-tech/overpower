@@ -23,6 +23,7 @@ and a relative one is ignored.
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
@@ -123,7 +124,7 @@ class McpDocument:
     """
 
     relative: str
-    """The document, `/`-separated, hanging off whatever the scope's root is."""
+    """The document, `/`-separated, hanging off whatever this row's base is."""
 
     root_key: str
     """The key the servers live under — `mcpServers` here, `servers` in VS Code."""
@@ -139,6 +140,18 @@ class McpDocument:
     session. It is a column of this table and not a fact of the CLI because it
     is a fact of the pair (runtime, scope), and ADR 0014 makes the warning a
     requirement rather than a courtesy.
+    """
+
+    anchor: Anchor | None = None
+    """What `relative` hangs off, or `None` for the target repository.
+
+    A machine document is not the project one under a different root: it is a
+    different directory on each operating system, and on two of the three rows
+    an environment variable can move it. So the base travels **on the row**
+    rather than being derived from the `scope` argument at the call site — the
+    same authority rule 8 gives the table everywhere else. A row that says
+    nothing hangs off the repository, which is what every project row does
+    (https://github.com/panlabs-tech/overpower/issues/81).
     """
 
 
@@ -169,7 +182,15 @@ class Scope(StrEnum):
 
 @dataclass(frozen=True)
 class HomeAnchor:
-    """The user's home directory."""
+    """The user's home directory, or a fixed `/`-separated directory under it.
+
+    `relative` is empty for every row of the skills table, which hangs its own
+    relative off this. It carries a value for the one machine document whose
+    directory is spelled by the operating system and not by the product —
+    macOS's `~/Library/Application Support`, which no variable names.
+    """
+
+    relative: str = ""
 
 
 @dataclass(frozen=True)
@@ -193,7 +214,28 @@ class FirstPresentAnchor:
     fallback: str
 
 
-Anchor = HomeAnchor | EnvironmentAnchor | FirstPresentAnchor
+@dataclass(frozen=True)
+class PlatformAnchor:
+    r"""A different anchor per operating system, because one row is three paths.
+
+    The VS Code user profile is the case that forced it: `%APPDATA%\Code\User`
+    on Windows, `~/Library/Application Support/Code/User` on macOS,
+    `$XDG_CONFIG_HOME/Code/User` on Linux — one document, three anchors, and the
+    same file name under all of them
+    (`docs/research/mcp-config-formats.md`, the runtime-by-field table, note 1).
+
+    Anything that is not Windows and not macOS resolves through `linux`: the
+    values of `sys.platform` are an open set — `freebsd14`, `cygwin`, `aix` —
+    and the XDG layout is what the rest of them follow. Guessing per unknown
+    name would be inventing a path, which this table refuses to do.
+    """
+
+    windows: Anchor
+    macos: Anchor
+    linux: Anchor
+
+
+Anchor = HomeAnchor | EnvironmentAnchor | FirstPresentAnchor | PlatformAnchor
 """What a global path hangs off. Project paths hang off the target repository."""
 
 
@@ -249,17 +291,28 @@ class Environment:
     home: Path
     variables: Mapping[str, str]
     directory_exists: Callable[[Path], bool]
+    platform: str
+    """`sys.platform` of the machine being written to.
+
+    A value like the other three, and for the same reason: a machine document
+    is in a different directory on each of the three systems, so the whole 3x3
+    matrix is assertable on whichever runner happens to be running. The suite
+    still keys what it *cannot* run on `sys.platform` directly — this moves
+    where a path resolves, never whether a test can execute.
+    """
 
     @classmethod
     def from_process(cls) -> Environment:
         """Read the environment of the running process.
 
-        The one place in the package that touches `os.environ`.
+        The one place in the package that touches `os.environ` — and the one
+        place that reads `sys.platform`.
         """
         return cls(
             home=Path.home(),
             variables=os.environ,
             directory_exists=Path.is_dir,
+            platform=sys.platform,
         )
 
 
@@ -333,19 +386,30 @@ def _join(base: Path, relative: str) -> Path:
 def _resolve_anchor(anchor: Anchor, environment: Environment) -> Path:
     """Find the directory a global path hangs off."""
     match anchor:
-        case HomeAnchor():
-            return environment.home
+        case HomeAnchor(relative):
+            return _join(environment.home, relative)
         case EnvironmentAnchor(variable, fallback):
             override = _override(environment.variables.get(variable))
-            return override if override is not None else environment.home / fallback
+            return override if override is not None else _join(environment.home, fallback)
         case FirstPresentAnchor(candidates, fallback):
             for candidate in candidates:
                 path = environment.home / candidate
                 if environment.directory_exists(path):
                     return path
             return environment.home / fallback
+        case PlatformAnchor():
+            return _resolve_anchor(_for_platform(anchor, environment.platform), environment)
         case _ as unreachable:
             assert_never(unreachable)
+
+
+def _for_platform(anchor: PlatformAnchor, platform: str) -> Anchor:
+    """The branch `platform` reads, with every other Unix reading the Linux one."""
+    if platform == "win32":
+        return anchor.windows
+    if platform == "darwin":
+        return anchor.macos
+    return anchor.linux
 
 
 def _override(value: str | None) -> Path | None:
@@ -430,6 +494,16 @@ def _env(variable: str, fallback: str) -> GlobalSkillsDir:
 def _first_present(candidates: tuple[str, ...], fallback: str) -> GlobalSkillsDir:
     """`~/<first present candidate>/skills`, else `~/<fallback>/skills`."""
     return GlobalSkillsDir(FirstPresentAnchor(candidates, fallback), "skills", Evidence.UNVERIFIED)
+
+
+def _xdg() -> Anchor:
+    """`$XDG_CONFIG_HOME`, else `~/.config` — the POSIX configuration directory."""
+    return EnvironmentAnchor("XDG_CONFIG_HOME", ".config")
+
+
+def _roaming() -> Anchor:
+    """`%APPDATA%`, else `~/AppData/Roaming` — the Windows per-user application directory."""
+    return EnvironmentAnchor("APPDATA", "AppData/Roaming")
 
 
 def _runtime(  # noqa: PLR0913 — six parameters because a table row has six columns
@@ -661,6 +735,87 @@ MCP_DOCUMENTS: Mapping[tuple[str, Scope], McpDocument] = MappingProxyType(
             root_key="mcpServers",
             dialect=Dialect.DEVIN,
         ),
+        # --- machine scope, https://github.com/panlabs-tech/overpower/issues/81
+        #
+        # `~/.claude.json`, `mcpServers` at the **root** of the file — the same
+        # key the project document uses, in a file that is not the project's
+        # (`docs/research/mcp-config-formats.md`, the runtime-by-field table).
+        # The home anchors it on all three systems, and no variable in the
+        # research moves it.
+        #
+        # `born_pending` is **false here and true one row up**, which is the
+        # whole reason it is a column: the approval gate the research measured is
+        # what a *project* file has to pass, and the personal file is the user's
+        # own. So the warning ADR 0014 requires goes quiet in machine scope
+        # without the CLI learning a second rule.
+        #
+        # This file carries `userID`, `machineID` and onboarding state. Nothing
+        # protects them here — the additive diff of ADR 0016 does, and it does it
+        # for every graft, which is why this row is a path and not a special case.
+        ("claude-code", Scope.GLOBAL): McpDocument(
+            relative=".claude.json",
+            root_key="mcpServers",
+            dialect=Dialect.CLAUDE,
+            anchor=HomeAnchor(),
+        ),
+        # The VS Code user profile: one file name under three directories. The
+        # macOS one is spelled by the operating system and named by no variable,
+        # so it is the only anchor in the package that hangs a fixed directory
+        # off the home.
+        #
+        # **The default profile only.** A non-default profile puts the document
+        # under `<userDataDir>/User/profiles/<id>/mcp.json`, and the id is not
+        # derivable from anything the product can read — inventing one would
+        # write a file nothing reads, at exit 0. Same for the second copy a
+        # Remote-WSL or Remote-SSH session keeps on the remote: the research
+        # records that it exists and that writing to the wrong one is a silent
+        # no-op, and records no path for it
+        # (`docs/research/mcp-config-formats.md`, risk item 18). A path nobody
+        # read in primary source does not go on this table.
+        #
+        # **Which leaves the silent no-op reachable, and says so here rather
+        # than pretending otherwise**: a `--global` graft from inside a WSL
+        # session writes the Linux profile, exits 0, and a VS Code running on
+        # the Windows side never reads it. Warning about it would mean
+        # detecting the session and naming the file it *should* have been —
+        # the second half is the part no source supplies, and half a warning
+        # points nowhere.
+        ("vscode", Scope.GLOBAL): McpDocument(
+            relative="Code/User/mcp.json",
+            root_key="servers",
+            dialect=Dialect.VSCODE,
+            anchor=PlatformAnchor(
+                windows=_roaming(),
+                macos=HomeAnchor("Library/Application Support"),
+                linux=_xdg(),
+            ),
+        ),
+        # Vendor documentation, read directly: `~/.config/devin/mcp_config.json`,
+        # and `%APPDATA%\devin\mcp_config.json` on Windows.
+        #
+        # **The POSIX branch reads a variable the vendor's sentence does not
+        # name.** `~/.config` is not a literal here — it is what
+        # `XDG_CONFIG_HOME` defaults to, so the anchor spells the directory the
+        # vendor named rather than the syntax it named it with. The row is
+        # wrong for a machine that moves the variable only if the vendor
+        # hard-codes the literal, which its own page gives no sign of.
+        #
+        # **It does not have to agree with the skills row for this runtime**,
+        # and on Windows it does not: `_config("devin/skills")` reads XDG on
+        # every platform, this reads `APPDATA`. That is two tables with two
+        # sources, not a contradiction — the skills row is a transcription of
+        # `vercel-labs/skills` and the vendor's own page is what decides here.
+        # Where the two sources speak, the source of the class wins.
+        #
+        # The `AppData/Roaming` fallback is **derived and not transcribed** —
+        # it is the documented default of `%APPDATA%`, and a real Windows never
+        # reaches it, because the variable is always set there.
+        ("devin", Scope.GLOBAL): McpDocument(
+            relative="devin/mcp_config.json",
+            root_key="mcpServers",
+            dialect=Dialect.DEVIN,
+            anchor=PlatformAnchor(windows=_roaming(), macos=_xdg(), linux=_xdg()),
+        ),
     }
 )
 """Where each (runtime, scope) pair reads MCP servers — **and the function is partial**.
@@ -697,8 +852,14 @@ two tables intersect without either containing the other
 
 Where the pair has no row the pair **does not exist**: `overpower.planning`
 refuses the whole line with exit 3 rather than inventing a file, which is ADR
-0009's reading applied to the second axis. Both target axis issues have landed;
-the remaining item is the machine scope, https://github.com/panlabs-tech/overpower/issues/81.
+0009's reading applied to the second axis. All three targets now have both
+scopes, so the partiality that remains is per *runtime*: `cursor` reads skills
+and has no MCP document anywhere.
+
+**A machine row is not the project row under another root.** It carries its own
+`anchor`, because the three targets disagree about where the personal file is
+and two of them disagree with themselves across operating systems
+(https://github.com/panlabs-tech/overpower/issues/81).
 """
 
 
@@ -771,14 +932,20 @@ def known_runtimes() -> tuple[str, ...]:
     return (*RUNTIMES_BY_KEY, *(key for key in grafts if key not in RUNTIMES_BY_KEY))
 
 
-def mcp_places_of(keys: Sequence[str], scope: Scope, root: Path) -> tuple[McpPlace, ...]:
+def mcp_places_of(
+    keys: Sequence[str], scope: Scope, root: Path, environment: Environment
+) -> tuple[McpPlace, ...]:
     """Each distinct document `keys` read in `scope`, with all of its readers.
 
-    `root` is what the destinations hang off — the repository in project scope,
-    the home in global — exactly as it is for the copy class, so this needs no
-    `Environment`: the anchors a machine-scope MCP document would hang off are
-    https://github.com/panlabs-tech/overpower/issues/81, and until then every row
-    of the table is a plain relative path under the root.
+    `root` is the target repository, and it is what a row with no anchor hangs
+    off. A machine row carries its own anchor and ignores `root` entirely —
+    which is not the shape the copy class has, because a skills row is the same
+    directory name under two different bases and a machine document is a
+    different directory on each operating system.
+
+    `environment` is therefore load-bearing here and not merely passed through:
+    it carries the home, the variables that move two of the three rows, and the
+    platform that chooses between them.
 
     A runtime with no document in `scope` is **skipped**, not guessed at: the
     caller refuses the line before this runs, and refusing twice in two places
@@ -789,12 +956,18 @@ def mcp_places_of(keys: Sequence[str], scope: Scope, root: Path) -> tuple[McpPla
         document = mcp_document_of(key, scope)
         if document is None:
             continue
-        path = _join(root, document.relative)
+        path = _join(_mcp_base(document, root, environment), document.relative)
         grouped.setdefault(path, (document, []))[1].append(key)
     return tuple(
         McpPlace(path=path, document=document, readers=tuple(readers))
         for path, (document, readers) in grouped.items()
     )
+
+
+def _mcp_base(document: McpDocument, root: Path, environment: Environment) -> Path:
+    """What this document's relative path hangs off — the table decides, not the scope."""
+    anchor = document.anchor
+    return root if anchor is None else _resolve_anchor(anchor, environment)
 
 
 def runtimes_in(scope: Scope) -> tuple[Runtime, ...]:

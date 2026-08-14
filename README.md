@@ -184,6 +184,20 @@ because the write happened and what is missing is yours to do. Devin documents n
 such gate for `.devin/mcp_config.json`, so nothing is said about it: the warning
 is a fact of the target, and one printed everywhere is one nobody reads.
 
+**`--global` writes the personal file instead**, one per target:
+`~/.claude.json`, the VS Code user profile — a different directory on each
+operating system — and Devin's machine configuration.
+
+```bash
+uvx overpower@latest install --mcp cloudflare --runtime claude-code --global
+```
+
+That file is yours in a stronger sense than a repository one: `~/.claude.json`
+also carries your user id and your onboarding state. Nothing else in it is
+touched, and nothing is asked before adding the key — a graft replaces no file,
+so an existing one is not a collision. Nothing waits for approval here either:
+a server in your own file is one you already approved by writing it.
+
 ### The secret is never written, and the address is
 
 A recipe declares a secret as a **slot** — a name and a role, never a value and

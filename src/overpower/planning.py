@@ -504,7 +504,7 @@ def plan_for(request: Request, catalog: Catalog, root: Path, environment: Enviro
     if frameworks or bundles or skills:
         _refuse_a_runtime_with_no_skills(runtimes)
     landings = places_of(_that_take_skills(runtimes), request.scope, root, environment)
-    documents = mcp_places_of(runtimes, request.scope, root)
+    documents = mcp_places_of(runtimes, request.scope, root, environment)
     return Plan(
         root=root,
         selections=(
@@ -668,11 +668,29 @@ def existing_destinations(plan: Plan, request: Request) -> tuple[Path, ...]:
     caller's call (`overpower.cli._perform`): whether there is a terminal to
     turn this into a question, or `DestinationExistsError` is still the answer,
     https://github.com/panlabs-tech/overpower/issues/69.
+
+    **The graft class is not asked at all**, and that is a property of the class
+    rather than an exemption. What this question protects is equipment that is
+    replaced whole — a directory the writer clears and rewrites — and a graft
+    replaces nothing: it inserts one key and leaves every other byte of the
+    document where it was (ADR 0016), overwriting only an entry carrying the
+    same identity, unconditionally and by decision (ADR 0013). Asking here would
+    have made the machine documents of
+    https://github.com/panlabs-tech/overpower/issues/81 unusable in the ordinary
+    case: `~/.claude.json` exists on every machine that ever ran the runtime, so
+    every `--global` graft would have stopped to ask permission to *add* a key.
     """
     if request.scope is not Scope.GLOBAL or request.force:
         return ()
     return tuple(
-        sorted({write.destination.path for write in plan.writes if write.destination.path.exists()})
+        sorted(
+            {
+                write.destination.path
+                for write in plan.writes
+                if not isinstance(write.destination, DocumentKey)
+                and write.destination.path.exists()
+            }
+        )
     )
 
 

@@ -991,10 +991,9 @@ def test_a_graft_only_runtime_receives_the_server_and_skips_the_skill(
     """Issue #100: `vscode` renders MCP and reads no skills, and keeps the half it can serve.
 
     A runtime with a row on one of the two tables a mixed line carries is not
-    stranded by the other lacking a row for it — only a runtime with a row on
-    **neither** is (`NoDestinationForEitherClassError`). `vscode` gets the
-    server, the skill is skipped, and the screen names it instead of the
-    whole line dying for `vscode`'s gap on the other axis.
+    stranded by the other lacking a row for it — `vscode` gets the server, the
+    skill is skipped, and the screen names it instead of the whole line dying
+    for `vscode`'s gap on the other axis.
     """
     # given
     project.catalog_of(tmp_path, monkeypatch, "alpha", mcps={"panel": project.SLOTTED})

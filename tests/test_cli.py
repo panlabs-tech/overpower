@@ -23,7 +23,7 @@ import subprocess
 import sys
 from dataclasses import replace
 from importlib import metadata
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, cast, get_args, get_type_hints
 
 import pytest
 from rich.console import Console
@@ -40,6 +40,8 @@ from tests.support import git_remote, project
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from pathlib import Path
+
+    from typer.models import OptionInfo
 
     from overpower.discovery import Catalog
     from overpower.runtimes import Environment
@@ -151,14 +153,21 @@ def test_an_unknown_flag_exits_two(capsys: pytest.CaptureFixture[str]) -> None:
 
 
 def test_the_runtime_help_warns_the_two_classes_disagree() -> None:
-    """DIAGNOSTIC: prints the normalised output so a CI failure shows the
-    real content instead of pytest's truncated diff."""
-    result = piped("install", "--help")
-    unwrapped = " ".join(result.stdout.decode(errors="replace").split())
-    print(unwrapped)  # noqa: T201 — temporary, removed once the platform gap is diagnosed
+    """Skill and MCP each have their own runtime table (ADR 0017) — a runtime
+    that takes one can refuse the other. The help for `--runtime` used to stay
+    silent about that and let the reader find out from an exit 3.
 
-    assert result.returncode == 0
-    assert "not every runtime takes every class" in unwrapped
+    Reads the `Option` metadata off the function signature, not a rendered
+    `--help` screen: measured on the Windows runner, the panel there falls
+    back to ASCII box characters (see this file's module docstring), and
+    those literal `|` borders land inside the wrapped line and split the
+    wording this test looks for.
+    """
+    runtime_hint = get_type_hints(cli.install, include_extras=True)["runtime"]
+    runtime_option = cast("OptionInfo", get_args(runtime_hint)[1])
+
+    assert runtime_option.help is not None
+    assert "not every runtime takes every class" in runtime_option.help
 
 
 @pytest.mark.parametrize(

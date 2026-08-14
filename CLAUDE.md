@@ -1,25 +1,16 @@
 # overpower
 
-CLI Python, publicada no PyPI, que instala equipamento de agente curado num
-repositório ou na máquina — `list` diz o que há, `install` escreve, `doctor` diz
-se o que foi escrito continua sendo o que foi escrito.
+CLI Python, publicada no PyPI, que instala equipamento de agente curado num repositório ou na máquina — `list` diz o que há, `install` escreve, `doctor` diz se o que foi escrito continua sendo o que foi escrito.
 
 ## O reconhecimento sai da janela
 
-A implementação começa **delegando o reconhecimento a um subagente `Explore`** e
-agindo sobre o **digest** que ele devolve. O digest é o orçamento de leitura: o
-que ele nomeia se lê em fatia estreita, o resto fica de fora. O schema e a ordem
-estão em `.claude/context-economy-protocol.md`.
+A implementação começa **delegando o reconhecimento a um subagente `Explore`** e agindo sobre o **digest** que ele devolve. O digest é o orçamento de leitura: o que ele nomeia se lê em fatia estreita, o resto fica de fora. O schema e a ordem estão em `.claude/context-economy-protocol.md`.
 
-Medido em 46 sessões deste repo: explorar dentro da própria janela leva o
-primeiro `Edit` a **152k tokens** — 50k de `Read` e `Bash` crus, 61k do
-raciocínio nos 63 turnos que os orquestram. Um digest custa **~4k** e substitui
-os dois.
+Medido em 46 sessões deste repo: explorar dentro da própria janela leva o primeiro `Edit` a **152k tokens** — 50k de `Read` e `Bash` crus, 61k do raciocínio nos 63 turnos que os orquestram. Um digest custa **~4k** e substitui os dois.
 
 ## Onde perguntar antes de procurar
 
-Estes documentos não se deduzem olhando a árvore. Leia a **seção**, não o
-arquivo — `domain.md` tem 26k e `testing.md` 23k.
+Estes documentos não se deduzem olhando a árvore. Leia a **seção**, não o arquivo — `domain.md` tem 26k e `testing.md` 23k.
 
 | Pergunta | Onde |
 | --- | --- |
@@ -31,19 +22,13 @@ arquivo — `domain.md` tem 26k e `testing.md` 23k.
 | O que é real, o que é dublê, o que vira snapshot | `docs/agents/testing.md` § Resumo executável |
 | Por que uma decisão é o que é | `docs/adr/` |
 
-**No código, o índice é o docstring.** Todo módulo de `src/overpower/` abre com
-uma linha que declara sua responsabilidade — `head` nelas localiza mais barato
-que `grep`.
+**No código, o índice é o docstring.** Todo módulo de `src/overpower/` abre com uma linha que declara sua responsabilidade — `head` nelas localiza mais barato que `grep`.
 
 ## Pegadinhas
 
-- **Nada entra na `main` sem PR.** É ruleset, com a lista de bypass vazia
-  inclusive para o dono; `gate` e `release-ready` são required checks.
-- **Publicar é mergear.** Um merge que muda a versão do `pyproject.toml` cria a
-  tag e dispara o release; um que não muda não publica nada.
-- **`gh pr merge --delete-branch` falha aqui.** Ele troca o checkout para a
-  `main`, que costuma estar ocupada por um worktree. Mergeie sem a flag e apague
-  a branch remota por `gh api -X DELETE`.
+- **Nada entra na `main` sem PR.** É ruleset, com a lista de bypass vazia inclusive para o dono; `gate` e `release-ready` são required checks.
+- **Publicar é mergear.** Um merge que muda a versão do `pyproject.toml` cria a tag e dispara o release; um que não muda não publica nada.
+- **`gh pr merge --delete-branch` falha aqui.** Ele troca o checkout para a `main`, que costuma estar ocupada por um worktree. Mergeie sem a flag e apague a branch remota por `gh api -X DELETE`.
 
 ## Agent skills
 

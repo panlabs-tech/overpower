@@ -6,10 +6,7 @@ paths:
 
 # Ao escrever teste neste repo
 
-A doutrina inteira está em `docs/agents/testing.md`: leia o **§ Resumo
-executável**, depois só a posição que ele citar. As duas que mais decidem a forma
-de um teste novo — **o disco é real** e **rede nunca entra em portão**. O `git`
-roda de verdade, contra um remoto construído em disco.
+A doutrina inteira está em `docs/agents/testing.md`: leia o **§ Resumo executável**, depois só a posição que ele citar. As duas que mais decidem a forma de um teste novo — **o disco é real** e **rede nunca entra em portão**. O `git` roda de verdade, contra um remoto construído em disco.
 
 ## O andaime já existe — clone dele
 
@@ -22,5 +19,4 @@ roda de verdade, contra um remoto construído em disco.
 | `tests/support/gates.py` | O único portão da suíte, e ele guarda a rede. |
 | `tests/conftest.py` | As opções que a suíte adiciona ao pytest. |
 
-O teste irmão mais próximo é o melhor molde. `head` no docstring de um
-`tests/test_*.py` diz o que ele cobre, sem abrir o arquivo inteiro.
+O teste irmão mais próximo é o melhor molde. `head` no docstring de um `tests/test_*.py` diz o que ele cobre, sem abrir o arquivo inteiro.

@@ -1612,6 +1612,28 @@ def test_the_plan_prints_the_recipes_prose_instructions(
     assert "ask the platform team for the token" in project.joined(output)
 
 
+def test_the_real_run_prints_instructions_too_before_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """Not only the report — the same line reads them before the write happens."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch)
+    project.target(tmp_path, monkeypatch)
+    project.custom_recipe(
+        tmp_path,
+        "toolserver",
+        _precondition_recipe(
+            "env_set", PRECONDITION_VARIABLE, instructions="ask the platform team for the token"
+        ),
+    )
+    monkeypatch.setenv(PRECONDITION_VARIABLE, "1")
+
+    code, output = project.run(capsys, "install", "--mcp", "toolserver", "--runtime", "claude-code")
+
+    assert code == 0
+    assert "ask the platform team for the token" in project.joined(output)
+
+
 def test_a_malicious_precondition_value_is_never_executed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:

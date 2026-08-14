@@ -699,7 +699,7 @@ def _perform(
     # Same reasoning, a fact of the machine rather than of a document: a
     # `--dry-run` that skipped this would report on a different machine than
     # the one that runs `install` for real (https://github.com/panlabs-tech/overpower/issues/82).
-    refuse_unmet_preconditions(plan, environment)
+    refuse_unmet_preconditions(plan, environment.variables)
     conflicts = existing_destinations(plan, request)
     if conflicts and (request.dry_run or not _asking(request)):
         raise DestinationExistsError(conflicts)

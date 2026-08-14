@@ -637,13 +637,16 @@ class PreconditionFailedError(RefusedError):
         super().__init__(f"`{recipe}`: precondition `{precondition.check}` failed — {reason}")
 
 
-def refuse_unmet_preconditions(plan: Plan, environment: Environment) -> None:
+def refuse_unmet_preconditions(plan: Plan, variables: Mapping[str, str]) -> None:
     """Refuse before the first byte if any recipe's preconditions are not met here.
 
     Alongside `refuse_broken_documents` and for the same two reasons: a
     precondition is a fact of the **machine**, checked once per recipe rather
     than once per write, so this walks `selection.artifacts` the way
-    `unset_slots` already does rather than `plan.writes`.
+    `unset_slots` already does rather than `plan.writes` — and it narrows to
+    `variables` for the same reason `unset_slots` does: the only machine fact
+    any check reads is the environment, so that is the whole of what this
+    needs from `Environment`.
 
     Every check **reads** a fact and never **runs** one — `command_exists`
     walks `PATH` the way `shutil.which` does, and never invokes the command it
@@ -655,19 +658,19 @@ def refuse_unmet_preconditions(plan: Plan, environment: Environment) -> None:
             if not isinstance(carried, Recipe):
                 continue
             for precondition in carried.preconditions:
-                reason = _unmet_reason(precondition, environment)
+                reason = _unmet_reason(precondition, variables)
                 if reason is not None:
                     raise PreconditionFailedError(carried.name, precondition, reason)
 
 
-def _unmet_reason(precondition: Precondition, environment: Environment) -> str | None:
+def _unmet_reason(precondition: Precondition, variables: Mapping[str, str]) -> str | None:
     """Why `precondition` fails on this machine, or `None` if it holds."""
     match precondition.check:
         case Check.COMMAND_EXISTS:
-            found = shutil.which(precondition.value, path=environment.variables.get("PATH"))
+            found = shutil.which(precondition.value, path=variables.get("PATH"))
             return None if found is not None else f"no `{precondition.value}` on PATH"
         case Check.ENV_SET:
-            if precondition.value in environment.variables:
+            if precondition.value in variables:
                 return None
             return f"`{precondition.value}` is not set in the environment"
         case Check.PATH_EXISTS:

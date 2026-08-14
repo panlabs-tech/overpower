@@ -506,6 +506,65 @@ def test_a_remote_search_describes_a_skill_the_way_the_embedded_walk_does(
     assert artifact.size > 0
 
 
+@pytest.mark.parametrize(
+    "depth",
+    [
+        pytest.param("", id="repository root"),
+        pytest.param("/.overpower", id="a subfolder"),
+        pytest.param("/.overpower/mcp", id="the recipe's own folder"),
+    ],
+)
+def test_the_three_depths_of_url_find_the_same_mcp_recipe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, depth: str
+) -> None:
+    """Same rule as the skill search (#83): the URL is a search root, not an address."""
+    # given
+    local = git_remote.build(tmp_path / "origin", git_remote.mcp_recipe_files("alpha", "beta"))
+    monkeypatch.setattr(remote, "fetch_with_git", git_remote.instead_of_github(local))
+
+    with remote.catalog_from(f"{ROOT_URL}/tree/{local.branch}{depth}", mcps=["alpha"]) as catalog:
+        assert [recipe.name for recipe in catalog.mcps] == ["alpha"]
+        assert catalog.mcps[0].description == "The alpha MCP server."
+
+
+def test_an_mcp_recipe_that_is_not_under_the_root_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Obtained, searched, and the answer is no — the defect is not in the line."""
+    _planting(monkeypatch, git_remote.mcp_recipe_files("alpha"))
+
+    with pytest.raises(RefusedError), remote.catalog_from(ROOT_URL, mcps=["beta"]):
+        pass  # unreachable: the search raises before the block is entered
+
+
+def test_two_mcp_recipes_with_the_same_name_under_one_root_are_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Same reasoning as the skill collision: picking one would be the defect."""
+    # given
+    planted = {
+        **git_remote.mcp_recipe_files("alpha"),
+        **git_remote.mcp_recipe_files("alpha", under="vendor/.overpower/mcp"),
+    }
+    _planting(monkeypatch, planted)
+
+    with pytest.raises(RefusedError), remote.catalog_from(ROOT_URL, mcps=["alpha"]):
+        pass  # unreachable: the search raises before the block is entered
+
+
+def test_a_remote_search_reads_an_mcp_recipe_the_way_the_embedded_walk_does(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Both paths go through `read_recipe`, which is why they agree on the shape."""
+    _planting(monkeypatch, git_remote.mcp_recipe_files("alpha"))
+
+    with remote.catalog_from(ROOT_URL, mcps=["alpha"]) as catalog:
+        recipe = catalog.mcps[0]
+
+    assert recipe.description == "The alpha MCP server."
+    assert recipe.transport is recipe.transport.STDIO
+
+
 def test_an_obtention_failure_is_not_a_refusal() -> None:
     """The `except` order of the CLI is the axis: 1 is ours, 3 is the answer being no."""
     assert issubclass(remote.ObtentionError, OverpowerError)

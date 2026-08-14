@@ -165,6 +165,24 @@ def skill_files(*names: str, under: str = "skills") -> dict[str, str]:
     }
 
 
+def mcp_recipe_files(*names: str, under: str = ".overpower/mcp") -> dict[str, str]:
+    """A repository tree carrying one minimal recipe per name, at `<under>/<name>.toml`.
+
+    The same mapping `build` and `planting` take, and the same convention path
+    `overpower.remote._mcp_called` searches — `.overpower/mcp/<slug>.toml`
+    (`docs/agents/domain.md` § Vocabulário).
+    """
+    return {
+        f"{under}/{name}.toml": (
+            f'description = "The {name} MCP server."\n'
+            'transport = "stdio"\n\n'
+            "[server]\n"
+            f'command = "{name}"\n'
+        )
+        for name in names
+    }
+
+
 def instead_of_github(local: LocalRemote) -> Callable[[str, str, Path], Path]:
     """The product's own primary obtention, aimed at `local` instead of GitHub.
 

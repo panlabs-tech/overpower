@@ -166,16 +166,15 @@ class TooManySelectorsError(BadInvocationError):
 
 
 class UnsupportedRemoteUnitError(BadInvocationError):
-    """`--from` on a line that also names an AI Framework, a bundle or an MCP server.
+    """`--from` on a line that also names an AI Framework or a bundle.
 
-    `--from` is for `--skill` and nothing else yet, and the reason is the same
-    one that separates the three copy units: a **skill is the only one that
-    exists in the market**, while a bundle and an AI Framework only exist in a
-    repository that already knows the overpower. The MCP server is the one that
-    will join it — a federated recipe is precisely the channel a home-made MCP
-    has none of today — and it joins in
-    https://github.com/panlabs-tech/overpower/issues/83. Refusing by name is what
-    keeps the flag from silently meaning less than it says.
+    `--from` is for `--skill` and `--mcp`, and nothing else, and the reason is
+    the same one that separates the four copy units: a **skill and an MCP
+    server are the two that exist outside a repository that already knows the
+    overpower** — a federated recipe is precisely the channel a home-made MCP
+    has none of today (https://github.com/panlabs-tech/overpower/issues/83) —
+    while a bundle and an AI Framework only exist in one. Refusing by name is
+    what keeps the flag from silently meaning less than it says.
 
     It lives here rather than in `overpower.remote` for the same reason
     `TooManySelectorsError` does: nothing about the URL or the names is wrong —
@@ -186,11 +185,13 @@ class UnsupportedRemoteUnitError(BadInvocationError):
         """Name every unit flag that cannot travel with `--from`."""
         self.flags = tuple(flags)
         given = " and ".join(self.flags)
-        super().__init__(f"`--from` installs skills only, and this line also has {given}")
+        super().__init__(
+            f"`--from` installs skills and MCP servers only, and this line also has {given}"
+        )
 
 
 class NothingToSearchForError(BadInvocationError):
-    """`--from` with no `--skill`: a search root, and nothing to look for in it.
+    """`--from` with no `--skill` and no `--mcp`: a search root, and nothing to look for in it.
 
     `plan_for` already refuses an empty selection, and this exists because of
     *when* rather than *whether*: reaching that refusal would cost a whole
@@ -200,8 +201,10 @@ class NothingToSearchForError(BadInvocationError):
     """
 
     def __init__(self) -> None:
-        """Say which half of the line is missing."""
-        super().__init__("`--from` names where to look, and no --skill names what to look for")
+        """Say which halves of the line are missing."""
+        super().__init__(
+            "`--from` names where to look, and no --skill and no --mcp name what to look for"
+        )
 
 
 class OutsideRepositoryError(BadInvocationError):
@@ -240,6 +243,40 @@ class MixedClassesWithoutRuntimeError(BadInvocationError):
             "a skill and an MCP server on one line need --runtime named explicitly, "
             "or two separate commands — one per class"
         )
+
+
+class UnsupportedRemoteListUnitError(BadInvocationError):
+    """`--from` on a `list` line that also names an AI Framework, a bundle or a skill.
+
+    `list --from` shows a federated MCP recipe only, in v0.1.0 — the one unit
+    `install --from` gained a remote channel for alongside skill
+    (https://github.com/panlabs-tech/overpower/issues/83). Without this guard,
+    `list --skill x --from <url>` would print the *embedded* skill named `x`
+    while the line claims to have consulted the URL — the same silent-narrowing
+    defect `UnsupportedRemoteUnitError` refuses on `install`, named again here
+    because the set `list --from` supports is narrower still.
+    """
+
+    def __init__(self, flags: Sequence[str]) -> None:
+        """Name every unit flag that cannot travel with `--from` on `list`."""
+        self.flags = tuple(flags)
+        given = " and ".join(self.flags)
+        super().__init__(
+            f"`--from` on `list` shows an MCP recipe only, and this line also has {given}"
+        )
+
+
+class NothingToListForError(BadInvocationError):
+    """`--from` on `list` with no `--mcp`: a search root, and nothing to look for in it.
+
+    Same reasoning as `install`'s `NothingToSearchForError`: reaching a later
+    refusal would cost a whole repository download first, for a line that could
+    never have shown anything.
+    """
+
+    def __init__(self) -> None:
+        """Say which half of the line is missing."""
+        super().__init__("`--from` names where to look, and no --mcp names what to look for")
 
 
 class McpNameBelongsToAnotherFlagError(BadInvocationError):
@@ -356,6 +393,16 @@ def list_catalog(
             help="Show one MCP server recipe, whole.",
         ),
     ] = None,
+    from_: Annotated[
+        str | None,
+        typer.Option(
+            "--from",
+            metavar="URL",
+            help="Take --mcp from any GitHub repository instead of the embedded catalog. "
+            "The URL is a search root: the repository, a subfolder or `.overpower/mcp` "
+            "itself. `tree/<ref>/<path>` pins a branch, a tag or a SHA.",
+        ),
+    ] = None,
 ) -> None:
     """Show the catalog, or the content of one item of it."""
     given = (
@@ -371,13 +418,52 @@ def list_catalog(
         # let a broken tree answer 1 — *could not run* — to a question whose real
         # answer is 2, and the two codes exist to be told apart.
         raise TooManySelectorsError(selected)
+    _refuse_a_list_line_from_cannot_answer(from_, ai_framework, bundle, skill, mcp)
 
-    catalog = load_catalog(content_root(), catalog_file())
-    # Resolved before the banner: a name outside the catalog exits 2, and a
-    # banner already on screen would be the product answering before it knew.
-    screen = _listed(catalog, ai_framework=ai_framework, skill=skill, bundle=bundle, mcp=mcp)
-    _print_banner()
-    _out.print(screen)
+    if from_ is None:
+        catalog = load_catalog(content_root(), catalog_file())
+        # Resolved before the banner: a name outside the catalog exits 2, and a
+        # banner already on screen would be the product answering before it knew.
+        screen = _listed(catalog, ai_framework=ai_framework, skill=skill, bundle=bundle, mcp=mcp)
+        _print_banner()
+        _out.print(screen)
+        return
+    # `mcp` is not `None` here: the guard above already refused every other
+    # shape a `--from` line on `list` could have.
+    with catalog_from(from_, mcps=(mcp,) if mcp else ()) as catalog:
+        screen = _listed(catalog, ai_framework=None, skill=None, bundle=None, mcp=mcp)
+        _print_banner()
+        _out.print(screen)
+
+
+def _refuse_a_list_line_from_cannot_answer(
+    from_: str | None,
+    ai_framework: str | None,
+    bundle: str | None,
+    skill: str | None,
+    mcp: str | None,
+) -> None:
+    """The two ways a `--from` line on `list` has no answer, refused before anything is fetched.
+
+    Mirrors `_refuse_a_line_from_cannot_answer` on `install`, narrower by one
+    unit: `list --from` reaches `--mcp` only, so a skill named alongside it is
+    refused the same way a bundle or an AI Framework is.
+    """
+    if from_ is None:
+        return
+    given = [
+        flag
+        for flag, name in (
+            (AI_FRAMEWORK_FLAG, ai_framework),
+            (BUNDLE_FLAG, bundle),
+            (SKILL_FLAG, skill),
+        )
+        if name is not None
+    ]
+    if given:
+        raise UnsupportedRemoteListUnitError(given)
+    if mcp is None:
+        raise NothingToListForError
 
 
 def _listed(
@@ -466,9 +552,9 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
         typer.Option(
             "--from",
             metavar="URL",
-            help="Take --skill from any GitHub repository instead of the embedded catalog. "
-            "The URL is a search root: the repository, a subfolder or the skill's own folder. "
-            "`tree/<ref>/<path>` pins a branch, a tag or a SHA.",
+            help="Take --skill or --mcp from any GitHub repository instead of the embedded "
+            "catalog. The URL is a search root: the repository, a subfolder or the "
+            "artifact's own folder. `tree/<ref>/<path>` pins a branch, a tag or a SHA.",
         ),
     ] = None,
     global_: Annotated[
@@ -529,7 +615,14 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
         raise MixedClassesWithoutRuntimeError
 
     already_read: Catalog | None = None
-    if mcps:
+    if mcps and from_ is None:
+        # Guarded by `from_ is None` for the same reason the artifacts step
+        # below is: with `--from`, only the remote is consulted, and a slug
+        # that only exists in the pointed repository must not be checked
+        # against the embedded catalog first. The remote's own search —
+        # `_mcp_called` — is what answers "not found" for that line, at
+        # exit 3, once the block below obtains the repository.
+        #
         # Loaded here and reused below rather than deferred to `_perform`: on a
         # terminal line missing --runtime that call happens only after the
         # whole wizard has already asked its questions, and a slug the catalog
@@ -588,7 +681,7 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
         return
     # The scratch lives exactly as long as the block, which has to cover the
     # write as well as the plan: the sources of a remote install are inside it.
-    with catalog_from(from_, request.skills) as catalog:
+    with catalog_from(from_, request.skills, request.mcps) as catalog:
         _perform(request, catalog, root, environment, banner=not wizarding)
 
 
@@ -616,13 +709,12 @@ def _refuse_a_line_from_cannot_answer(
         for flag, names in (
             (AI_FRAMEWORK_FLAG, frameworks),
             (BUNDLE_FLAG, bundles),
-            (MCP_FLAG, mcps),
         )
         if names
     ]
     if given:
         raise UnsupportedRemoteUnitError(given)
-    if not skills:
+    if not skills and not mcps:
         raise NothingToSearchForError
 
 

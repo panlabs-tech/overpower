@@ -911,7 +911,7 @@ from overpower import cli, planning
 
 captured_path = sys.argv[1]
 
-def capture(request, catalog, root, environment):
+def capture(request, catalog, root, environment, sources=None):
     with open(captured_path, "w", encoding="utf-8") as fh:
         fh.write("ai_frameworks=" + ",".join(request.ai_frameworks) + "\\n")
         fh.write("bundles=" + ",".join(request.bundles) + "\\n")

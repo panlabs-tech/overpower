@@ -164,9 +164,9 @@ def _perform(write: Write) -> WriteMode:
     path and `WriteMode.COPY` wherever a link or a junction degraded.
     """
     match write.destination, write.mode, write.source:
-        case DirectoryTree(path), WriteMode.COPY, Path() as origin:
+        case DirectoryTree(path), WriteMode.COPY | WriteMode.CLONE, Path() as origin:
             _land_tree(origin, path)
-            return WriteMode.COPY
+            return write.mode
         case DirectoryTree(path), WriteMode.LINK, Path() as origin:
             return _land_link(origin, path)
         case DirectoryTree(path), WriteMode.JUNCTION, Path() as origin:

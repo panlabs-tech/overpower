@@ -34,6 +34,7 @@ from dataclasses import replace
 from enum import IntEnum
 from importlib import metadata
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated
 
 import questionary
@@ -58,7 +59,7 @@ from overpower.planning import (
     unset_slots,
 )
 from overpower.recipes import Recipe
-from overpower.remote import catalog_from
+from overpower.remote import catalog_from, sources_for
 from overpower.rendering import targets_of
 from overpower.runtimes import Environment, Scope
 from overpower.scope import git_root
@@ -90,7 +91,7 @@ from overpower.wizard import QUESTIONARY_STYLE, run_wizard
 from overpower.writing import execute
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
     from rich.console import RenderableType
 
@@ -677,12 +678,19 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
         # real cost and not a tidiness point.
         if already_read is None:
             already_read = load_catalog(content_root(), catalog_file())
-        _perform(request, already_read, root, environment, banner=not wizarding)
+        # The scratch lives exactly as long as the block, which has to cover the
+        # write as well as the plan: `execute()` needs a `[source]` recipe's
+        # clone still on disk at the point it copies it to its destination.
+        with sources_for(already_read, request.mcps, request.scope) as sources:
+            _perform(request, already_read, root, environment, sources, banner=not wizarding)
         return
     # The scratch lives exactly as long as the block, which has to cover the
     # write as well as the plan: the sources of a remote install are inside it.
-    with catalog_from(from_, request.skills, request.mcps) as catalog:
-        _perform(request, catalog, root, environment, banner=not wizarding)
+    with (
+        catalog_from(from_, request.skills, request.mcps) as catalog,
+        sources_for(catalog, request.mcps, request.scope) as sources,
+    ):
+        _perform(request, catalog, root, environment, sources, banner=not wizarding)
 
 
 def _refuse_a_line_from_cannot_answer(
@@ -757,11 +765,12 @@ def _flag_already_claiming(catalog: Catalog, name: str) -> str | None:
     return None
 
 
-def _perform(
+def _perform(  # noqa: PLR0913 — one argument per thing `plan_for` itself takes, plus `banner`
     request: Request,
     catalog: Catalog,
     root: Path,
     environment: Environment,
+    sources: Mapping[str, Path] = MappingProxyType({}),
     *,
     banner: bool = True,
 ) -> None:
@@ -771,6 +780,10 @@ def _perform(
     decides **where the catalog comes from** and changes nothing about what
     happens to one. A dry run therefore resolves the remote exactly as the real
     run does, which is what keeps it a report about *this* installation.
+
+    `sources` is every `[source]` recipe's clone, already obtained by the
+    caller's `remote.sources_for` block — passed through to `plan_for` and
+    otherwise untouched here, the same way `catalog` is.
 
     `banner` is off for the wizard alone, and the asymmetry is the reason the
     flag exists: the wizard has already drawn it as context for the questions it
@@ -782,7 +795,7 @@ def _perform(
     # ask about it, is exit 2 or exit 3 with nothing written and nothing
     # announced. `--dry-run` is a report, never a session, so it never asks
     # either — https://github.com/panlabs-tech/overpower/issues/69.
-    plan = plan_for(request, catalog, root, environment)
+    plan = plan_for(request, catalog, root, environment, sources)
     # Read before anything is drawn and before the first byte, and on **both**
     # paths: a `--dry-run` that answered 0 to a line the real run refuses with 3
     # would be a report about a different installation

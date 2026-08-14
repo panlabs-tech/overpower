@@ -750,11 +750,16 @@ def _skipped_classes_of(keys: Sequence[str], scope: Scope) -> tuple[SkippedClass
     ADR 0009), so a key reaching this loop is missing *at most* one of the two
     — `no_document and no_skills` is a state `_selected_runtimes` has already
     made unreachable, not a case this function has to guard against.
+
+    Filtered by `project_dir is None`, the same reading `_refuse_a_runtime_with_no_skills`
+    uses (ADR 0018): `vscode` is a member of `RUNTIMES_BY_KEY` with no destination,
+    so membership alone stopped proving a skill row.
     """
     skipped: list[SkippedClass] = []
     for key in keys:
         no_document = mcp_document_of(key, scope) is None
-        no_skills = key not in RUNTIMES_BY_KEY
+        runtime = RUNTIMES_BY_KEY.get(key)
+        no_skills = runtime is None or runtime.project_dir is None
         if no_document:
             skipped.append(SkippedClass(key, MissingClass.MCP))
         elif no_skills:

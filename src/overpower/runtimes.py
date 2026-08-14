@@ -68,12 +68,17 @@ class Dialect(StrEnum):
     `mcpServers`, `${input:}` instead of `${VAR}`. A dialect per runtime would
     have to answer twice for VS Code and could only be wrong once.
 
-    Two members, and the second one arrived exactly as designed: the set is
-    closed and matched with `assert_never` in `overpower.rendering`, so
-    https://github.com/panlabs-tech/overpower/issues/79 landed as a
-    compiler-visible hole in every `match` rather than as a silent default. The
-    third (https://github.com/panlabs-tech/overpower/issues/80) will land the
-    same way.
+    Three members, and each one arrived exactly as designed: the set is closed
+    and matched with `assert_never` in `overpower.rendering`, so
+    https://github.com/panlabs-tech/overpower/issues/79 and
+    https://github.com/panlabs-tech/overpower/issues/80 each landed as a
+    compiler-visible hole in every `match` rather than as a silent default.
+
+    **Three members that share one root key twice and agree on nothing else** is
+    the shape the class predicted: `mcpServers` in Claude and Devin, `servers` in
+    VS Code; the transport discriminated by `type` in two of three and by
+    `transport` — HTTP only — in the third; and three distinct spellings of a
+    secret between them. A dialect per runtime could not have said that.
     """
 
     CLAUDE = "claude"
@@ -88,6 +93,16 @@ class Dialect(StrEnum):
     encrypts the value under a key in the OS keychain, and it is the only spelling
     in the whole measured space where the secret is *stored* protected rather
     than merely referenced (`docs/research/mcp-config-formats.md`, trap 10).
+    """
+
+    DEVIN = "devin"
+    """`mcpServers`, `transport` on HTTP only, and `${env:VAR}` interpolation.
+
+    Stdio carries **no** discriminator: the vendor documents `"http"` and `"sse"`
+    as the values of that field and infers stdio from `command`, so there is no
+    value to write. Evidence is the vendor's documentation and not a measurement
+    — the binary is not on the machine this was written on
+    (`docs/research/mcp-config-formats.md` § Adendo 2026-08-13).
     """
 
 
@@ -636,6 +651,16 @@ MCP_DOCUMENTS: Mapping[tuple[str, Scope], McpDocument] = MappingProxyType(
             root_key="servers",
             dialect=Dialect.VSCODE,
         ),
+        # Vendor documentation and **not** a measurement, in
+        # https://github.com/panlabs-tech/overpower/issues/80: `.devin/mcp_config.json`
+        # at the root of the project, `mcpServers`, and no approval gate
+        # documented anywhere — so `born_pending` stays false, because inventing
+        # one would be asserting a fact nobody here could observe.
+        ("devin", Scope.PROJECT): McpDocument(
+            relative=".devin/mcp_config.json",
+            root_key="mcpServers",
+            dialect=Dialect.DEVIN,
+        ),
     }
 )
 """Where each (runtime, scope) pair reads MCP servers — **and the function is partial**.
@@ -645,7 +670,22 @@ that asymmetry is the shape of the whole class rather than a gap in the
 transcription. There is **no canonical format** — measured, the same server has
 three root keys, three file names and three secret spellings across three
 targets, and the MCP spec itself documents the absence (SEP-2633). So a row here
-is a target somebody rendered and measured, never a path copied from a list.
+is a target somebody rendered and read the primary source for, never a path
+copied from a list.
+
+**That sentence used to say "rendered and measured", and the second row is what
+moved it.** Said plainly rather than edited quietly: `.mcp.json` was executed
+against Claude Code 2.1.220, and the Devin row was read off the vendor's
+documentation with the binary absent from the machine
+(https://github.com/panlabs-tech/overpower/issues/80). The bar that survives is
+*primary source, read directly* — which the research already treats as a grade it
+carries, and lists among its own weaknesses. What the bar still refuses is the
+thing it was written against: a path transcribed from somebody's list.
+
+**The difference between the two grades is not a column here.** It lives in the
+dialect's docstring and in `docs/research/mcp-config-formats.md`, because no code
+reads it — a field with no reader is a field that goes stale unnoticed. The day
+something branches on it, it becomes a column.
 
 **This table is the closed set of MCP runtimes, and it is not a subset of
 `RUNTIMES`.** `vscode` has no row in the skills transcription — upstream has
@@ -657,8 +697,8 @@ two tables intersect without either containing the other
 
 Where the pair has no row the pair **does not exist**: `overpower.planning`
 refuses the whole line with exit 3 rather than inventing a file, which is ADR
-0009's reading applied to the second axis. The remaining target and the machine
-scope are https://github.com/panlabs-tech/overpower/issues/80 and /issues/81.
+0009's reading applied to the second axis. Both target axis issues have landed;
+the remaining item is the machine scope, https://github.com/panlabs-tech/overpower/issues/81.
 """
 
 

@@ -103,6 +103,7 @@ judged on before it is wired into an agent:
 │                                                          │
 │    url      https://mcp.cloudflare.com/mcp               │
 │    targets  claude-code · project                        │
+│             devin · project                              │
 │                                                          │
 ╰──────────────────────────────────────────────────────────╯
 ```
@@ -117,9 +118,11 @@ leave the recipe lying about itself.
 
 A target is a **pair**: a runtime *and* the scope it reads in. `claude-code`
 reads `.mcp.json` inside a repository and reads nothing at all on the machine
-yet, so the screen says `claude-code · project` and does not promise the half
-that does not exist. A recipe no target can serve says `none` rather than
-showing an empty line.
+yet, so the screen names its project half and does not promise the half that does
+not exist. `devin` reads `.devin/mcp_config.json` in a repository, in a spelling
+of its own — so one recipe, untouched, becomes two files that agree only on the
+key they occupy. A recipe no target can serve says `none` rather than showing an
+empty line.
 
 ## `install` — write it
 
@@ -174,10 +177,12 @@ actually wrote.
 *already* broken is **refused, never repaired**: editing a file of yours on our
 own initiative is not something an install gets to do.
 
-The server is written and **not turned on**. In Claude Code a server coming from
-`.mcp.json` is born pending approval and does not connect until you approve it,
-so the command says so at the end — at exit 0, because the write happened and
-what is missing is yours to do.
+**Where the runtime holds the server back, the command says so.** In Claude Code
+a server coming from `.mcp.json` is born pending approval and does not connect
+until you approve it, so the warning names that file at the end — at exit 0,
+because the write happened and what is missing is yours to do. Devin documents no
+such gate for `.devin/mcp_config.json`, so nothing is said about it: the warning
+is a fact of the target, and one printed everywhere is one nobody reads.
 
 ### The secret is never written, and the address is
 

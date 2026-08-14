@@ -61,10 +61,20 @@ on is the boolean (`docs/research/mcp-config-formats.md`, trap 10).
 type Reference = Callable[[str], str]
 """How one dialect spells *"the value of the slot named this"*.
 
-The one thing that differs between the two server renderers, so it is the one
-thing handed in: `${VAR}` against `${input:<id>}` is the whole delta, and a
-second copy of the field-by-field walk would be two places for a field to go
-missing from.
+The one thing that differs between the renderers sharing a field-by-field walk,
+so it is the one thing handed in: `${VAR}`, `${input:<id>}` and `${env:VAR}` are
+the whole delta, and a second copy of the walk would be one more place for a
+field to go missing from.
+
+**It carries the hole `_transports` refuses, and the trade is deliberate.** A
+`dict[Dialect, ...]` is rejected two functions down because a new member would
+type-check clean against it; a parameter of this type has exactly that shape —
+`_devin` handing `_claude_reference` to `_headers` compiles, and no `assert_never`
+fires. What catches it is not the type checker but the file: every dialect is
+asserted against the bytes it produces, in `tests/test_writing.py`. The
+alternative is writing the literal-versus-slot merge rule once per dialect and
+trusting three copies to stay the same rule, which is the failure this class
+exists not to have.
 """
 
 
@@ -186,6 +196,21 @@ must be able to shrink without dragging the other target with it. The equality
 is the fact; sharing the object would make it a rule.
 """
 
+DEVIN_TRANSPORTS = frozenset({Transport.STDIO, Transport.HTTP})
+"""What the Devin dialect can spell, which is the same two — for other reasons.
+
+The vendor documents stdio, Streamable HTTP **and** SSE, and this set names the
+first two: `sse` is deprecated in the spec and is refused at the recipe
+(`overpower.recipes.Transport`), so the widest thing a recipe can ask for is
+already the widest thing written here. A target being *able* to read a binding
+is not a reason to offer it.
+
+That this set equals `CLAUDE_TRANSPORTS` is a coincidence of two targets and not
+a fact about the model — they arrive at it from opposite directions, one by
+writing every binding the spec has and the other by declining one it would
+accept. Which is why they are two constants and never one.
+"""
+
 
 def _transports(dialect: Dialect) -> frozenset[Transport]:
     """Which transports `dialect` can spell — the capability half of rule 4.
@@ -202,6 +227,8 @@ def _transports(dialect: Dialect) -> frozenset[Transport]:
             return CLAUDE_TRANSPORTS
         case Dialect.VSCODE:
             return VSCODE_TRANSPORTS
+        case Dialect.DEVIN:
+            return DEVIN_TRANSPORTS
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -210,13 +237,14 @@ def expands_from_environment(dialect: Dialect) -> bool:
     """Whether a slot written for `dialect` is filled out of the process environment.
 
     The other capability half of rule 4, and it is what decides whether *"this
-    variable is not set here"* is advice or noise. `${VAR}` is read out of the
-    environment of the runtime's own process, so an absent variable is a measured
-    failure at the far end — Claude Code sent `Bearer ${NAO_EXISTE}` literally on
-    the wire. `${input:<id>}` is read out of a prompt and the OS keychain, so
-    there is no variable to be absent: the editor asks.
+    variable is not set here"* is advice or noise. `${VAR}` and `${env:VAR}` are
+    both read out of the environment of the runtime's own process, so an absent
+    variable is a measured failure at the far end — Claude Code sent
+    `Bearer ${NAO_EXISTE}` literally on the wire. `${input:<id>}` is read out of a
+    prompt and the OS keychain, so there is no variable to be absent: the editor
+    asks.
 
-    A `match` on the closed set for the reason every other one here is — a third
+    A `match` on the closed set for the reason every other one here is — a new
     dialect must land as a hole and not as a default, because defaulting either
     way ships a wrong warning at exit 0.
     """
@@ -225,6 +253,8 @@ def expands_from_environment(dialect: Dialect) -> bool:
             return True
         case Dialect.VSCODE:
             return False
+        case Dialect.DEVIN:
+            return True
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -264,13 +294,18 @@ def render(recipe: Recipe, document: McpDocument) -> tuple[Graft, ...]:
     third graft is one more element, and a dialect that needs none is a shorter
     tuple — neither one is a field the other dialects carry as `None`.
     """
-    server = Fragment(root_key=document.root_key, name=recipe.name, value=_server(recipe, document))
     match document.dialect:
         case Dialect.CLAUDE:
-            return (server,)
+            value = _server(recipe, document)
+            return (Fragment(root_key=document.root_key, name=recipe.name, value=value),)
         case Dialect.VSCODE:
+            value = _server(recipe, document)
+            server = Fragment(root_key=document.root_key, name=recipe.name, value=value)
             prompts = _vscode_inputs(recipe.slots)
             return (server,) if prompts is None else (server, prompts)
+        case Dialect.DEVIN:
+            value = _devin(recipe)
+            return (Fragment(root_key=document.root_key, name=recipe.name, value=value),)
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -312,16 +347,57 @@ def _reference(dialect: Dialect) -> Reference:
     """How `dialect` spells a slot, which is the only thing the two disagree on.
 
     A `match` on the closed set for the reason every other one here is: the day a
-    third dialect arrives, this is one of the holes the type checker names, and
+    new dialect arrives, this is one of the holes the type checker names, and
     the alternative — a mapping with a default — would silently spell the new
     target in somebody else's syntax. Measured, that failure does not show up in
     a parse: it shows up as a literal `${input:x}` on the network.
+
+    `DEVIN` answers here too even though `_server` never dispatches to it —
+    Devin's own shape lives in `_devin`, not behind this table — because a
+    partial match would leave `assert_never` unable to prove the closure it
+    exists to prove.
     """
     match dialect:
         case Dialect.CLAUDE:
             return _claude_reference
         case Dialect.VSCODE:
             return _vscode_reference
+        case Dialect.DEVIN:
+            return _devin_reference
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+def _devin(recipe: Recipe) -> Mapping[str, JsonValue]:
+    """The Devin-style spelling: `transport` on HTTP, and nothing at all on stdio.
+
+    The asymmetry is the vendor's, not a shortcut taken here: `transport` is
+    documented with the values `"http"` and `"sse"`, and stdio is inferred from
+    the presence of `command`. Writing `"transport": "stdio"` would put an
+    undocumented value in a file whose behaviour on undocumented values is one of
+    the three open questions of this row — and the measured neighbours answer
+    that class of question by swallowing the field at exit 0.
+
+    The three fields stdio admits and the three HTTP admits are the same shape
+    the Claude dialect writes, which is why the leaves are shared: what differs
+    between the two is the discriminator and the reference, and both are named
+    right here rather than buried in a branch further down.
+    """
+    match recipe.server:
+        case HttpServer(url):
+            rendered: dict[str, JsonValue] = {"transport": "http", "url": url}
+            headers = _headers(recipe.slots, _devin_reference)
+            if headers:
+                rendered["headers"] = headers
+            return rendered
+        case StdioServer(command, args, environment):
+            rendered = {"command": command}
+            if args:
+                rendered["args"] = list(args)
+            variables = _environment(environment, recipe.slots, _devin_reference)
+            if variables:
+                rendered["env"] = variables
+            return rendered
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -338,6 +414,11 @@ def _environment(
 
     The two cannot collide: a recipe naming one variable both ways is refused by
     the reader, which is what lets this be a merge rather than a decision.
+
+    `reference` is the dialect's, and it is the *only* thing that varies here:
+    every target writes this table identically and expands the name by a
+    different spelling, so passing the spelling in is what keeps the merge rule
+    from being stated once per target and drifting once.
     """
     return {
         **literals,
@@ -359,7 +440,13 @@ def _headers(slots: Sequence[Slot], reference: Reference) -> Mapping[str, JsonVa
 
 
 def _header(slot: HeaderSlot | BearerSlot, reference: Reference) -> tuple[str, JsonValue]:
-    """One header, named by the recipe or by the scheme, filled by reference."""
+    """One header, named by the recipe or by the scheme, filled by reference.
+
+    Shared by every dialect that spells a header as a header. A target that says
+    the same thing with a field instead — Codex's `bearer_token_env_var` — does
+    not pass through here at all; it writes its own arm, out of the same
+    declaration and with no new field on the recipe.
+    """
     match slot:
         case BearerSlot(name):
             return AUTHORIZATION, f"{BEARER_SCHEME} {reference(name)}"
@@ -473,3 +560,27 @@ def _vscode_reference(name: str) -> str:
     for, and what is answered goes to the keychain (`_prompt`).
     """
     return f"${{input:{_input_id(name)}}}"
+
+
+def _devin_reference(name: str) -> str:
+    """`${env:VAR}` — the third spelling of one name across three targets.
+
+    It is Cursor's and VS Code's word, not Claude Code's, and that is the whole
+    argument for rule 4 in one line: a recipe that stored any of the three would
+    be right in one file and reach the server process **literally** in the other
+    two. The name and the role are the recipe's; the spelling is the target's.
+
+    **Documented for `oauthClientSecret` and `oauthResource`, and its reach into
+    `env` is one of the three open questions of this row**
+    (`docs/research/mcp-config-formats.md` § Adendo 2026-08-13). If it does not
+    reach, the reference arrives raw at the server and the failure lands on the
+    first call — loudly, at the far end. The alternative is resolving the slot
+    and writing the secret into a committed file, which is the defect this class
+    exists not to have, so the reference is written either way.
+
+    **Never `${file:/path}`**, which this target has and no other measured one
+    does: it would put the location of a secret in a versioned file on the
+    strength of documentation nobody here could run, and no recipe carries a path
+    to ask it with.
+    """
+    return f"${{env:{name}}}"

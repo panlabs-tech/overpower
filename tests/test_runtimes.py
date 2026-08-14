@@ -112,7 +112,7 @@ def test_the_mcp_runtimes_of_a_scope_come_off_the_mcp_table() -> None:
     only while every MCP runtime happened to have a skills row. It would drop
     `vscode` in silence — the target would exist, render, and be unnameable.
     """
-    assert set(mcp_runtimes_in(Scope.PROJECT)) == {"claude-code", "vscode"}
+    assert set(mcp_runtimes_in(Scope.PROJECT)) == {"claude-code", "vscode", "devin"}
     assert mcp_runtimes_in(Scope.GLOBAL) == ()
 
 

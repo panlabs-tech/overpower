@@ -109,9 +109,10 @@ def catalog_of(  # noqa: PLR0913 — one keyword per unit of the catalog, plus t
     the same way as a pool skill and written into the catalog with a description
     (#39: a framework needs one, discovery reads it and not a tree). `bundles`
     maps a bundle name to the pool skill names its manifest points at. `mcps`
-    maps a server slug to its URL, written as a recipe in the third discovery
-    root — beside the written file, because a recipe never lands. All three are
-    optional and additive, so a call that only names pool skills is unaffected.
+    maps a server slug to its URL — or to one of `STDIO`, `SLOTTED` and `BEARER`
+    — written as a recipe in the third discovery root, beside the written file,
+    because a recipe never lands. All three are optional and additive, so a call
+    that only names pool skills is unaffected.
     """
     content = tmp_path / "packaged" / "content"
     for name in names:
@@ -149,17 +150,44 @@ and a nested table — so a suite that could only build an HTTP recipe could nev
 assert on disk what those two look like once written.
 """
 
+SLOTTED = "stdio+slot"
+"""A stdio recipe carrying **both** halves of the distinction, like the real one.
 
-def _recipe(path: Path, slug: str, url: str) -> None:
-    """One MCP recipe on disk, in the smallest shape the reader accepts."""
+`PANEL_URL` is configuration and lands written; `PANEL_TOKEN` is a secret and
+lands as a reference. A fixture with only one of the two could not show that a
+document holds them side by side.
+"""
+
+BEARER = "http+bearer"
+"""An HTTP recipe whose secret travels in the header the renderer assembles."""
+
+SLOT_VARIABLE = "PANEL_TOKEN"
+"""The variable every slotted fixture names, so a test can set it or leave it unset."""
+
+_BODIES = {
+    STDIO: '{stdio}\n[server.env]\nPANEL_URL = "https://panel.example.com"\n',
+    SLOTTED: (
+        '{stdio}\n[server.env]\nPANEL_URL = "https://panel.example.com"\n\n'
+        f'[[slots]]\nname = "{SLOT_VARIABLE}"\nrole = "env"\n'
+    ),
+    BEARER: (
+        'url = "https://mcp.example.com/mcp"\n\n'
+        f'[[slots]]\nname = "{SLOT_VARIABLE}"\nrole = "bearer"\n'
+    ),
+}
+"""One body per kind a value of the `mcps` mapping can name, keyed by that value."""
+
+
+def _recipe(path: Path, slug: str, kind: str) -> None:
+    """One MCP recipe on disk: a kind out of `_BODIES`, or a URL to reach.
+
+    The mapping's value doubles as the selector because a recipe is small enough
+    that a second parameter would be a second thing every call site has to say.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    body = (
-        f'command = "uvx"\nargs = ["{slug}-server", "--repository", "."]\n'
-        f'\n[server.env]\nPANEL_URL = "https://panel.example.com"\n'
-        if url == STDIO
-        else f'url = "{url}"\n'
-    )
-    transport = STDIO if url == STDIO else "http"
+    stdio = f'command = "uvx"\nargs = ["{slug}-server", "--repository", "."]\n'
+    body = _BODIES.get(kind, f'url = "{kind}"\n').format(stdio=stdio)
+    transport = STDIO if kind in {STDIO, SLOTTED} else "http"
     path.write_text(
         f'description = "The {slug} server."\ntransport = "{transport}"\n\n[server]\n{body}',
         encoding="utf-8",

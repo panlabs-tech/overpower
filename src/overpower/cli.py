@@ -53,6 +53,7 @@ from overpower.planning import (
     pending_activation,
     plan_for,
     refuse_broken_documents,
+    unset_slots,
 )
 from overpower.remote import catalog_from
 from overpower.rendering import targets_of
@@ -610,6 +611,10 @@ def _perform(
         if banner:
             _print_banner()
         _out.print(plan_screen(plan))
+        # Before the closing line and not after it: `--dry-run` resolves
+        # everything, so what it knows about the environment it knows *now*, and
+        # a report ends with what it did rather than with an aside.
+        _warn_about_unset_slots(plan, environment)
         _out.print(Text.assemble(("dry run", "op.warn"), " ", ("nothing was written", "op.dim")))
         return
 
@@ -649,8 +654,35 @@ def _perform(
     if report.degraded:
         listed = ", ".join(str(path) for path in report.degraded)
         _out.print(Text.assemble(("degraded to copy", "op.warn"), " ", (listed, "op.dim")))
+    _warn_about_unset_slots(plan, environment)
     _warn_about_activation(plan, request.scope, root)
     _finished()
+
+
+def _warn_about_unset_slots(plan: Plan, environment: Environment) -> None:
+    """Name the slot variables this environment does not have, at exit 0.
+
+    A slot is the one thing the overpower **refuses to write**, so the value has
+    to come from the environment the *runtime* starts in — which may not be this
+    shell, and is not this moment. That is why an absent variable is neither a
+    refusal nor a reason to write anything else: the file is correct, and the
+    remaining act is the user's.
+
+    Said out loud all the same, because the failure it prevents is silent:
+    measured, Claude Code sends an unexpanded `${VAR}` **raw** on the request, so
+    what the person sees is a 401 from a server, days later, with nothing
+    pointing at the file.
+    """
+    missing = unset_slots(plan, environment.variables)
+    if not missing:
+        return
+    one = len(missing) == 1
+    _warn(
+        "not set here",
+        f"{', '.join(missing)} — the server reads {'it' if one else 'them'} when the runtime "
+        f"starts, so {'this variable is' if one else 'these variables are'} yours to export "
+        "before you use the server",
+    )
 
 
 def _warn_about_activation(plan: Plan, scope: Scope, root: Path) -> None:
@@ -670,19 +702,22 @@ def _warn_about_activation(plan: Plan, scope: Scope, root: Path) -> None:
     if not pending:
         return
     listed = ", ".join(shortened(path, root) for path in pending)
-    _out.print(
-        Text.assemble(
-            ("pending approval", "op.warn"),
-            " ",
-            (
-                (
-                    f"{listed} is written, and the server does not connect until you "
-                    "approve it — Claude Code asks the next time it starts in this repository"
-                ),
-                "op.dim",
-            ),
-        )
+    _warn(
+        "pending approval",
+        f"{listed} is written, and the server does not connect until you approve it — "
+        "Claude Code asks the next time it starts in this repository",
     )
+
+
+def _warn(label: str, prose: str) -> None:
+    """One line of *"it worked, and here is what is still yours to do"*.
+
+    Both warnings of the graft have the same shape because they are the same
+    kind of statement — exit 0, the write was correct, and the remaining act is
+    the user's — so they are drawn once. A second spelling of a warning would be
+    a second thing to keep looking like the product.
+    """
+    _out.print(Text.assemble((label, "op.warn"), " ", (prose, "op.dim")))
 
 
 @app.command()

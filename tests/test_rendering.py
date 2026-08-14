@@ -21,7 +21,18 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-from overpower.recipes import HttpServer, Recipe, StdioServer, Transport
+import pytest
+
+from overpower.recipes import (
+    BearerSlot,
+    EnvSlot,
+    HeaderSlot,
+    HttpServer,
+    Recipe,
+    Slot,
+    StdioServer,
+    Transport,
+)
 from overpower.rendering import CLAUDE_TRANSPORTS, Target, render, targets_of
 from overpower.runtimes import MCP_DOCUMENTS, Scope
 
@@ -34,8 +45,14 @@ that decides where the file is.
 """
 
 
-def recipe(name: str, server: HttpServer | StdioServer) -> Recipe:
-    return Recipe(name=name, path=Path(f"{name}.toml"), description="A server.", server=server)
+def recipe(name: str, server: HttpServer | StdioServer, *slots: Slot) -> Recipe:
+    return Recipe(
+        name=name,
+        path=Path(f"{name}.toml"),
+        description="A server.",
+        server=server,
+        slots=slots,
+    )
 
 
 def test_an_http_server_renders_its_url_under_an_explicit_type() -> None:
@@ -94,6 +111,141 @@ def test_the_same_recipe_renders_the_same_fragment_every_time() -> None:
     asked = recipe("cloudflare", HttpServer(url="https://x/mcp"))
 
     assert render(asked, CLAUDE_PROJECT) == render(asked, CLAUDE_PROJECT)
+
+
+# --------------------------------------------------------------------------- #
+# the three roles, and the spelling each target expands
+# --------------------------------------------------------------------------- #
+
+
+def test_an_env_slot_renders_as_the_reference_this_target_expands() -> None:
+    """`${VAR}` is Claude Code's spelling, and the value never appears.
+
+    The name is all the recipe carries; the spelling belongs to the target. In
+    VS Code the same name becomes `${input:<id>}` and in Devin `${env:VAR}`, so a
+    recipe that stored any of the three would be right once and silently wrong
+    twice.
+    """
+    fragment = render(
+        recipe("hostinger-vps", StdioServer(command="npx"), EnvSlot(name="HOSTINGER_API_TOKEN")),
+        CLAUDE_PROJECT,
+    )
+
+    assert fragment.value["env"] == {"HOSTINGER_API_TOKEN": "${HOSTINGER_API_TOKEN}"}
+
+
+def test_a_literal_and_a_slot_share_the_environment_table_without_mixing() -> None:
+    """The whole distinction, in one table: the address is written, the token is not.
+
+    It is the measured case that showed a schema of slots alone cannot render
+    this server — the address of the panel is not a secret, and treating it as
+    one would bring the server up not knowing where to talk.
+    """
+    server = StdioServer(command="npx", env={"COOLIFY_BASE_URL": "https://vps.panlabs.tech"})
+
+    fragment = render(
+        recipe("coolify", server, EnvSlot(name="COOLIFY_ACCESS_TOKEN")), CLAUDE_PROJECT
+    )
+
+    assert fragment.value["env"] == {
+        "COOLIFY_BASE_URL": "https://vps.panlabs.tech",
+        "COOLIFY_ACCESS_TOKEN": "${COOLIFY_ACCESS_TOKEN}",
+    }
+
+
+def test_a_bearer_slot_assembles_the_authorization_header_out_of_the_role() -> None:
+    """The word `Bearer` is the renderer's, never the recipe's.
+
+    That is what will let a target which assembles the header itself — Codex's
+    `bearer_token_env_var` — be served out of this same recipe with no new field.
+    """
+    fragment = render(
+        recipe(
+            "github",
+            HttpServer(url="https://api.githubcopilot.com/mcp"),
+            BearerSlot(name="GITHUB_PAT_TOKEN"),
+        ),
+        CLAUDE_PROJECT,
+    )
+
+    assert fragment.value["headers"] == {"Authorization": "Bearer ${GITHUB_PAT_TOKEN}"}
+
+
+def test_a_header_slot_fills_the_header_it_names() -> None:
+    fragment = render(
+        recipe(
+            "paneled",
+            HttpServer(url="https://panel.example.com/mcp"),
+            HeaderSlot(name="PANEL_TOKEN", header="X-Panel-Token"),
+        ),
+        CLAUDE_PROJECT,
+    )
+
+    assert fragment.value["headers"] == {"X-Panel-Token": "${PANEL_TOKEN}"}
+
+
+def test_a_recipe_with_no_slot_gets_no_empty_table_to_interpret() -> None:
+    """Cloudflare authorises in the browser: there is nothing to fill in, so nothing is written."""
+    asked = recipe("cloudflare", HttpServer(url="https://mcp.cloudflare.com/mcp"))
+
+    fragment = render(asked, CLAUDE_PROJECT)
+
+    assert fragment.value == {"type": "http", "url": "https://mcp.cloudflare.com/mcp"}
+
+
+@pytest.mark.parametrize(
+    "slotted",
+    [
+        pytest.param(recipe("env", StdioServer(command="npx"), EnvSlot(name="TOKEN")), id="env"),
+        pytest.param(
+            recipe("bearer", HttpServer(url="https://x/mcp"), BearerSlot(name="TOKEN")), id="bearer"
+        ),
+        pytest.param(
+            recipe(
+                "header",
+                HttpServer(url="https://x/mcp"),
+                HeaderSlot(name="TOKEN", header="X-Panel-Token"),
+            ),
+            id="header",
+        ),
+    ],
+)
+def test_no_role_ever_renders_a_default(slotted: Recipe) -> None:
+    """There is no default in the contract, and the syntax for one is a trap.
+
+    `${VAR:-default}` is Claude Code's alone. In VS Code and in the Copilot CLI —
+    which read the very same `.mcp.json` — it reaches the server process
+    **literally**: the file parses, the run is green, and the failure appears on
+    the first call. Two files of this organisation carry it today.
+    """
+    rendered = str(render(slotted, CLAUDE_PROJECT).value)
+
+    assert "${TOKEN}" in rendered
+    assert ":-" not in rendered
+
+
+@pytest.mark.parametrize(
+    "slotted",
+    [
+        pytest.param(recipe("env", StdioServer(command="npx"), EnvSlot(name="TOKEN")), id="env"),
+        pytest.param(
+            recipe("bearer", HttpServer(url="https://x/mcp"), BearerSlot(name="TOKEN")), id="bearer"
+        ),
+    ],
+)
+def test_a_slot_is_a_reference_and_never_the_value_behind_it(
+    slotted: Recipe, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The renderer does not read the environment, so it cannot leak it.
+
+    A value set in the process is exactly the case in which a resolving renderer
+    would write the secret into a versioned file, at exit 0.
+    """
+    monkeypatch.setenv("TOKEN", "SUPER-SECRET-42")
+
+    rendered = str(render(slotted, CLAUDE_PROJECT).value)
+
+    assert "SUPER-SECRET-42" not in rendered
 
 
 # --------------------------------------------------------------------------- #

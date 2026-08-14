@@ -960,6 +960,83 @@ def test_a_line_that_mixes_a_skill_and_a_server_writes_both(
     assert "mcpServers.cloudflare" in project.document_keys(root / ".mcp.json")
 
 
+def test_a_slot_whose_variable_is_not_set_warns_and_still_exits_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The variable has to exist when the runtime starts, not when the overpower runs.
+
+    So it is a warning and not a refusal: the file is correct, and the person may
+    well export the variable afterwards — or have it in the editor's environment
+    and not in this shell, which is an environment we cannot see from here.
+
+    It is a warning and not silence because of what Claude Code does with an
+    absent variable: measured against a local listener, `Bearer ${NAO_EXISTE}`
+    went out **literally** on the request, so the server answers 401 and the
+    cause is nowhere near.
+    """
+    # given
+    project.catalog_of(tmp_path, monkeypatch, mcps={"coolify": project.SLOTTED})
+    root = project.target(tmp_path, monkeypatch)
+    monkeypatch.delenv(project.SLOT_VARIABLE, raising=False)
+
+    code, output = project.run(capsys, "install", "--mcp", "coolify", "--runtime", "claude-code")
+
+    assert code == 0
+    joined = project.joined(output)
+    assert project.SLOT_VARIABLE in joined
+    assert "not set" in joined
+    assert (root / ".mcp.json").is_file()
+
+
+def test_a_slot_whose_variable_is_set_is_not_warned_about(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """A warning that appears when there is nothing to fix is a warning nobody reads."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, mcps={"coolify": project.SLOTTED})
+    project.target(tmp_path, monkeypatch)
+    monkeypatch.setenv(project.SLOT_VARIABLE, "SUPER-SECRET-42")
+
+    code, output = project.run(capsys, "install", "--mcp", "coolify", "--runtime", "claude-code")
+
+    assert code == 0
+    joined = project.joined(output)
+    assert "not set" not in joined
+    assert "SUPER-SECRET-42" not in joined
+
+
+def test_the_dry_run_warns_about_the_same_variable_the_real_run_does(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """`--dry-run` resolves everything, so it knows this before anything is written."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, mcps={"github": project.BEARER})
+    root = project.target(tmp_path, monkeypatch)
+    monkeypatch.delenv(project.SLOT_VARIABLE, raising=False)
+
+    code, output = project.run(
+        capsys, "install", "--mcp", "github", "--runtime", "claude-code", "--dry-run"
+    )
+
+    assert code == 0
+    assert project.SLOT_VARIABLE in project.joined(output)
+    assert list(root.iterdir()) == []
+
+
+def test_a_run_with_no_slot_to_fill_says_nothing_about_a_variable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """Cloudflare authorises in the browser: there is no variable, so there is no line."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": MCP_URL})
+    project.target(tmp_path, monkeypatch)
+
+    code, output = project.run(capsys, "install", "--mcp", "cloudflare", "--runtime", "claude-code")
+
+    assert code == 0
+    assert "not set" not in project.joined(output)
+
+
 # --------------------------------------------------------------------------- #
 # #40: the default scope needs a git repository, and --global does not
 # --------------------------------------------------------------------------- #

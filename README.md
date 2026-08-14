@@ -179,6 +179,39 @@ The server is written and **not turned on**. In Claude Code a server coming from
 so the command says so at the end — at exit 0, because the write happened and
 what is missing is yours to do.
 
+### The secret is never written, and the address is
+
+A recipe declares a secret as a **slot** — a name and a role, never a value and
+never a spelling. What lands in the file is the reference the runtime expands:
+
+```jsonc
+"coolify": {
+  "type": "stdio",
+  "command": "npx",
+  "args": ["-y", "@masonator/coolify-mcp@2.12.0"],
+  "env": {
+    "COOLIFY_BASE_URL": "https://vps.panlabs.tech",   // configuration, written
+    "COOLIFY_ACCESS_TOKEN": "${COOLIFY_ACCESS_TOKEN}" // a secret, referenced
+  }
+}
+```
+
+Those two lines are the whole distinction: **a slot is what the overpower
+refuses to write, and `[server.env]` is what it writes because it can.** The
+address of a panel is not a secret, and a tool that treated it as one would bring
+the server up not knowing where to talk.
+
+Three roles exist — `env`, `header` and `bearer` — and `bearer` becomes
+`Authorization: Bearer ${VAR}` without the recipe ever spelling the word. **No
+reference ever carries a default**: `${VAR:-…}` is one runtime's syntax alone,
+and in the others that read the very same `.mcp.json` it reaches the server as a
+literal string, so the file parses, the install is green, and the failure lands
+on the first call.
+
+If a slot's variable is not set here, the command **says so and still exits 0**:
+it has to exist when the runtime starts, which is neither this shell nor this
+moment.
+
 ### Runtimes
 
 `--runtime` takes the keys of a closed table of 76 runtimes and **has no

@@ -150,6 +150,18 @@ def test_an_unknown_flag_exits_two(capsys: pytest.CaptureFixture[str]) -> None:
     assert code == 2
 
 
+def test_the_runtime_help_warns_the_two_classes_disagree(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Skill and MCP each have their own runtime table (ADR 0017) — a runtime
+    that takes one can refuse the other. The help for `--runtime` used to stay
+    silent about that and let the reader find out from an exit 3."""
+    code, output = output_of(capsys, ["install", "--help"])
+
+    assert code == 0
+    assert "not every runtime takes every class" in output
+
+
 @pytest.mark.parametrize(
     ("terminal", "expected"),
     [pytest.param(True, True, id="tty"), pytest.param(False, False, id="pipe")],

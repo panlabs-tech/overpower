@@ -417,7 +417,9 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
         typer.Option(
             "--runtime",
             metavar="KEY",
-            help="Runtimes to equip. Comma-separated, repeated, or both. No default.",
+            help="Runtimes to equip. Comma-separated, repeated, or both. "
+            "Skill and MCP each keep their own table, so not every runtime "
+            "takes every class. No default.",
         ),
     ] = None,
     from_: Annotated[

@@ -23,6 +23,13 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.13.0] - 2026-08-14
+
+### Changed
+
+- O help de `--runtime` passa a dizer que skill e MCP moram em tabelas separadas, e nem todo runtime está nas duas. ([#99](https://github.com/panlabs-tech/overpower/issues/99))
+
+
 ## [0.12.0] - 2026-08-14
 
 ### Added

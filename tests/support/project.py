@@ -16,14 +16,21 @@ address moves.
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, assert_never, cast
 
 from json5 import loads
 from rich.console import Console
 
 from overpower import cli
 from overpower.inspection import GIT_CONFIG_GLOBAL
-from overpower.runtimes import MCP_DOCUMENTS, RUNTIMES, EnvironmentAnchor, PlatformAnchor
+from overpower.runtimes import (
+    MCP_DOCUMENTS,
+    RUNTIMES,
+    EnvironmentAnchor,
+    FirstPresentAnchor,
+    HomeAnchor,
+    PlatformAnchor,
+)
 from overpower.screens import THEME
 
 if TYPE_CHECKING:
@@ -73,12 +80,21 @@ def _variables_of(anchor: Anchor) -> Iterator[str]:
     VS Code profile reads `APPDATA` and the Linux one reads `XDG_CONFIG_HOME`,
     and a walk that stopped at the top level would scrub one runner's leak and
     not the other's.
+
+    Matched exhaustively with `assert_never` rather than written as an
+    `isinstance` cascade: a fifth anchor variant that reads a variable would
+    otherwise fall through in silence and reopen the very leak this closes.
     """
-    if isinstance(anchor, EnvironmentAnchor):
-        yield anchor.variable
-    elif isinstance(anchor, PlatformAnchor):
-        for branch in (anchor.windows, anchor.macos, anchor.linux):
-            yield from _variables_of(branch)
+    match anchor:
+        case EnvironmentAnchor(variable, _):
+            yield variable
+        case PlatformAnchor(windows, macos, linux):
+            for branch in (windows, macos, linux):
+                yield from _variables_of(branch)
+        case HomeAnchor() | FirstPresentAnchor():
+            return
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
 ANCHORS = (
@@ -87,8 +103,16 @@ ANCHORS = (
         {
             variable
             for anchor in (
-                *(runtime.global_dir.anchor for runtime in RUNTIMES if runtime.global_dir),
-                *(document.anchor for document in MCP_DOCUMENTS.values() if document.anchor),
+                *(
+                    runtime.global_dir.anchor
+                    for runtime in RUNTIMES
+                    if runtime.global_dir is not None
+                ),
+                *(
+                    document.anchor
+                    for document in MCP_DOCUMENTS.values()
+                    if document.anchor is not None
+                ),
             )
             for variable in _variables_of(anchor)
         }
@@ -268,6 +292,18 @@ def target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str = "project
     _sandboxed(monkeypatch, tmp_path)
     monkeypatch.setattr(cli, "_out", pinned(tty=False))
     return root
+
+
+def at_home(monkeypatch: pytest.MonkeyPatch, home: Path) -> None:
+    """Aim the machine at `home`, with every anchor that could move a path scrubbed.
+
+    The half of `target` a **global-scope** test needs on its own: a run that
+    compares two homes moves the home between the two runs and never touches a
+    working directory, so it cannot take the whole fixture. Here rather than
+    written out at the call site because a hand-rolled copy scrubs whatever
+    `ANCHORS` held the day it was written, and `ANCHORS` grows.
+    """
+    _sandboxed(monkeypatch, home)
 
 
 def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:

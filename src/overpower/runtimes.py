@@ -397,21 +397,19 @@ def _resolve_anchor(anchor: Anchor, environment: Environment) -> Path:
                 if environment.directory_exists(path):
                     return path
             return environment.home / fallback
-        case PlatformAnchor(windows, macos, linux):
-            return _resolve_anchor(
-                _for_platform(environment.platform, windows, macos, linux), environment
-            )
+        case PlatformAnchor():
+            return _resolve_anchor(_for_platform(anchor, environment.platform), environment)
         case _ as unreachable:
             assert_never(unreachable)
 
 
-def _for_platform(platform: str, windows: Anchor, macos: Anchor, linux: Anchor) -> Anchor:
+def _for_platform(anchor: PlatformAnchor, platform: str) -> Anchor:
     """The branch `platform` reads, with every other Unix reading the Linux one."""
     if platform == "win32":
-        return windows
+        return anchor.windows
     if platform == "darwin":
-        return macos
-    return linux
+        return anchor.macos
+    return anchor.linux
 
 
 def _override(value: str | None) -> Path | None:
@@ -496,6 +494,16 @@ def _env(variable: str, fallback: str) -> GlobalSkillsDir:
 def _first_present(candidates: tuple[str, ...], fallback: str) -> GlobalSkillsDir:
     """`~/<first present candidate>/skills`, else `~/<fallback>/skills`."""
     return GlobalSkillsDir(FirstPresentAnchor(candidates, fallback), "skills", Evidence.UNVERIFIED)
+
+
+def _xdg() -> Anchor:
+    """`$XDG_CONFIG_HOME`, else `~/.config` — the POSIX configuration directory."""
+    return EnvironmentAnchor("XDG_CONFIG_HOME", ".config")
+
+
+def _roaming() -> Anchor:
+    """`%APPDATA%`, else `~/AppData/Roaming` — the Windows per-user application directory."""
+    return EnvironmentAnchor("APPDATA", "AppData/Roaming")
 
 
 def _runtime(  # noqa: PLR0913 — six parameters because a table row has six columns
@@ -762,33 +770,51 @@ MCP_DOCUMENTS: Mapping[tuple[str, Scope], McpDocument] = MappingProxyType(
         # Remote-WSL or Remote-SSH session keeps on the remote: the research
         # records that it exists and that writing to the wrong one is a silent
         # no-op, and records no path for it
-        # (`docs/research/mcp-config-formats.md` § Riscos, item 18). A path
-        # nobody read in primary source does not go on this table.
+        # (`docs/research/mcp-config-formats.md`, risk item 18). A path nobody
+        # read in primary source does not go on this table.
+        #
+        # **Which leaves the silent no-op reachable, and says so here rather
+        # than pretending otherwise**: a `--global` graft from inside a WSL
+        # session writes the Linux profile, exits 0, and a VS Code running on
+        # the Windows side never reads it. Warning about it would mean
+        # detecting the session and naming the file it *should* have been —
+        # the second half is the part no source supplies, and half a warning
+        # points nowhere.
         ("vscode", Scope.GLOBAL): McpDocument(
             relative="Code/User/mcp.json",
             root_key="servers",
             dialect=Dialect.VSCODE,
             anchor=PlatformAnchor(
-                windows=EnvironmentAnchor("APPDATA", "AppData/Roaming"),
+                windows=_roaming(),
                 macos=HomeAnchor("Library/Application Support"),
-                linux=EnvironmentAnchor("XDG_CONFIG_HOME", ".config"),
+                linux=_xdg(),
             ),
         ),
         # Vendor documentation, read directly: `~/.config/devin/mcp_config.json`,
-        # and `%APPDATA%\devin\mcp_config.json` on Windows. The variable on the
-        # POSIX branch goes beyond the sentence the vendor wrote — `~/.config` is
-        # the XDG default, and honouring `XDG_CONFIG_HOME` is what the sibling
-        # skills row for this same runtime already does, so the two would
-        # otherwise disagree on a machine that sets it.
+        # and `%APPDATA%\devin\mcp_config.json` on Windows.
+        #
+        # **The POSIX branch reads a variable the vendor's sentence does not
+        # name.** `~/.config` is not a literal here — it is what
+        # `XDG_CONFIG_HOME` defaults to, so the anchor spells the directory the
+        # vendor named rather than the syntax it named it with. The row is
+        # wrong for a machine that moves the variable only if the vendor
+        # hard-codes the literal, which its own page gives no sign of.
+        #
+        # **It does not have to agree with the skills row for this runtime**,
+        # and on Windows it does not: `_config("devin/skills")` reads XDG on
+        # every platform, this reads `APPDATA`. That is two tables with two
+        # sources, not a contradiction — the skills row is a transcription of
+        # `vercel-labs/skills` and the vendor's own page is what decides here.
+        # Where the two sources speak, the source of the class wins.
+        #
+        # The `AppData/Roaming` fallback is **derived and not transcribed** —
+        # it is the documented default of `%APPDATA%`, and a real Windows never
+        # reaches it, because the variable is always set there.
         ("devin", Scope.GLOBAL): McpDocument(
             relative="devin/mcp_config.json",
             root_key="mcpServers",
             dialect=Dialect.DEVIN,
-            anchor=PlatformAnchor(
-                windows=EnvironmentAnchor("APPDATA", "AppData/Roaming"),
-                macos=EnvironmentAnchor("XDG_CONFIG_HOME", ".config"),
-                linux=EnvironmentAnchor("XDG_CONFIG_HOME", ".config"),
-            ),
+            anchor=PlatformAnchor(windows=_roaming(), macos=_xdg(), linux=_xdg()),
         ),
     }
 )

@@ -1051,7 +1051,7 @@ def test_one_line_over_two_targets_warns_only_for_the_one_that_is_born_pending(
     assert (root / ".devin" / "mcp_config.json").is_file()
 
 
-MACHINE_DOCUMENTS = {
+MACHINE_FILE_NAMES = {
     "claude-code": ".claude.json",
     "vscode": "mcp.json",
     "devin": "mcp_config.json",
@@ -1065,7 +1065,9 @@ project one, and the two never share a name.
 """
 
 
-@pytest.mark.parametrize(("key", "document"), MACHINE_DOCUMENTS.items())
+@pytest.mark.parametrize(
+    ("key", "document"), MACHINE_FILE_NAMES.items(), ids=list(MACHINE_FILE_NAMES)
+)
 def test_a_machine_scope_graft_lands_in_the_personal_file_of_its_target(
     key: str, document: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:
@@ -1091,7 +1093,7 @@ def test_a_machine_scope_graft_lands_in_the_personal_file_of_its_target(
     assert list(root.iterdir()) == []
 
 
-@pytest.mark.parametrize("key", MACHINE_DOCUMENTS)
+@pytest.mark.parametrize("key", MACHINE_FILE_NAMES, ids=list(MACHINE_FILE_NAMES))
 def test_a_machine_scope_graft_says_nothing_about_pending_approval(
     key: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:
@@ -1349,6 +1351,34 @@ def test_outside_a_git_repository_no_scope_exits_two_and_writes_nothing(
     assert code == 2
     assert "--global" in project.joined(output)
     assert list(bare.iterdir()) == []
+
+
+def test_outside_a_git_repository_a_graft_exits_two_as_well(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The check is about the scope, not about the class — asserted, not assumed (#81).
+
+    The graft class gained a machine destination, and the reflex reading of that
+    is *"then it no longer needs a repository"*. It does: `--global` is what
+    names the machine, and a line without it is still a project-scope line, whose
+    root is a repository that is not there. Exit **2** and not 3 — nothing is
+    wrong with what was asked, only with where it was asked from.
+    """
+    # given
+    project.catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": MCP_URL})
+    bare = tmp_path / "no-repo-here"
+    bare.mkdir()
+    monkeypatch.chdir(bare)
+    monkeypatch.setenv("HOME", str(tmp_path / "unused-home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "unused-home"))
+    monkeypatch.setattr(cli, "_out", project.pinned(tty=False))
+
+    code, output = project.run(capsys, "install", "--mcp", "cloudflare", "--runtime", "claude-code")
+
+    assert code == 2
+    assert "--global" in project.joined(output)
+    assert list(bare.iterdir()) == []
+    assert not (tmp_path / "unused-home").exists()
 
 
 def test_global_needs_no_git_repository_at_all(

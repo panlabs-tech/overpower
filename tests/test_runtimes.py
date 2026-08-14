@@ -423,7 +423,7 @@ def test_only_openclaw_consults_the_filesystem() -> None:
 
 WINDOWS, MACOS, LINUX = "win32", "darwin", "linux"
 
-MACHINE_DOCUMENTS = (
+MACHINE_CELLS = (
     # `~/.claude.json`, the same file on all three: the home is the anchor, and
     # the operating system never moves it.
     ("claude-code", WINDOWS, (".claude.json",)),
@@ -444,8 +444,8 @@ MACHINE_DOCUMENTS = (
 
 @pytest.mark.parametrize(
     ("key", "platform", "under_home"),
-    MACHINE_DOCUMENTS,
-    ids=[f"{key}-{platform}" for key, platform, _ in MACHINE_DOCUMENTS],
+    MACHINE_CELLS,
+    ids=[f"{key}-{platform}" for key, platform, _ in MACHINE_CELLS],
 )
 def test_the_machine_document_of_every_cell_resolves_under_the_home(
     key: str, platform: str, under_home: tuple[str, ...]

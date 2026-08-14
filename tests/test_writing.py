@@ -43,13 +43,13 @@ from overpower.writing import UnsupportedWriteError, execute, points_elsewhere
 from tests.support import git_remote
 from tests.support.project import (
     AGENTS,
-    ANCHORS,
     BEARER,
     CLAUDE,
     OTHER_SLOTTED,
     SLOT_VARIABLE,
     SLOTTED,
     STDIO,
+    at_home,
     catalog_of,
     document_keys,
     files_under,
@@ -1505,12 +1505,10 @@ def test_the_three_way_identity_holds_in_global_scope_including_mode(
     real_home.mkdir()
     selectors = ("install", "--skill", "alpha,beta", "--runtime", "claude-code,cursor", "--global")
 
-    monkeypatch.setenv("HOME", str(dry_home))
-    monkeypatch.setenv("USERPROFILE", str(dry_home))
+    at_home(monkeypatch, dry_home)
     dry_code, dry_out = run(capsys, *selectors, "--dry-run")
 
-    monkeypatch.setenv("HOME", str(real_home))
-    monkeypatch.setenv("USERPROFILE", str(real_home))
+    at_home(monkeypatch, real_home)
     real_code, real_out = run(capsys, *selectors, "--yes")
 
     announced = paths_in(real_out)
@@ -1523,7 +1521,6 @@ def test_the_three_way_identity_holds_in_global_scope_including_mode(
     # a link on POSIX, a junction on Windows — never a real copy either way.
     rung = "junction" if sys.platform == "win32" else "link"
     assert rung in joined(dry_out)
-
     assert rung in joined(real_out)
     for name in ("alpha", "beta"):
         canonical = real_home / CLAUDE / name
@@ -1532,14 +1529,6 @@ def test_the_three_way_identity_holds_in_global_scope_including_mode(
         assert not points_elsewhere(canonical)
         assert points_elsewhere(linked)
         assert (linked / "SKILL.md").is_file()
-
-
-def _at_home(monkeypatch: pytest.MonkeyPatch, home: Path) -> None:
-    """Point the machine variables at `home` and scrub every anchor that could move it."""
-    monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setenv("USERPROFILE", str(home))
-    for anchor in ANCHORS:
-        monkeypatch.delenv(anchor, raising=False)
 
 
 def test_the_three_way_identity_of_a_graft_holds_in_machine_scope(
@@ -1568,9 +1557,9 @@ def test_the_three_way_identity_of_a_graft_holds_in_machine_scope(
         *("--runtime", "claude-code,vscode,devin", "--global"),
     )
 
-    _at_home(monkeypatch, dry_home)
+    at_home(monkeypatch, dry_home)
     dry_code, dry_out = run(capsys, *selectors, "--dry-run")
-    _at_home(monkeypatch, real_home)
+    at_home(monkeypatch, real_home)
     real_code, real_out = run(capsys, *selectors)
 
     named = keys_in(real_out)

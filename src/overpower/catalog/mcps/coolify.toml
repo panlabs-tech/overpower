@@ -1,0 +1,29 @@
+# The recipe that made the schema what it is. Measured across four repositories
+# of this organisation, this one server produced five configurations that
+# disagree: two spell the address as `${COOLIFY_BASE_URL:-…}`, which is Claude
+# Code's syntax alone and reaches the server **literally** in the other two
+# runtimes that read the same file; one pastes the token in plain text.
+#
+# The address is **not** a secret and the token is, so they are declared as two
+# different things: `[server.env]` is written into the file, the slot never is.
+# A schema with only slots could not render this server at all — the address
+# would never be written, and the server would come up not knowing where to talk.
+description = """\
+Coolify's API server, run as a local process. It deploys and inspects the \
+applications, databases and servers of a Coolify panel — the address of the \
+panel is configuration and is written into the file, while the access token is \
+a secret and is only ever referenced.\
+"""
+
+transport = "stdio"
+
+[server]
+command = "npx"
+args = ["-y", "@masonator/coolify-mcp@2.12.0"]
+
+[server.env]
+COOLIFY_BASE_URL = "https://vps.panlabs.tech"
+
+[[slots]]
+name = "COOLIFY_ACCESS_TOKEN"
+role = "env"

@@ -52,6 +52,7 @@ from overpower.planning import (
     pending_activation,
     plan_for,
     refuse_broken_documents,
+    unset_slots,
 )
 from overpower.remote import catalog_from
 from overpower.runtimes import Environment, Scope
@@ -580,6 +581,10 @@ def _perform(
         if banner:
             _print_banner()
         _out.print(plan_screen(plan))
+        # Before the closing line and not after it: `--dry-run` resolves
+        # everything, so what it knows about the environment it knows *now*, and
+        # a report ends with what it did rather than with an aside.
+        _warn_about_unset_slots(plan, environment)
         _out.print(Text.assemble(("dry run", "op.warn"), " ", ("nothing was written", "op.dim")))
         return
 
@@ -619,8 +624,43 @@ def _perform(
     if report.degraded:
         listed = ", ".join(str(path) for path in report.degraded)
         _out.print(Text.assemble(("degraded to copy", "op.warn"), " ", (listed, "op.dim")))
+    _warn_about_unset_slots(plan, environment)
     _warn_about_activation(plan, request.scope, root)
     _finished()
+
+
+def _warn_about_unset_slots(plan: Plan, environment: Environment) -> None:
+    """Name the slot variables this environment does not have, at exit 0.
+
+    A slot is the one thing the overpower **refuses to write**, so the value has
+    to come from the environment the *runtime* starts in — which may not be this
+    shell, and is not this moment. That is why an absent variable is neither a
+    refusal nor a reason to write anything else: the file is correct, and the
+    remaining act is the user's.
+
+    Said out loud all the same, because the failure it prevents is silent:
+    measured, Claude Code sends an unexpanded `${VAR}` **raw** on the request, so
+    what the person sees is a 401 from a server, days later, with nothing
+    pointing at the file.
+    """
+    missing = unset_slots(plan, environment.variables)
+    if not missing:
+        return
+    listed = ", ".join(missing)
+    subject = "this variable is" if len(missing) == 1 else "these variables are"
+    _out.print(
+        Text.assemble(
+            ("not set here", "op.warn"),
+            " ",
+            (
+                (
+                    f"{listed} — the server reads {'it' if len(missing) == 1 else 'them'} when the "
+                    f"runtime starts, so {subject} yours to export before you use the server"
+                ),
+                "op.dim",
+            ),
+        )
+    )
 
 
 def _warn_about_activation(plan: Plan, scope: Scope, root: Path) -> None:

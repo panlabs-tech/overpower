@@ -17,13 +17,19 @@ from typing import TYPE_CHECKING
 import pytest
 
 from overpower.recipes import (
+    BearerSlot,
+    EnvSlot,
     ForbiddenTransportError,
+    HeaderSlot,
     HttpServer,
     MalformedRecipeError,
+    MismatchedSlotRoleError,
+    Role,
     SourcelessSubstitutionError,
     StdioServer,
     Transport,
     UnknownRecipeFieldError,
+    UnknownSlotRoleError,
     read_recipe,
 )
 
@@ -123,7 +129,6 @@ def test_a_transport_outside_the_closed_set_is_refused_naming_it(
 @pytest.mark.parametrize(
     "field",
     [
-        pytest.param("[[slots]]\nname = 'TOKEN'\nrole = 'env'\n", id="slots"),
         pytest.param("[[preconditions]]\ncheck = 'command_exists'\nvalue = 'uv'\n", id="precond"),
         pytest.param('[source]\nsubdir = "."\n', id="source"),
         pytest.param('instructions = "ask the team"\n', id="instructions"),
@@ -201,6 +206,241 @@ def test_a_malformed_recipe_names_the_file_and_the_field(
 
     assert refused.value.key == key
     assert str(path) in str(refused.value)
+
+
+# --------------------------------------------------------------------------- #
+# slots: what the overpower refuses to write
+# --------------------------------------------------------------------------- #
+
+SLOTTED = """\
+description = "A server the client launches, with a secret and an address."
+transport = "stdio"
+
+[server]
+command = "npx"
+args = ["-y", "@masonator/coolify-mcp@2.12.0"]
+
+[server.env]
+COOLIFY_BASE_URL = "https://vps.panlabs.tech"
+
+[[slots]]
+name = "COOLIFY_ACCESS_TOKEN"
+role = "env"
+"""
+"""The real shape of the case that made the distinction necessary.
+
+The address of a panel is **not** a secret and the token is: one arrives written
+in the file, the other never does. A schema that could only hold slots would
+refuse to write the address, and the server would come up not knowing where to
+talk.
+"""
+
+BEARER = """\
+description = "A server reached over HTTP, behind a personal access token."
+transport = "http"
+
+[server]
+url = "https://api.githubcopilot.com/mcp"
+
+[[slots]]
+name = "GITHUB_PAT_TOKEN"
+role = "bearer"
+"""
+
+
+def test_a_slot_is_read_as_a_name_and_a_role_and_never_as_a_value(tmp_path: Path) -> None:
+    """The contract is logical: what a slot carries is a name, never a spelling.
+
+    A recipe that stored `"${COOLIFY_ACCESS_TOKEN}"` would be right in one target
+    and silently broken in the other two — measured, `${VAR}` reaches the server
+    process raw in VS Code, and `${env:VAR}` reaches the network raw in Claude
+    Code.
+    """
+    recipe = read_recipe(write_recipe(tmp_path, "coolify", SLOTTED))
+
+    assert recipe.slots == (EnvSlot(name="COOLIFY_ACCESS_TOKEN"),)
+
+
+def test_a_literal_and_a_slot_are_two_different_declarations(tmp_path: Path) -> None:
+    """Slot is what the overpower refuses to write; `[server.env]` is what it writes."""
+    recipe = read_recipe(write_recipe(tmp_path, "coolify", SLOTTED))
+
+    assert recipe.server == StdioServer(
+        command="npx",
+        args=("-y", "@masonator/coolify-mcp@2.12.0"),
+        env={"COOLIFY_BASE_URL": "https://vps.panlabs.tech"},
+    )
+    assert [slot.name for slot in recipe.slots] == ["COOLIFY_ACCESS_TOKEN"]
+
+
+def test_a_bearer_slot_is_read_without_the_word_bearer_appearing_anywhere(
+    tmp_path: Path,
+) -> None:
+    """The role is the datum, and the header is the renderer's business.
+
+    It is what will let a target that assembles the header itself — Codex's
+    `bearer_token_env_var` — be served from this same recipe with no new field.
+    """
+    recipe = read_recipe(write_recipe(tmp_path, "github", BEARER))
+
+    assert recipe.slots == (BearerSlot(name="GITHUB_PAT_TOKEN"),)
+    assert "Bearer" not in BEARER
+
+
+def test_a_header_slot_names_the_header_it_fills(tmp_path: Path) -> None:
+    """An arbitrary header needs two names, and only one of them is the variable."""
+    recipe = read_recipe(
+        write_recipe(
+            tmp_path,
+            "paneled",
+            f'{HTTP}\n[[slots]]\nname = "PANEL_TOKEN"\nrole = "header"\nheader = "X-Panel-Token"\n',
+        )
+    )
+
+    assert recipe.slots == (HeaderSlot(name="PANEL_TOKEN", header="X-Panel-Token"),)
+
+
+@pytest.mark.parametrize(
+    "role",
+    [
+        pytest.param("secret", id="invented"),
+        pytest.param("ENV", id="wrong-case"),
+        pytest.param("authorization", id="close-to-a-real-one"),
+    ],
+)
+def test_a_role_outside_the_closed_set_is_refused_naming_it(tmp_path: Path, role: str) -> None:
+    """A role nobody renders would install a server with the secret missing, at exit 0."""
+    path = write_recipe(tmp_path, "odd", f'{HTTP}\n[[slots]]\nname = "TOKEN"\nrole = "{role}"\n')
+
+    with pytest.raises(UnknownSlotRoleError) as refused:
+        read_recipe(path)
+
+    assert refused.value.role == role
+    assert "bearer, env, header" in str(refused.value)
+
+
+@pytest.mark.parametrize(
+    ("recipe", "role", "extra"),
+    [
+        pytest.param(HTTP, "env", "", id="env-over-http"),
+        pytest.param(STDIO, "bearer", "", id="bearer-over-stdio"),
+        pytest.param(STDIO, "header", 'header = "X-Panel-Token"\n', id="header-over-stdio"),
+    ],
+)
+def test_a_role_the_transport_cannot_carry_is_refused_naming_both(
+    tmp_path: Path, recipe: str, role: str, extra: str
+) -> None:
+    """The pairing is a fact of the transport and not of any one target.
+
+    An HTTP server launches no process, so it has no environment to receive a
+    variable; a stdio server makes no request, so it has no header to carry one.
+    Refused here, because a recipe that gets past this module is a recipe that
+    renders — and the alternative is a renderer that drops the secret in silence.
+    """
+    path = write_recipe(
+        tmp_path, "mixed", f'{recipe}\n[[slots]]\nname = "TOKEN"\nrole = "{role}"\n{extra}'
+    )
+
+    with pytest.raises(MismatchedSlotRoleError) as refused:
+        read_recipe(path)
+
+    assert refused.value.role is Role(role)
+    assert role in str(refused.value)
+
+
+@pytest.mark.parametrize(
+    ("slot", "key"),
+    [
+        pytest.param(
+            'name = "TOKEN"\nrole = "header"\n', "slots[0].header", id="header-role-with-no-header"
+        ),
+        pytest.param(
+            'name = "TOKEN"\nrole = "bearer"\nheader = "X-Panel-Token"\n',
+            "slots[0].header",
+            id="header-on-a-role-that-names-none",
+        ),
+        pytest.param('role = "bearer"\n', "slots[0].name", id="no-name"),
+        pytest.param('name = ""\nrole = "bearer"\n', "slots[0].name", id="empty-name"),
+        pytest.param('name = "TOKEN"\n', "slots[0].role", id="no-role"),
+    ],
+)
+def test_a_malformed_slot_names_the_slot_and_the_field(tmp_path: Path, slot: str, key: str) -> None:
+    """`slots[0]` and not `slots`: a recipe may declare several, and only one is wrong."""
+    path = write_recipe(tmp_path, "broken", f"{HTTP}\n[[slots]]\n{slot}")
+
+    with pytest.raises(MalformedRecipeError) as refused:
+        read_recipe(path)
+
+    assert refused.value.key == key
+
+
+def test_an_unknown_field_inside_a_slot_is_refused_by_name(tmp_path: Path) -> None:
+    """A slot is name, role and — for one role — the header it fills. Nothing else."""
+    path = write_recipe(
+        tmp_path, "ahead", f'{HTTP}\n[[slots]]\nname = "TOKEN"\nrole = "bearer"\ndefault = "none"\n'
+    )
+
+    with pytest.raises(UnknownRecipeFieldError) as refused:
+        read_recipe(path)
+
+    assert refused.value.key == "slots[0].default"
+
+
+def test_a_slot_that_is_not_a_table_is_refused_naming_the_field(tmp_path: Path) -> None:
+    """A bare name is the shorthand somebody will try, and it has no role in it."""
+    path = write_recipe(
+        tmp_path,
+        "broken",
+        'description = "x"\ntransport = "http"\nslots = ["GITHUB_PAT_TOKEN"]\n\n'
+        '[server]\nurl = "https://mcp.example.com/mcp"\n',
+    )
+
+    with pytest.raises(MalformedRecipeError) as refused:
+        read_recipe(path)
+
+    assert refused.value.key == "slots[0]"
+
+
+def test_two_slots_of_the_same_name_are_refused(tmp_path: Path) -> None:
+    """They would collapse into one entry at render time, and the loser is silent."""
+    path = write_recipe(
+        tmp_path,
+        "twice",
+        f'{HTTP}\n[[slots]]\nname = "TOKEN"\nrole = "bearer"\n\n'
+        '[[slots]]\nname = "TOKEN"\nrole = "header"\nheader = "X-Panel-Token"\n',
+    )
+
+    with pytest.raises(MalformedRecipeError) as refused:
+        read_recipe(path)
+
+    assert refused.value.key == "slots[1].name"
+
+
+def test_a_name_declared_both_as_a_secret_and_as_a_literal_is_refused(tmp_path: Path) -> None:
+    """The two declarations contradict each other, and the file cannot say both.
+
+    `[server.env]` means *write this value*; a slot means *never write it*. A
+    reader that let both through would resolve the contradiction by overwriting
+    one of them, and whichever lost would lose in silence.
+    """
+    path = write_recipe(
+        tmp_path,
+        "contradictory",
+        'description = "x"\ntransport = "stdio"\n\n[server]\ncommand = "npx"\n\n'
+        '[server.env]\nPANEL_TOKEN = "written"\n\n[[slots]]\nname = "PANEL_TOKEN"\nrole = "env"\n',
+    )
+
+    with pytest.raises(MalformedRecipeError) as refused:
+        read_recipe(path)
+
+    assert refused.value.key == "slots[0].name"
+
+
+def test_a_recipe_with_no_slots_at_all_carries_none(tmp_path: Path) -> None:
+    """The minimal case: a URL and nothing to fill in — Cloudflare authorises in the browser."""
+    recipe = read_recipe(write_recipe(tmp_path, "cloudflare", HTTP))
+
+    assert recipe.slots == ()
 
 
 def test_a_file_that_is_not_toml_names_the_recipe_that_would_not_parse(tmp_path: Path) -> None:

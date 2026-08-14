@@ -6,13 +6,16 @@ the overpower know how to install* — and the name is the one the test doctrine
 fixed for the discovery mirror.
 
 Every tree here is built in `tmp_path`: the disk is real, always (ADR 0010). The
-only test that reads the tree shipped in the package is the wiring one at the
-bottom, and it asserts that the two packaged roots resolve — never what today's
-curation put inside them.
+tests that read the tree shipped in the package are the three at the bottom, and
+none of them asserts what today's curation put inside it: one says the roots
+resolve, and the other two assert **rules** the curation has to keep obeying —
+that an embedded recipe pins an exact version, and that the embedded set reaches
+every branch the renderer has.
 """
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 import pytest
@@ -28,6 +31,7 @@ from overpower.discovery import (
 )
 from overpower.errors import BadInvocationError, OverpowerError
 from overpower.packaged import catalog_file, content_root
+from overpower.recipes import BearerSlot, EnvSlot, HttpServer, StdioServer
 from overpower.written import read_written_catalog
 
 if TYPE_CHECKING:
@@ -451,3 +455,66 @@ def test_the_packaged_roots_resolve_to_a_loadable_catalog() -> None:
     assert catalog.pool
     assert catalog.bundles
     assert catalog.mcps
+
+
+PINNED = re.compile(r"@\d+(\.\d+)*$")
+"""A package specifier that names one exact version, at the end of an argument.
+
+`hostinger-api-mcp@0.2.5` and `@masonator/coolify-mcp@2.12.0` both match, and
+the scope of the second — the `@` that opens it — does not, because the pattern
+is anchored at the end.
+"""
+
+
+def test_every_embedded_stdio_recipe_pins_an_exact_version() -> None:
+    """Curation, asserted: an embedded recipe never resolves a package at start-up.
+
+    A server that picks up a new package on every start **changes behaviour with
+    nobody having changed anything**, and the version it changed at is written
+    down nowhere — which empties rule 5 of the model, *the version of the
+    overpower is the version of the catalog*.
+
+    It is a rule of curation and not a field of the schema: a federated recipe
+    belongs to whoever wrote it and this product does not police it. What it does
+    is not float in its own.
+    """
+    launched = [
+        recipe
+        for recipe in load_catalog(content_root(), catalog_file()).mcps
+        if isinstance(recipe.server, StdioServer)
+    ]
+
+    assert launched
+    for recipe in launched:
+        server = recipe.server
+        assert isinstance(server, StdioServer)
+        words = (server.command, *server.args)
+        assert any(PINNED.search(word) for word in words), recipe.name
+        assert not any("@latest" in word for word in words), recipe.name
+
+
+def test_the_embedded_recipes_exercise_the_matrix_they_were_chosen_for() -> None:
+    """The rule the first cut of recipes was chosen by, not the recipes themselves.
+
+    Both transports, a secret in the environment, a secret in a header, a recipe
+    with **no** secret at all, and a literal `[server.env]` beside a slot: each is
+    a branch of the renderer that an embedded recipe reaches, so a target added
+    later cannot pass its own tests while leaving a hole in the shipped catalog.
+
+    The role `header` is deliberately **not** here. No server this organisation
+    runs uses one, and the alternative would be to invent a recipe — while the
+    whole point of this set is that none of it is invented: it came out of
+    configuration four repositories already keep by hand, which is the very
+    configuration the graft exists to stop copying.
+    """
+    recipes = load_catalog(content_root(), catalog_file()).mcps
+    servers = [recipe.server for recipe in recipes]
+    slots = [slot for recipe in recipes for slot in recipe.slots]
+
+    assert {type(server) for server in servers} == {StdioServer, HttpServer}
+    assert {type(slot) for slot in slots} == {EnvSlot, BearerSlot}
+    assert any(not recipe.slots for recipe in recipes)
+    assert any(
+        isinstance(recipe.server, StdioServer) and recipe.server.env and recipe.slots
+        for recipe in recipes
+    )

@@ -23,6 +23,49 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.8.0] - 2026-08-13
+
+### Added
+
+- **A receita passa a carregar segredo e configuração, e a diferença entre os dois é a coisa
+  toda: slot é o que o overpower se recusa a escrever; `[server.env]` é o que ele escreve
+  porque pode.** Um slot é declarado como **nome e papel** — nunca como valor e nunca como a
+  grafia de um alvo —, e o que aterrissa no arquivo é a referência que o runtime expande:
+  `"COOLIFY_ACCESS_TOKEN": "${COOLIFY_ACCESS_TOKEN}"` ao lado de `"COOLIFY_BASE_URL":
+  "https://vps.panlabs.tech"`, este escrito literal. O endereço de um painel não é segredo, e
+  tratá-lo como slot faria o servidor subir sem saber para onde falar.
+
+  **Os três papéis — `env`, `header` e `bearer` — renderizam para o Claude Code**, e o `bearer`
+  monta `Authorization: Bearer ${VAR}` **sem a palavra aparecer na receita**. É o que permitirá
+  servir um alvo que monta o header sozinho — o `bearer_token_env_var` do Codex — a partir
+  desta mesma declaração, sem campo novo.
+
+  **Nenhum papel emite `${VAR:-default}`.** Não existe default no contrato, e a sintaxe é
+  armadilha medida: ela é exclusiva do Claude Code, e nos outros dois runtimes que leem o mesmo
+  `.mcp.json` a string chega **literal** ao processo do servidor — o arquivo parseia, a
+  instalação sai verde, e a falha aparece na primeira chamada. Dois arquivos versionados desta
+  organização carregam essa sintaxe hoje.
+
+  **Papel e transporte se pareiam no leitor**, com erro nomeado: processo recebe variável,
+  requisição recebe header, e o par que não existe é recusado **antes de qualquer
+  renderização** — do mesmo jeito que papel fora do conjunto fechado, nome declarado ao mesmo
+  tempo como slot e como literal, e `header` sem o header que ele preenche. Uma receita que
+  passa do leitor é uma receita que renderiza, e por isso o renderizador não tem ramo nenhum
+  onde um segredo possa sumir calado.
+
+  **Variável de slot ausente é aviso e exit 0.** Ela precisa existir quando o runtime sobe, e
+  não quando o overpower roda — o ambiente do editor não é o deste shell. Mas o aviso sai,
+  porque no Claude Code a variável ausente manda `${VAR}` **cru** na requisição, e o que a
+  pessoa vê é um 401 longe da causa. O `--dry-run` avisa o mesmo, antes de escrever nada.
+
+  **Três receitas embutidas entram, e nenhuma é inventada**: `hostinger-vps` (slot `env`),
+  `coolify` (slot `env` mais `COOLIFY_BASE_URL` literal) e `github` (slot `bearer`) saem da
+  configuração que quatro repositórios desta organização já mantêm à mão — a mesma que produziu
+  cinco versões que discordam entre si. Todas **pinam versão exata**: `@latest` numa receita
+  embutida faria o servidor mudar de comportamento sem ninguém ter mudado nada, e a versão em
+  que ele mudou não ficaria escrita em lugar nenhum. ([#78](https://github.com/panlabs-tech/overpower/issues/78))
+
+
 ## [0.7.0] - 2026-08-13
 
 ### Added

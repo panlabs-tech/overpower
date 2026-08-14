@@ -43,7 +43,10 @@ from overpower.writing import UnsupportedWriteError, execute, points_elsewhere
 from tests.support import git_remote
 from tests.support.project import (
     AGENTS,
+    BEARER,
     CLAUDE,
+    SLOT_VARIABLE,
+    SLOTTED,
     STDIO,
     catalog_of,
     document_keys,
@@ -486,8 +489,16 @@ def occupied(root: Path, text: str = OCCUPIED) -> Path:
     return path
 
 
+@pytest.mark.parametrize(
+    "kind",
+    [
+        pytest.param(CLOUDFLARE, id="no-slot"),
+        pytest.param(SLOTTED, id="env-slot-and-a-literal"),
+        pytest.param(BEARER, id="bearer-slot"),
+    ],
+)
 def test_the_plan_the_screen_and_the_document_name_the_same_keys(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], kind: str
 ) -> None:
     """The three-way identity, with the half a graft needs.
 
@@ -497,9 +508,14 @@ def test_the_plan_the_screen_and_the_document_name_the_same_keys(
     and no key it did not name appeared. The second half is the one that catches
     the measured trap of the insertion library, which returns exit 0 with a
     byte-identical file and the graft gone.
+
+    Slots do not change the shape of it and that is the claim being made: what
+    they add lives *inside* the server's value, so a fragment with a secret in it
+    still names exactly one key — and the run still exits 0 with the variable
+    unset (https://github.com/panlabs-tech/overpower/issues/78).
     """
     # given
-    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": CLOUDFLARE})
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": kind})
     dry_root = target(tmp_path, monkeypatch, "dry")
     real_root = target(tmp_path, monkeypatch, "real")
     dry_document = occupied(dry_root)
@@ -653,6 +669,60 @@ def test_a_stdio_server_lands_with_its_array_inline_and_its_table_expanded(
         '      "args": ["coolify-server", "--repository", "."],\n'
         '      "env": {\n'
         '        "PANEL_URL": "https://panel.example.com"\n'
+        "      }\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+    )
+
+
+def test_a_slot_lands_as_a_reference_and_a_literal_lands_as_itself(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The distinction, asserted where it matters: on the file that gets committed.
+
+    The variable is **set in the process** on purpose. That is the case in which
+    a product that resolved slots would write the secret into a versioned file
+    and exit 0 — which is what two configurations of this organisation did by
+    hand, and both of them stayed out of git, where nobody reviewed them.
+
+    The address of the panel is written, because it is not a secret and the
+    server needs it to know where to talk.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"coolify": SLOTTED})
+    root = target(tmp_path, monkeypatch)
+    monkeypatch.setenv(SLOT_VARIABLE, "SUPER-SECRET-42")
+
+    code, _ = run(capsys, "install", "--mcp", "coolify", "--runtime", "claude-code")
+
+    assert code == 0
+    after = (root / MCP_JSON).read_text(encoding="utf-8")
+    assert "SUPER-SECRET-42" not in after
+    assert f'"{SLOT_VARIABLE}": "${{{SLOT_VARIABLE}}}"' in after
+    assert '"PANEL_URL": "https://panel.example.com"' in after
+    assert ":-" not in after
+
+
+def test_a_bearer_slot_lands_as_the_header_the_recipe_never_spelled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The role is in the recipe and the scheme is in the file, which is the whole trick."""
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"github": BEARER})
+    root = target(tmp_path, monkeypatch)
+
+    code, _ = run(capsys, "install", "--mcp", "github", "--runtime", "claude-code")
+
+    assert code == 0
+    assert (root / MCP_JSON).read_text(encoding="utf-8") == (
+        "{\n"
+        '  "mcpServers": {\n'
+        '    "github": {\n'
+        '      "type": "http",\n'
+        '      "url": "https://mcp.example.com/mcp",\n'
+        '      "headers": {\n'
+        f'        "Authorization": "Bearer ${{{SLOT_VARIABLE}}}"\n'
         "      }\n"
         "    }\n"
         "  }\n"

@@ -52,6 +52,7 @@ from typing import TYPE_CHECKING
 
 from overpower.errors import BadInvocationError, RefusedError
 from overpower.grafting import read_document, refuse_if_broken
+from overpower.recipes import Recipe
 from overpower.rendering import Fragment, render
 from overpower.runtimes import (
     RUNTIMES_BY_KEY,
@@ -68,7 +69,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from overpower.discovery import Artifact, Bundle, Catalog, Framework
-    from overpower.recipes import Recipe
     from overpower.runtimes import Environment, McpPlace, Runtime
 
 
@@ -523,6 +523,37 @@ def pending_activation(plan: Plan, scope: Scope) -> tuple[Path, ...]:
         and _born_pending(landing.readers, scope)
     }
     return tuple(sorted(found))
+
+
+def unset_slots(plan: Plan, variables: Mapping[str, str]) -> tuple[str, ...]:
+    """Slot variables this environment does not carry — a warning, never a refusal.
+
+    **The variable has to exist when the runtime starts, not when the overpower
+    runs**, so its absence says nothing about the correctness of what was
+    written: the file is right either way, and the environment we can read here
+    is this shell's, not the editor's.
+
+    It is still said out loud, because of what an absent variable does at the
+    other end: measured against a local listener, Claude Code sent
+    `Bearer ${NAO_EXISTE}` **literally** on the request, so the server answers
+    401 and the cause is a file nobody is looking at.
+
+    Sorted and deduplicated: two servers may need the same variable, and one line
+    per variable is what the reader has to act on — the same reading
+    `pending_activation` applies to documents.
+    """
+    return tuple(
+        sorted(
+            {
+                slot.name
+                for selection in plan.selections
+                for carried in selection.artifacts
+                if isinstance(carried, Recipe)
+                for slot in carried.slots
+                if slot.name not in variables
+            }
+        )
+    )
 
 
 def _born_pending(readers: Sequence[str], scope: Scope) -> bool:

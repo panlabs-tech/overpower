@@ -23,6 +23,13 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.12.1] - 2026-08-14
+
+### Fixed
+
+- O help de `--runtime` avisa que skill e MCP têm tabelas próprias (ADR 0017): uma chave pode aceitar uma classe e recusar a outra — `cursor` recebe skill mas não MCP, `vscode` o inverso. Antes disso só se descobria com o exit 3. ([#99](https://github.com/panlabs-tech/overpower/issues/99))
+
+
 ## [0.12.0] - 2026-08-14
 
 ### Added

@@ -614,7 +614,7 @@ def _perform(
         # Before the closing line and not after it: `--dry-run` resolves
         # everything, so what it knows about the environment it knows *now*, and
         # a report ends with what it did rather than with an aside.
-        _warn_about_unset_slots(plan, environment)
+        _warn_about_unset_slots(plan, environment, request.scope)
         _out.print(Text.assemble(("dry run", "op.warn"), " ", ("nothing was written", "op.dim")))
         return
 
@@ -654,12 +654,12 @@ def _perform(
     if report.degraded:
         listed = ", ".join(str(path) for path in report.degraded)
         _out.print(Text.assemble(("degraded to copy", "op.warn"), " ", (listed, "op.dim")))
-    _warn_about_unset_slots(plan, environment)
+    _warn_about_unset_slots(plan, environment, request.scope)
     _warn_about_activation(plan, request.scope, root)
     _finished()
 
 
-def _warn_about_unset_slots(plan: Plan, environment: Environment) -> None:
+def _warn_about_unset_slots(plan: Plan, environment: Environment, scope: Scope) -> None:
     """Name the slot variables this environment does not have, at exit 0.
 
     A slot is the one thing the overpower **refuses to write**, so the value has
@@ -672,8 +672,14 @@ def _warn_about_unset_slots(plan: Plan, environment: Environment) -> None:
     measured, Claude Code sends an unexpanded `${VAR}` **raw** on the request, so
     what the person sees is a 401 from a server, days later, with nothing
     pointing at the file.
+
+    `scope` is here because *"the runtime reads it from the environment"* is not
+    true of every target: a VS Code slot is filled from a prompt into the OS
+    keychain, so the variable this shell lacks is one nothing will ever look for.
+    Which document the plan lands in is a fact of (runtime, scope), so the scope
+    has to travel — the same argument that put it on `_warn_about_activation`.
     """
-    missing = unset_slots(plan, environment.variables)
+    missing = unset_slots(plan, environment.variables, scope)
     if not missing:
         return
     one = len(missing) == 1

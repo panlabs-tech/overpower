@@ -45,6 +45,7 @@ from tests.support.project import (
     AGENTS,
     BEARER,
     CLAUDE,
+    OTHER_SLOTTED,
     SLOT_VARIABLE,
     SLOTTED,
     STDIO,
@@ -54,6 +55,7 @@ from tests.support.project import (
     joined,
     keys_in,
     landings_of,
+    parsed,
     paths_in,
     pinned,
     run,
@@ -769,6 +771,316 @@ def test_the_document_is_created_when_the_repository_has_none(
     assert code == 0
     assert files_under(root) == {MCP_JSON}
     assert document_keys(root / MCP_JSON) == keys_in(output)
+
+
+# --------------------------------------------------------------------------- #
+# the VS Code document: two keys of one file, and the prompt behind the secret
+# --------------------------------------------------------------------------- #
+
+VSCODE_JSON = ".vscode/mcp.json"
+"""Where VS Code reads MCP servers in a repository — measured, not transcribed."""
+
+VSCODE = ("--runtime", "vscode")
+"""The selector under test, spelled once: the second target the product renders."""
+
+
+def test_a_vscode_install_writes_the_server_and_the_prompt_into_one_document(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The whole point of the target, on disk: a reference, and the vault behind it.
+
+    Measured (`docs/research/mcp-config-formats.md`, trap 10): `password: true`
+    is what encrypts the typed value under a key in the OS keychain. Without it
+    the same value goes to `state.vscdb` in plain text, and the reference alone
+    would point at a prompt that does not exist.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"panel": SLOTTED})
+    root = target(tmp_path, monkeypatch)
+
+    code, _ = run(capsys, "install", "--mcp", "panel", *VSCODE)
+
+    assert code == 0
+    assert files_under(root) == {VSCODE_JSON}
+    document = parsed(root / VSCODE_JSON)
+    assert document["servers"] == {
+        "panel": {
+            "type": "stdio",
+            "command": "uvx",
+            "args": ["panel-server", "--repository", "."],
+            "env": {
+                "PANEL_URL": "https://panel.example.com",
+                SLOT_VARIABLE: "${input:panel-token}",
+            },
+        }
+    }
+    assert document["inputs"] == [
+        {
+            "type": "promptString",
+            "id": "panel-token",
+            "description": SLOT_VARIABLE,
+            "password": True,
+        }
+    ]
+
+
+def test_the_vscode_document_never_carries_the_spelling_that_fails_in_silence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`${env:VAR}` is the one grafia this target must never receive.
+
+    Measured: VS Code resolves it against the environment of its own process and
+    an absent variable becomes the **empty string**, with no error and no prompt.
+    The file parses, the install is green, and the server comes up
+    unauthenticated. Asserted over the bytes of the file rather than over the
+    renderer, because it is the file that the editor reads.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"panel": SLOTTED, "github": BEARER})
+    root = target(tmp_path, monkeypatch)
+
+    code, _ = run(capsys, "install", "--mcp", "panel,github", *VSCODE)
+
+    assert code == 0
+    written = (root / VSCODE_JSON).read_text(encoding="utf-8")
+    assert "${env:" not in written
+    assert f"${{{SLOT_VARIABLE}}}" not in written
+    assert "${input:panel-token}" in written
+
+
+def test_the_plan_the_screen_and_the_document_name_both_keys_of_the_vscode_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The three-way identity, over the target whose recipe is **two** keys.
+
+    Same assertion as the Claude twin and a bigger claim: one recipe writes
+    `servers.panel` and `inputs`, both are named on the screen, and no third key
+    appears in the document. It is what proves the second graft is planned rather
+    than smuggled in by the writer.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"panel": SLOTTED})
+    dry_root = target(tmp_path, monkeypatch, "dry")
+    real_root = target(tmp_path, monkeypatch, "real")
+    selectors = ("install", "--mcp", "panel", *VSCODE)
+
+    monkeypatch.chdir(dry_root)
+    dry_code, dry_out = run(capsys, *selectors, "--dry-run")
+    monkeypatch.chdir(real_root)
+    real_code, real_out = run(capsys, *selectors)
+
+    named = keys_in(real_out)
+    assert keys_in(dry_out) == named
+    assert {"servers.panel", "inputs"} <= named
+    assert document_keys(real_root / VSCODE_JSON) == named
+    assert files_under(dry_root) == set()
+    assert dry_code == real_code == 0
+
+
+def test_a_recipe_with_no_slot_writes_no_prompt_list_at_all(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An empty `inputs[]` is a key the reader has to interpret, for nothing.
+
+    Cloudflare authorises in the browser. The second graft does not exist rather
+    than existing empty, and the screen says one key because one key landed.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": CLOUDFLARE})
+    root = target(tmp_path, monkeypatch)
+
+    code, output = run(capsys, "install", "--mcp", "cloudflare", *VSCODE)
+
+    assert code == 0
+    assert "inputs" not in parsed(root / VSCODE_JSON)
+    assert document_keys(root / VSCODE_JSON) == keys_in(output)
+
+
+def test_a_second_server_is_added_to_the_prompts_already_there(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Appending, never rewriting — and the reason is measured, not tidiness.
+
+    VS Code trusts this file by `TrustedOnNonce` over the hash of the launch, so
+    a graft that rebuilt `inputs[]` would make the user re-approve **every**
+    server, **every** time. The prompt the first install put there has to still
+    be the same bytes after the second one.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"panel": SLOTTED, "other": OTHER_SLOTTED})
+    root = target(tmp_path, monkeypatch)
+    first, _ = run(capsys, "install", "--mcp", "panel", *VSCODE)
+    after_one = (root / VSCODE_JSON).read_text(encoding="utf-8")
+
+    second, _ = run(capsys, "install", "--mcp", "other", *VSCODE)
+
+    assert first == second == 0
+    after_two = (root / VSCODE_JSON).read_text(encoding="utf-8")
+    assert lost_lines(after_one, after_two) == []
+    prompts = cast("list[dict[str, object]]", parsed(root / VSCODE_JSON)["inputs"])
+    assert [entry["id"] for entry in prompts] == ["panel-token", "other-token"]
+
+
+def test_the_same_secret_asked_for_twice_is_one_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Two recipes, one variable, **one** entry — the identity is the id and not the row.
+
+    Both fixtures name `PANEL_TOKEN`, so they derive the same id. Asking the
+    person for the same secret twice is the failure this deduplication exists to
+    prevent, and a list has no key to make it impossible by construction.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"panel": SLOTTED, "github": BEARER})
+    root = target(tmp_path, monkeypatch)
+
+    code, _ = run(capsys, "install", "--mcp", "panel,github", *VSCODE)
+
+    assert code == 0
+    prompts = cast("list[dict[str, object]]", parsed(root / VSCODE_JSON)["inputs"])
+    assert [entry["id"] for entry in prompts] == ["panel-token"]
+
+
+def test_installing_the_same_server_twice_leaves_the_vscode_file_identical(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Idempotent over **both** keys, and the list is the half that could drift.
+
+    A table cannot grow a duplicate — the second write lands on the same key. A
+    list can, and a `.append` that never looked would grow it every run.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"panel": SLOTTED})
+    root = target(tmp_path, monkeypatch)
+    selectors = ("install", "--mcp", "panel", *VSCODE)
+    first, _ = run(capsys, *selectors)
+    once = (root / VSCODE_JSON).read_text(encoding="utf-8")
+
+    second, _ = run(capsys, *selectors)
+
+    assert first == second == 0
+    assert (root / VSCODE_JSON).read_text(encoding="utf-8") == once
+
+
+def test_a_comment_in_the_vscode_document_survives_both_grafts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """JSONC is the file's real type, and the standard library cannot read it.
+
+    This is why the tolerant reader was a requirement rather than a convenience:
+    `.vscode/mcp.json` is documented as accepting comments, so a user's file
+    routinely has one — and here two grafts pass over the same document, so the
+    comment has to survive being appended after twice.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"panel": SLOTTED})
+    root = target(tmp_path, monkeypatch)
+    document = root / VSCODE_JSON
+    document.parent.mkdir(parents=True)
+    text = (
+        "{\n  // the servers I set up by hand, and nobody asked the overpower to touch them\n"
+        '  "servers": {\n    "antigo": { "type": "stdio", "command": "node" }\n  }\n}\n'
+    )
+    document.write_text(text, encoding="utf-8", newline="")
+
+    code, _ = run(capsys, "install", "--mcp", "panel", *VSCODE)
+
+    assert code == 0
+    after = document.read_text(encoding="utf-8")
+    assert lost_lines(text, after) == []
+    assert "// the servers I set up by hand" in after
+    assert "antigo" in parsed(document)["servers"]  # pyright: ignore[reportOperatorIssue]
+
+
+def test_a_trailing_comma_keeps_the_entry_it_terminates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """JSONC admits a trailing comma, and this file is where they are idiomatic.
+
+    Appending after one is where the comma can be stranded: the whitespace
+    before the closing brace hangs off the **comma** and not off the last value,
+    so moving it the way the no-comma path does leaves a `,` alone on a line of
+    its own. Valid JSONC, and a diff line nobody wrote — which is the whole thing
+    ADR 0016 buys a dependency to avoid.
+
+    Asserted on the bytes, in both shapes the document has: the object under
+    `servers` and the list under `inputs`.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"panel": SLOTTED})
+    root = target(tmp_path, monkeypatch)
+    document = root / VSCODE_JSON
+    document.parent.mkdir(parents=True)
+    text = (
+        '{\n  "servers": {\n    "antigo": { "type": "stdio", "command": "node" },\n  },\n'
+        '  "inputs": [\n    { "type": "promptString", "id": "outro" },\n  ],\n}\n'
+    )
+    document.write_text(text, encoding="utf-8", newline="")
+
+    code, _ = run(capsys, "install", "--mcp", "panel", *VSCODE)
+
+    assert code == 0
+    after = document.read_text(encoding="utf-8")
+    assert lost_lines(text, after) == []
+    assert "\n  ,\n" not in after
+    assert "\n,\n" not in after
+    assert "    },\n  },\n" in after
+    assert "    },\n  ],\n" in after
+
+
+def test_a_prompt_written_with_the_other_quote_is_the_same_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The lookup that decides append-against-replace has to see the key that is there.
+
+    A false miss costs a **duplicate**, not a retry: the entry is appended beside
+    the one it should have replaced, and the person is asked for the same secret
+    twice. The tolerant parser accepts both quote styles, so a document written
+    by hand with single quotes is a document that already has the key — and the
+    same holds for the root key itself, which would otherwise gain a second
+    `inputs`.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"panel": SLOTTED})
+    root = target(tmp_path, monkeypatch)
+    document = root / VSCODE_JSON
+    document.parent.mkdir(parents=True)
+    document.write_text(
+        "{\n  'inputs': [\n    { 'type': 'promptString', 'id': 'panel-token' }\n  ]\n}\n",
+        encoding="utf-8",
+        newline="",
+    )
+
+    code, _ = run(capsys, "install", "--mcp", "panel", *VSCODE)
+
+    assert code == 0
+    after = document.read_text(encoding="utf-8")
+    assert after.count("promptString") == 1
+    assert after.count("inputs") == 1
+
+
+def test_a_prompt_list_that_is_not_a_list_is_refused_before_the_first_byte(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`inputs` holding an object parses, and has nowhere to receive a prompt.
+
+    The twin of the `mcpServers`-is-a-string case, on the second root key: the
+    refusal is exit 3 and it lands before the first byte, so the dry run and the
+    real run answer the same thing and the server is not written half-way.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"panel": SLOTTED})
+    root = target(tmp_path, monkeypatch)
+    document = root / VSCODE_JSON
+    document.parent.mkdir(parents=True)
+    text = '{\n  "inputs": { "not": "a list" }\n}\n'
+    document.write_text(text, encoding="utf-8", newline="")
+
+    code, output = run(capsys, "install", "--mcp", "panel", *VSCODE)
+
+    assert code == 3
+    assert "is not ours to repair" in joined(output)
+    assert document.read_text(encoding="utf-8") == text
 
 
 @pytest.mark.parametrize(

@@ -53,10 +53,11 @@ from typing import TYPE_CHECKING
 from overpower.errors import BadInvocationError, RefusedError
 from overpower.grafting import read_document, refuse_if_broken
 from overpower.recipes import Recipe
-from overpower.rendering import Fragment, render
+from overpower.rendering import Fragment, Inputs, expands_from_environment, render
 from overpower.runtimes import (
     RUNTIMES_BY_KEY,
     Scope,
+    known_runtimes,
     mcp_document_of,
     mcp_places_of,
     mcp_runtimes_in,
@@ -65,11 +66,12 @@ from overpower.runtimes import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping, Sequence
+    from collections.abc import Callable, Iterable, Mapping, Sequence
     from pathlib import Path
 
     from overpower.discovery import Artifact, Bundle, Catalog, Framework
-    from overpower.runtimes import Environment, McpPlace, Runtime
+    from overpower.rendering import Graft
+    from overpower.runtimes import Environment, McpDocument, McpPlace, Runtime
 
 
 class WriteMode(StrEnum):
@@ -133,8 +135,8 @@ Destination = DirectoryTree | DocumentKey
 class Write:
     """One landing: where it comes from, where it goes, and how it gets there."""
 
-    source: Path | Fragment
-    """A directory to copy, **or the rendered fragment to graft**.
+    source: Path | Graft
+    """A directory to copy, **or the rendered graft to splice in**.
 
     A graft has no source path — nothing on disk is being moved — so the origin
     of a write became one of two things when the second operation arrived. The
@@ -148,10 +150,12 @@ class Write:
     files: int
     """How many files this write puts on disk. The screen adds them up.
 
-    One for a graft: the document is a file, and writing a key into it writes
-    that file. What the *plan* counts for a graft is keys, not files — a folder
-    row and a document row measure different things — but the report at the end
-    counts what landed on disk, and one file did.
+    One for the first graft into a document: the document is a file, and writing
+    a key into it writes that file. **Zero for a second graft into the same
+    one** — a VS Code slot lands the server and its prompt as two keys, and the
+    report at the end counts what landed on disk, where one file did. What the
+    *plan* counts for a graft is keys and not files, which is why the two halves
+    of one recipe still show as two rows on the screen.
     """
 
 
@@ -411,6 +415,39 @@ class NoMcpDocumentError(RefusedError):
         )
 
 
+class NoSkillsDestinationError(RefusedError):
+    """A selected runtime is a graft target and reads no skills anywhere.
+
+    The mirror of `NoMcpDocumentError` on the other axis, and it exists because
+    the two tables stopped being nested: `vscode` reads `.vscode/mcp.json` and
+    has **no row in the skills transcription** — upstream declares none, and the
+    transcription is a transcription. So `--runtime vscode --mcp x` is an install
+    and `--runtime vscode --skill y` is a valid line with a negative answer.
+
+    Exit **3** and not 2, for the reason ADR 0009 gives: the value is a real
+    target, the flag is real, nothing about the line is malformed. What does not
+    exist is the destination for *that class*.
+
+    Scope is not in the message because it is not in the fact: this runtime has
+    no skills destination in a repository and none on the machine either, so
+    naming a scope would suggest the other one works.
+
+    **It says *destination* and never *"reads no skills"*, which would be false.**
+    Measured, VS Code does read `.agents/skills` — it just reads the one 19 other
+    rows write, and it has no row of its own to name. So what the refusal means
+    is *"there is nowhere for `--runtime vscode` to put a skill"*, and the fix it
+    names is the true one: name a runtime that writes the folder this one reads.
+    """
+
+    def __init__(self, key: str) -> None:
+        """Name the runtime, why it has nowhere to put a skill, and the two ways out."""
+        self.key = key
+        super().__init__(
+            f"`{key}` takes MCP servers and has no skills destination of its own; "
+            "name a runtime that writes the folder it reads, or drop the skills from the line"
+        )
+
+
 class DestinationExistsError(RefusedError):
     """A global destination that already occupies the path, and no one to ask.
 
@@ -456,12 +493,17 @@ def plan_for(request: Request, catalog: Catalog, root: Path, environment: Enviro
     skills = _selected_skills(request.skills, catalog)
     mcps = _selected_mcps(request.mcps, catalog)
     runtimes = _selected_runtimes(request.runtimes, request.scope)
+    # Before the first `Selection` is built, so a refusal costs no screen and no
+    # byte — and for the whole line, never for the half of it that happens to
+    # have a destination. One refusal per class, fired only for the classes the
+    # line actually carries: a runtime that takes one and not the other is a real
+    # row on both tables, and asking it the question the line never posed would
+    # refuse an install nothing is wrong with.
     if mcps:
-        # Before the first `Selection` is built, so the refusal costs no screen
-        # and no byte — and for the whole line, never for the half of it that
-        # happens to have a destination.
         _refuse_a_runtime_with_no_document(runtimes, request.scope)
-    landings = places_of(runtimes, request.scope, root, environment)
+    if frameworks or bundles or skills:
+        _refuse_a_runtime_with_no_skills(runtimes)
+    landings = places_of(_that_take_skills(runtimes), request.scope, root, environment)
     documents = mcp_places_of(runtimes, request.scope, root)
     return Plan(
         root=root,
@@ -496,10 +538,10 @@ def refuse_broken_documents(plan: Plan) -> None:
         source = write.source
         if (
             isinstance(destination, DocumentKey)
-            and isinstance(source, Fragment)
+            and isinstance(source, Fragment | Inputs)
             and destination.path.is_file()
         ):
-            refuse_if_broken(destination.path, read_document(destination.path), source.root_key)
+            refuse_if_broken(destination.path, read_document(destination.path), source)
 
 
 def pending_activation(plan: Plan, scope: Scope) -> tuple[Path, ...]:
@@ -525,7 +567,7 @@ def pending_activation(plan: Plan, scope: Scope) -> tuple[Path, ...]:
     return tuple(sorted(found))
 
 
-def unset_slots(plan: Plan, variables: Mapping[str, str]) -> tuple[str, ...]:
+def unset_slots(plan: Plan, variables: Mapping[str, str], scope: Scope) -> tuple[str, ...]:
     """Slot variables this environment does not carry — a warning, never a refusal.
 
     **The variable has to exist when the runtime starts, not when the overpower
@@ -538,10 +580,21 @@ def unset_slots(plan: Plan, variables: Mapping[str, str]) -> tuple[str, ...]:
     `Bearer ${NAO_EXISTE}` **literally** on the request, so the server answers
     401 and the cause is a file nobody is looking at.
 
+    **And it is said only where it is true**, which is what `scope` is for. That
+    failure is a property of the *dialect* and not of the slot: a
+    `${input:<id>}` is filled from a prompt and the OS keychain, so there is no
+    variable to be absent and the editor asks. Telling somebody to export a
+    variable nothing will read is the same defect as the approval line appearing
+    everywhere — a warning nobody can act on, which is a warning nobody reads
+    (ADR 0014). Where a plan lands in both kinds of document the warning stands,
+    because one of the two really does read the environment.
+
     Sorted and deduplicated: two servers may need the same variable, and one line
     per variable is what the reader has to act on — the same reading
     `pending_activation` applies to documents.
     """
+    if not _lands_where_the_environment_is_read(plan, scope):
+        return ()
     return tuple(
         sorted(
             {
@@ -556,20 +609,52 @@ def unset_slots(plan: Plan, variables: Mapping[str, str]) -> tuple[str, ...]:
     )
 
 
-def _born_pending(readers: Sequence[str], scope: Scope) -> bool:
-    """Whether any runtime reading this place leaves the server waiting for a human."""
+def _lands_where_the_environment_is_read(plan: Plan, scope: Scope) -> bool:
+    """Whether any document this plan grafts into fills its slots from the environment."""
+    return any(
+        _any_document(
+            landing.readers, scope, lambda document: expands_from_environment(document.dialect)
+        )
+        for selection in plan.selections
+        for landing in selection.landings
+        if any(isinstance(write.destination, DocumentKey) for write in landing.writes)
+    )
+
+
+def _any_document(
+    readers: Sequence[str], scope: Scope, carries: Callable[[McpDocument], bool]
+) -> bool:
+    """Whether any runtime reading this place lands in a document that `carries`.
+
+    Two questions have this shape, and both are facts of the (runtime, scope)
+    pair rather than of the CLI: whether the server is born waiting for a human,
+    and whether its slot is read out of the process environment. One walk, so a
+    third question arrives as a predicate instead of as a third loop.
+    """
     for key in readers:
-        document = mcp_document_of(RUNTIMES_BY_KEY[key], scope)
-        if document is not None and document.born_pending:
+        document = mcp_document_of(key, scope)
+        if document is not None and carries(document):
             return True
     return False
 
 
-def _refuse_a_runtime_with_no_document(runtimes: Sequence[Runtime], scope: Scope) -> None:
+def _born_pending(readers: Sequence[str], scope: Scope) -> bool:
+    """Whether any runtime reading this place leaves the server waiting for a human."""
+    return _any_document(readers, scope, lambda document: document.born_pending)
+
+
+def _refuse_a_runtime_with_no_document(keys: Sequence[str], scope: Scope) -> None:
     """Refuse the line if any selected runtime cannot receive a server in `scope`."""
-    for runtime in runtimes:
-        if mcp_document_of(runtime, scope) is None:
-            raise NoMcpDocumentError(runtime.key, scope)
+    for key in keys:
+        if mcp_document_of(key, scope) is None:
+            raise NoMcpDocumentError(key, scope)
+
+
+def _refuse_a_runtime_with_no_skills(keys: Sequence[str]) -> None:
+    """Refuse the line if any selected runtime has no skills directory at all."""
+    for key in keys:
+        if key not in RUNTIMES_BY_KEY:
+            raise NoSkillsDestinationError(key)
 
 
 def existing_destinations(plan: Plan, request: Request) -> tuple[Path, ...]:
@@ -632,18 +717,32 @@ def _mcp_selection(recipe: Recipe, documents: Sequence[McpPlace]) -> Selection:
 
 
 def _graft_landing(recipe: Recipe, place: McpPlace) -> Landing:
-    """The document, everyone who reads it, and the one key that lands in it."""
-    fragment = render(recipe, place.document)
+    """The document, everyone who reads it, and every key that lands in it.
+
+    **One landing however many keys**, because a landing is a *place* and the
+    keys fall in the same one: a VS Code recipe with a slot writes the server
+    under `servers` and the prompt it refers to under `inputs`, and announcing
+    two places for one file would say the run touches two.
+
+    The writes are in render order, which is the order the writer performs them,
+    so the reference is written before the declaration it points at. Nothing
+    depends on that — both are keys of a file nobody has read yet — and it is
+    still the order the screen reads best in.
+    """
     return Landing(
         place=place.path,
         readers=place.readers,
-        writes=(
+        writes=tuple(
             Write(
-                source=fragment,
-                destination=DocumentKey(place.path, fragment.dotted),
+                source=graft,
+                destination=DocumentKey(place.path, graft.dotted),
                 mode=WriteMode.GRAFT,
-                files=1,
-            ),
+                # The document is one file however many keys go into it, and the
+                # report counts files. The first write is the one that puts it on
+                # disk; the rest edit what is already there.
+                files=1 if index == 0 else 0,
+            )
+            for index, graft in enumerate(render(recipe, place.document))
         ),
     )
 
@@ -709,29 +808,47 @@ def _write_for(
     )
 
 
-def _selected_runtimes(keys: Sequence[str], scope: Scope) -> tuple[Runtime, ...]:
-    """The runtimes named, validated against the closed table and against the scope.
+def _selected_runtimes(keys: Sequence[str], scope: Scope) -> tuple[str, ...]:
+    """The runtime keys named, validated against the closed table and against the scope.
 
-    Two different misses, two different codes. A key outside the 76-member
-    table is a typo — exit 2, `UnknownRuntimeError`. A key the table has, with
-    no destination in `scope`, is `runtimes_in(scope)` saying no — exit 3,
-    `RuntimeUnavailableInScopeError`, ADR 0009. One implementation of the scoped
-    set, `runtimes_in`, so the validator and the screen cannot disagree.
+    Two different misses, two different codes. A key outside the table is a typo
+    — exit 2, `UnknownRuntimeError`. A key the table has, with no destination of
+    **any** class in `scope`, is the scoped sets saying no — exit 3,
+    `RuntimeUnavailableInScopeError`, ADR 0009.
+
+    Keys and no longer rows, because a row is a fact of one class and a key is
+    what the person typed: `vscode` has an MCP document and no skills directory,
+    and answering with a `Runtime` would have meant either inventing one or
+    refusing a target the product renders for. Which class each key can actually
+    receive is asked **per class**, by the two refusals `plan_for` fires only for
+    the classes the line carries.
     """
     if not keys:
         raise NoRuntimeSelectedError
-    allowed = {runtime.key: runtime for runtime in runtimes_in(scope)}
-    chosen: dict[str, Runtime] = {}
+    known = known_runtimes()
+    reachable = {runtime.key for runtime in runtimes_in(scope)} | set(mcp_runtimes_in(scope))
+    chosen: set[str] = set()
     for key in keys:
-        if key not in RUNTIMES_BY_KEY:
-            raise UnknownRuntimeError(key, RUNTIMES_BY_KEY)
-        runtime = allowed.get(key)
-        if runtime is None:
+        if key not in known:
+            raise UnknownRuntimeError(key, known)
+        if key not in reachable:
             raise RuntimeUnavailableInScopeError(key, scope)
-        chosen[key] = runtime
+        chosen.add(key)
     # Back into table order: the order the plan lists places in is the order the
     # writer performs them, and the table is the only order both ends share.
-    return tuple(runtime for runtime in runtimes_in(scope) if runtime.key in chosen)
+    return tuple(key for key in known if key in chosen)
+
+
+def _that_take_skills(keys: Sequence[str]) -> tuple[Runtime, ...]:
+    """The rows of the skills table these keys name, in the order they were given.
+
+    A key with no row is dropped rather than refused, and the drop is not a
+    silent default: `_refuse_a_runtime_with_no_skills` has already run whenever
+    the line carries anything of the copy class, so what reaches here without a
+    row is a graft-only target on a line that asked for no skill — and a target
+    with nothing to receive contributes no landing.
+    """
+    return tuple(RUNTIMES_BY_KEY[key] for key in keys if key in RUNTIMES_BY_KEY)
 
 
 def _selected_skills(names: Sequence[str], catalog: Catalog) -> tuple[Artifact, ...]:

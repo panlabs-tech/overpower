@@ -162,7 +162,19 @@ BEARER = "http+bearer"
 """An HTTP recipe whose secret travels in the header the renderer assembles."""
 
 SLOT_VARIABLE = "PANEL_TOKEN"
-"""The variable every slotted fixture names, so a test can set it or leave it unset."""
+"""The variable the slotted fixtures name, so a test can set it or leave it unset."""
+
+OTHER_SLOTTED = "stdio+other-slot"
+"""A slotted stdio recipe naming a **different** variable from every other fixture.
+
+`SLOTTED` and `BEARER` share `PANEL_TOKEN`, which is what lets a test assert that
+two servers wanting one secret get one prompt. The opposite claim — that a second
+secret is *added* beside the first instead of replacing it — cannot be asserted
+with fixtures that share a name, so this one exists to carry the other name.
+"""
+
+OTHER_SLOT_VARIABLE = "OTHER_TOKEN"
+"""The second variable, and the id derived from it differs from the first."""
 
 _BODIES = {
     STDIO: '{stdio}\n[server.env]\nPANEL_URL = "https://panel.example.com"\n',
@@ -170,6 +182,7 @@ _BODIES = {
         '{stdio}\n[server.env]\nPANEL_URL = "https://panel.example.com"\n\n'
         f'[[slots]]\nname = "{SLOT_VARIABLE}"\nrole = "env"\n'
     ),
+    OTHER_SLOTTED: (f'{{stdio}}\n\n[[slots]]\nname = "{OTHER_SLOT_VARIABLE}"\nrole = "env"\n'),
     BEARER: (
         'url = "https://mcp.example.com/mcp"\n\n'
         f'[[slots]]\nname = "{SLOT_VARIABLE}"\nrole = "bearer"\n'
@@ -187,7 +200,7 @@ def _recipe(path: Path, slug: str, kind: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     stdio = f'command = "uvx"\nargs = ["{slug}-server", "--repository", "."]\n'
     body = _BODIES.get(kind, f'url = "{kind}"\n').format(stdio=stdio)
-    transport = STDIO if kind in {STDIO, SLOTTED} else "http"
+    transport = STDIO if kind in {STDIO, SLOTTED, OTHER_SLOTTED} else "http"
     path.write_text(
         f'description = "The {slug} server."\ntransport = "{transport}"\n\n[server]\n{body}',
         encoding="utf-8",
@@ -336,6 +349,18 @@ def keys_in(output: str) -> set[str]:
     """
     named = {match.group(1) for match in KEY.finditer(output)}
     return {prefix for key in named for prefix in _prefixes(key)}
+
+
+def parsed(path: Path) -> dict[str, object]:
+    """The document as values, for assertions that are about what it *says*.
+
+    Read with the tolerant loader because that is what the file is — `.mcp.json`
+    is strict JSON and `.vscode/mcp.json` is JSONC — and a helper that reached
+    for `json.loads` would pass on the file this product writes and fail on the
+    file a user hands it. It is the same loader `document_keys` uses, and beside
+    it for that reason.
+    """
+    return cast("dict[str, object]", loads(path.read_text(encoding="utf-8")))
 
 
 def document_keys(path: Path) -> set[str]:

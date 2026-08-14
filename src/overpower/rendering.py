@@ -22,7 +22,6 @@ runtime gained a capability, and leave the recipe lying about itself.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from types import MappingProxyType
 from typing import TYPE_CHECKING, assert_never
 
 from overpower.recipes import HttpServer, StdioServer, Transport
@@ -82,22 +81,35 @@ class Target:
     scope: Scope
 
 
-DIALECT_TRANSPORTS: Mapping[Dialect, frozenset[Transport]] = MappingProxyType(
-    {Dialect.CLAUDE: frozenset({Transport.STDIO, Transport.HTTP})}
-)
-"""Which transports each dialect can spell — the capability half of rule 4.
+CLAUDE_TRANSPORTS = frozenset({Transport.STDIO, Transport.HTTP})
+"""What the Claude dialect can spell, which today is everything a recipe can say.
 
 Measured (`docs/research/mcp-config-formats.md`): `.mcp.json` discriminates the
-transport with an explicit `type` field and writes **both** bindings, so the
-Claude dialect serves everything the recipe vocabulary can express and the two
-transports coincide *today*. That coincidence is a fact about this one target
+transport with an explicit `type` field and writes **both** bindings, so the two
+transports coincide *there*. That coincidence is a fact about this one target
 and not about the model — the day a dialect lands that writes one of them, or
-that cannot spell a slot role, the answer moves **here**, with no recipe
-touched. Which is the whole reason it is a table in code and never a field.
+that cannot spell a slot role, the answer moves **here**, with no recipe touched.
+Which is the whole reason it is a table in code and never a field (rule 4).
 
-It is the same set `_claude` matches on, and it has to stay so: this table says
-what `render` promises to be total over.
+It is the same set `_claude` matches on, and `_transports` is what keeps the two
+from drifting apart in silence.
 """
+
+
+def _transports(dialect: Dialect) -> frozenset[Transport]:
+    """Which transports `dialect` can spell — the capability half of rule 4.
+
+    A `match` and never a mapping lookup, for the reason `Dialect` states on
+    itself: the set is closed *and* matched with `assert_never`, so a second
+    dialect lands as a hole the type checker names. A `dict[Dialect, ...]`
+    subscript would type-check clean against a new member and raise `KeyError`
+    from inside `targets_of` — a silent default wearing a table's clothes.
+    """
+    match dialect:
+        case Dialect.CLAUDE:
+            return CLAUDE_TRANSPORTS
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
 def targets_of(
@@ -118,7 +130,7 @@ def targets_of(
     return tuple(
         Target(runtime=runtime, scope=scope)
         for (runtime, scope), document in documents.items()
-        if recipe.transport in DIALECT_TRANSPORTS[document.dialect]
+        if recipe.transport in _transports(document.dialect)
     )
 
 

@@ -21,8 +21,8 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-from overpower.recipes import HttpServer, Recipe, StdioServer
-from overpower.rendering import Target, render, targets_of
+from overpower.recipes import HttpServer, Recipe, StdioServer, Transport
+from overpower.rendering import CLAUDE_TRANSPORTS, Target, render, targets_of
 from overpower.runtimes import MCP_DOCUMENTS, Scope
 
 CLAUDE_PROJECT = MCP_DOCUMENTS[("claude-code", Scope.PROJECT)]
@@ -111,6 +111,17 @@ def test_a_recipe_is_offered_every_pair_whose_document_can_spell_it() -> None:
     assert served == (CLAUDE_TARGET,)
 
 
+SERVERS_BY_TRANSPORT = {
+    Transport.HTTP: HttpServer(url="https://x/mcp"),
+    Transport.STDIO: StdioServer(command="uvx"),
+}
+"""One server per member of the closed set of transports.
+
+Keyed by the member rather than listed, so a third transport arrives as a red
+test here instead of as a case nobody wrote.
+"""
+
+
 def test_both_transports_are_served_by_the_one_target_that_is_measured() -> None:
     """They coincide, and the *reason* they coincide is the point of the test.
 
@@ -120,12 +131,45 @@ def test_both_transports_are_served_by_the_one_target_that_is_measured() -> None
     asserted side by side rather than in one parametrised case so that the day a
     dialect lands that writes only one of them, exactly one of these two tests
     goes red and names which half moved.
+
+    **The known limit, stated rather than papered over.** With one dialect that
+    writes both, *no recipe can tell the transport half of the derivation from a
+    tautology*: a predicate that ignored the transport entirely would keep every
+    test in this file green. What can be pinned today is the capability itself
+    against the renderer that has to honour it — the test below — and the table
+    half, which `test_the_answer_follows_the_table_and_never_the_recipe` moves
+    for real. The transport half becomes observable with the second target
+    (https://github.com/panlabs-tech/overpower/issues/79).
     """
     over_http = targets_of(recipe("cloudflare", HttpServer(url="https://x/mcp")))
     over_stdio = targets_of(recipe("git", StdioServer(command="uvx")))
 
     assert over_http == (CLAUDE_TARGET,)
     assert over_stdio == (CLAUDE_TARGET,)
+
+
+def test_the_capability_table_claims_exactly_what_the_dialect_writes() -> None:
+    """`CLAUDE_TRANSPORTS` is a promise, and `_claude` is who keeps it.
+
+    The two are one edit apart and drift in silence: a transport added to the
+    set without a branch in the renderer offers a target that cannot be written,
+    and a branch removed without shrinking the set does the same. So the claim
+    is read back out of the **rendered fragment** — the `type` that will be in
+    the user's file — and compared with the set that decides who is offered.
+
+    **Every member of the closed set is rendered, never only the claimed ones.**
+    Measured while writing this: filtering the left side by `CLAUDE_TRANSPORTS`
+    makes both sides shrink together, so narrowing the set to `{http}` left the
+    test green — the same self-consistency P3 refuses in the sdist gate.
+    """
+    assert set(SERVERS_BY_TRANSPORT) == set(Transport), "a transport with no server to render"
+
+    written = {
+        str(render(recipe("probe", server), CLAUDE_PROJECT).value["type"])
+        for server in SERVERS_BY_TRANSPORT.values()
+    }
+
+    assert written == {str(transport) for transport in CLAUDE_TRANSPORTS}
 
 
 def test_the_answer_follows_the_table_and_never_the_recipe() -> None:

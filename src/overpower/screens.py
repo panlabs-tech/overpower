@@ -488,7 +488,7 @@ def framework_screen(framework: Framework) -> RenderableType:
         [
             _entry(
                 framework.name,
-                _weight(framework.size, framework.files, len(framework.artifacts)),
+                _weight(framework.size, framework.files),
                 framework.description,
                 contents=framework.artifacts,
                 # Only the line that installs. Printing `list --ai-framework
@@ -511,7 +511,7 @@ def bundle_screen(bundle: Bundle) -> RenderableType:
         [
             _entry(
                 bundle.name,
-                _weight(bundle.size, bundle.files, len(bundle.artifacts)),
+                _weight(bundle.size, bundle.files),
                 bundle.description,
                 contents=bundle.artifacts,
                 commands=(_install(BUNDLE_FLAG, bundle.name),),
@@ -626,24 +626,27 @@ def _pairs(environment: Mapping[str, str]) -> RenderableType:
 
 
 def _targets(targets: Sequence[Target]) -> RenderableType:
-    """Who can receive this server, one pair per row — or the word that says nobody.
+    """Who can receive this server, one pair per line — or the word that says nobody.
 
     Runtime **and** scope, because the pair is the unit: the same runtime reads
-    a document in a repository and may read none at all on the machine, so a row
-    that named only the runtime would promise the half that does not exist.
+    a document in a repository and may read none at all on the machine, so a
+    line that named only the runtime would promise the half that does not exist.
 
-    Empty is an answer and is drawn as one. A blank row would read as a screen
-    that failed to draw, where what happened is that the product looked and
-    found no target that can spell this recipe — which is the answer that
-    decides *"not for me"*.
+    One `Text` carrying the newlines rather than a grid of its own: it lands in
+    the value column of `_stacked`, which already folds, so a second grid here
+    would be a second place for the truncation rule to be forgotten — the very
+    thing that function exists to prevent.
+
+    Empty is an answer and is drawn as one, in the ink that says *stop reading
+    for your case*. A blank cell would read as a screen that failed to draw,
+    where what happened is that the product looked and found no target that can
+    spell this recipe.
     """
     if not targets:
         return Text("none", style="op.warn")
-    stacked = Table.grid()
-    stacked.add_column(overflow="fold")
-    for target in targets:
-        stacked.add_row(Text(f"{target.runtime} · {target.scope}", style="op.key"))
-    return stacked
+    return Text(
+        "\n".join(f"{target.runtime} · {target.scope}" for target in targets), style="op.key"
+    )
 
 
 def plan_screen(plan: Plan) -> RenderableType:
@@ -1180,7 +1183,13 @@ def _install(flag: str, name: str) -> str:
 
 
 def _inspect(flag: str, name: str) -> str:
-    """The line that opens one item — only the two units that carry something to open."""
+    """The line that opens one item — only where opening it shows something new.
+
+    An AI Framework and a bundle carry artifacts to list; an MCP server carries
+    a recipe, and the catalog entry shows neither its fields nor the targets it
+    serves. A pool skill is the one unit whose entry is already the whole of it,
+    so printing the line for it would be a dead end.
+    """
     return f"{PROGRAM} list {flag} {name}"
 
 
@@ -1204,6 +1213,14 @@ def _entry(  # noqa: PLR0913 — the three facts of an item plus the three block
     and a recipe — which lands no path at all — answers with its transport. A
     signature that took `(size, files)` could only have said the first.
 
+    **The count of what it carries is not the caller's to spell**, and that half
+    stays here: it is read off `contents`, the same sequence drawn below, so the
+    head line cannot claim a number the list under it contradicts. It leads on a
+    detail screen and is absent on the catalog screen, which is what the screen
+    is *for* — a framework installs whole, so *how much whole is* has to be
+    readable without counting rows. `artifact` and never `skill`, because a
+    framework may mix skill, command and agent.
+
     `commands` is what closes the journey the catalog opens: the lines to copy,
     a blank line under the description and indented one step past it. **Bare** —
     no `$` and no label column, both measured and refused. A `$` makes the
@@ -1221,7 +1238,8 @@ def _entry(  # noqa: PLR0913 — the three facts of an item plus the three block
     head = Table.grid(padding=(0, 1), expand=True)
     head.add_column(ratio=1)
     head.add_column(justify="right", no_wrap=True)
-    head.add_row(Text(name, style="op.key"), Text(weight, style="op.dim"))
+    counted = f"{len(contents)} {_plural('artifact', len(contents))} · " if contents else ""
+    head.add_row(Text(name, style="op.key"), Text(f"{counted}{weight}", style="op.dim"))
     body: list[RenderableType] = [
         head,
         # `Padding`, and never a spaced string: a wrapped line has to keep the
@@ -1298,18 +1316,14 @@ def _stacked(rows: Sequence[tuple[str, RenderableType]]) -> RenderableType:
     return stacked
 
 
-def _weight(size: int, files: int, artifacts: int = 0) -> str:
-    """What an item costs, in the order someone reads it: how many, then how big.
+def _weight(size: int, files: int) -> str:
+    """What a copy costs, in the order someone reads it: how big, in how many files.
 
-    The count of artifacts leads on a detail screen and is absent on the catalog
-    screen, and that is what the screen is *for*: a framework installs whole, so
-    the number that says how much *whole* is has to be readable without counting
-    the rows. It is `artifacts` and not `skills` because a framework may mix
-    skill, command, hook and MCP, and the head line cannot claim a type the
-    stacked list below it may contradict.
+    Only the three classes that land bytes have one. What a recipe answers in
+    the same place is its transport, and that is `mcp_screen`'s call — this
+    function is not asked, rather than asked and answered with a zero.
     """
-    counted = f"{artifacts} {_plural('artifact', artifacts)} · " if artifacts else ""
-    return f"{counted}{human(size)} · {files} {_plural('file', files)}"
+    return f"{human(size)} · {files} {_plural('file', files)}"
 
 
 def _plural(word: str, count: int) -> str:

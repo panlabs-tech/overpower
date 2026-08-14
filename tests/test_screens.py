@@ -286,6 +286,19 @@ def recorded_stdio_recipe() -> Recipe:
     )
 
 
+RECIPE_CASES = [
+    pytest.param(case, width, id=f"{transport}-{width}cols")
+    for transport, case in (("http", recorded_recipe), ("stdio", recorded_stdio_recipe))
+    for width in WIDTHS
+]
+"""The two shapes of recipe, as callables, the way `DETAIL_CASES` carries units.
+
+A property that has to hold for both is written once and reads the same for
+each — and when one goes red the id says which transport drew the line that
+broke, which a loop inside one case cannot.
+"""
+
+
 def recorded() -> Catalog:
     """The catalog the screens are recorded against: fixed, and ours.
 
@@ -1244,19 +1257,43 @@ def test_the_mcp_screen_prints_the_line_that_installs_it(width: int) -> None:
     assert "overpower list --mcp cloudflare" not in joined
 
 
-@pytest.mark.parametrize("width", WIDTH_CASES)
-def test_no_rendered_line_of_an_mcp_screen_exceeds_the_terminal_width(width: int) -> None:
+@pytest.mark.parametrize(("case", "width"), RECIPE_CASES)
+def test_no_rendered_line_of_an_mcp_screen_exceeds_the_terminal_width(
+    case: Callable[[], Recipe], width: int
+) -> None:
     """Both shapes of recipe, because they draw different rows.
 
     A URL and a command line are both single unbreakable runs of characters, and
     a narrow terminal is exactly where a grid decides between wrapping and
     cutting — cutting is what turns a command into one nobody can read back.
     """
-    for recipe in (recorded_recipe(), recorded_stdio_recipe()):
-        rendered = render(mcp_screen(recipe, RECORDED_TARGETS), width)
+    rendered = render(mcp_screen(case(), RECORDED_TARGETS), width)
 
-        assert [line for line in rendered.splitlines() if len(line) > width] == []
-        assert "…" not in rendered
+    assert [line for line in rendered.splitlines() if len(line) > width] == []
+    assert "…" not in rendered
+
+
+def test_a_recipe_no_target_can_serve_says_it_in_the_ink_of_a_warning() -> None:
+    """The one word on a `list` screen that is not a fact about equipment.
+
+    Colour is asserted structurally and never recorded — the snapshots are
+    colourless by doctrine — so this is the only place *"`none` is not just
+    another answer"* can be said. `op.warn` is the ink the `doctor` flags a
+    finding in, and it means the same thing here: reading stops for your case.
+    """
+    target = console(80)
+
+    segments = [
+        segment
+        for segment in target.render(mcp_screen(recorded_recipe(), ()))
+        if "none" in segment.text
+    ]
+
+    assert segments, "the empty answer never made it to a segment"
+    assert all(
+        segment.style is not None and segment.style.color is not None for segment in segments
+    )
+    assert all(segment.style == THEME.styles["op.warn"] for segment in segments)
 
 
 @pytest.mark.parametrize("width", WIDTH_CASES)

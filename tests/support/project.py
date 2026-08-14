@@ -164,6 +164,7 @@ def catalog_of(  # noqa: PLR0913 — one keyword per unit of the catalog, plus t
     that only names pool skills is unaffected.
     """
     content = tmp_path / "packaged" / "content"
+    content.mkdir(parents=True, exist_ok=True)
     for name in names:
         _skill(content / "pool" / "skills" / name, name, extra)
     for framework, artifacts in (frameworks or {}).items():
@@ -255,6 +256,20 @@ def _recipe(path: Path, slug: str, kind: str) -> None:
         encoding="utf-8",
         newline="\n",
     )
+
+
+def custom_recipe(tmp_path: Path, slug: str, body: str) -> Path:
+    """One MCP recipe written verbatim, for a shape `catalog_of`'s canned kinds do not carry.
+
+    `catalog_of` must have run first — this only writes at the path `_recipe`
+    already uses, `packaged/mcps/<slug>.toml`, which is how preconditions and
+    instructions (issue #82) get tested without a fixture kind per combination
+    of check and value.
+    """
+    path = tmp_path / "packaged" / "mcps" / f"{slug}.toml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body, encoding="utf-8", newline="\n")
+    return path
 
 
 def _written(frameworks: Mapping[str, Sequence[str]], bundles: Mapping[str, Sequence[str]]) -> str:

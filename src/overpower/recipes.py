@@ -12,13 +12,14 @@ transport admits, and the one substitution token — so `overpower.rendering` is
 total function over what this returns rather than a second validator that could
 disagree with the first.
 
-The vocabulary of this version is **`description`, `transport`, `[server]` and
-`[[slots]]`** (https://github.com/panlabs-tech/overpower/issues/76 and /78).
-`[[preconditions]]`, `[source]` and `instructions` are the slices after it, and
-until they arrive a recipe that declares one is refused **by name** rather than
-read half-way: silent partial acceptance is exactly the class of defect the
-graft exists not to commit, and it is the reason the unknown-field check is a
-closed allowlist rather than a `get` per known key.
+The vocabulary of this version is **`description`, `transport`, `[server]`,
+`[[slots]]`, `[[preconditions]]` and `instructions`**
+(https://github.com/panlabs-tech/overpower/issues/76, /78 and /82). `[source]`
+is the slice after it, and until it arrives a recipe that declares one is
+refused **by name** rather than read half-way: silent partial acceptance is
+exactly the class of defect the graft exists not to commit, and it is the
+reason the unknown-field check is a closed allowlist rather than a `get` per
+known key.
 
 **A recipe carries a secret and a configuration, and the difference is the whole
 point**: a slot is what the overpower **refuses to write**, `[server.env]` is
@@ -71,8 +72,12 @@ DESCRIPTION_KEY = "description"
 TRANSPORT_KEY = "transport"
 SERVER_KEY = "server"
 SLOTS_KEY = "slots"
+PRECONDITIONS_KEY = "preconditions"
+INSTRUCTIONS_KEY = "instructions"
 
-_RECIPE_KEYS = frozenset({DESCRIPTION_KEY, TRANSPORT_KEY, SERVER_KEY, SLOTS_KEY})
+_RECIPE_KEYS = frozenset(
+    {DESCRIPTION_KEY, TRANSPORT_KEY, SERVER_KEY, SLOTS_KEY, PRECONDITIONS_KEY, INSTRUCTIONS_KEY}
+)
 """The closed set of top-level keys this version implements."""
 
 _NAME_FIELD = "name"
@@ -81,6 +86,12 @@ _HEADER_FIELD = "header"
 
 _SLOT_KEYS = frozenset({_NAME_FIELD, _ROLE_FIELD, _HEADER_FIELD})
 """What a slot is made of: a variable, a role, and — for one role — a header."""
+
+_CHECK_FIELD = "check"
+_VALUE_FIELD = "value"
+
+_PRECONDITION_KEYS = frozenset({_CHECK_FIELD, _VALUE_FIELD})
+"""What a precondition is made of: which check, and what it checks for."""
 
 NO_ENVIRONMENT: Mapping[str, str] = MappingProxyType({})
 """The default `[server.env]`: empty, and immutable so it can be one value.
@@ -136,6 +147,43 @@ class Role(StrEnum):
 
     BEARER = "bearer"
     """`Authorization: Bearer <secret>`, assembled by the renderer."""
+
+
+class Check(StrEnum):
+    """A machine fact the overpower reads for itself, and the set is closed at three.
+
+    This is the whole of what a federated recipe may ask for: existence of a
+    command on `PATH`, of a variable in the environment, of a path on disk.
+    Every member is answered by **reading**, never by **running** — `command_exists`
+    walks `PATH` the way `shutil.which` does and never invokes what it finds — and
+    that is not a style choice: axiom 1 admits no script from a recipe, and a
+    vocabulary that could grow a member which executes would be the remote-code
+    hole wearing the name of a feature. `install --mcp x --from <url>` running
+    code out of that repository would be arbitrary remote execution behind a
+    one-liner, and nothing here does that, not even behind `--yes`.
+    """
+
+    COMMAND_EXISTS = "command_exists"
+    """Whether a name resolves on `PATH` — the shape almost every stdio server needs."""
+
+    ENV_SET = "env_set"
+    """Whether a variable is present in the environment the overpower runs in."""
+
+    PATH_EXISTS = "path_exists"
+    """Whether a path is present on disk — a socket, a config file, a binary."""
+
+
+@dataclass(frozen=True)
+class Precondition:
+    """One fact about the machine the recipe requires before it is written.
+
+    `value` is what the check reads — a command's name, a variable's name, a
+    path — and never a value read *from* the machine: nothing a precondition
+    finds travels back into the recipe or the rendered fragment.
+    """
+
+    check: Check
+    value: str
 
 
 AUTHORIZATION = "Authorization"
@@ -264,6 +312,13 @@ class Recipe:
     what makes the diff of a re-install empty.
     """
 
+    preconditions: tuple[Precondition, ...] = ()
+    """What this machine must already have, checked before the first byte is written."""
+
+    instructions: str | None = None
+    """Prose the author left for what the overpower cannot automate — asking a
+    credential, naming who on the team holds it. `None` when the recipe has none."""
+
     @property
     def transport(self) -> Transport:
         """The transport this recipe's server speaks, recovered from its shape.
@@ -354,6 +409,25 @@ class UnknownSlotRoleError(OverpowerError):
         super().__init__(f"{path}: `{key}` is `{role}`, which is no role; the set is: {listed}")
 
 
+class UnknownPreconditionCheckError(OverpowerError):
+    """A precondition `check` outside the closed set of three the overpower implements.
+
+    Malformed and not refused (`ForbiddenTransportError`'s axis): the value does
+    not name a real check, so it is a typo in a file rather than a requirement
+    this product declines to verify. Ignoring it would be the worst answer —
+    the author would believe a requirement is declared when nothing checks it,
+    and the server would fail at runtime with no line to point at.
+    """
+
+    def __init__(self, path: Path, key: str, check: str) -> None:
+        """Name the precondition, the check it declared, and the three that exist."""
+        self.path = path
+        self.key = key
+        self.check = check
+        listed = ", ".join(sorted(member.value for member in Check))
+        super().__init__(f"{path}: `{key}` is `{check}`, which is no check; the set is: {listed}")
+
+
 class CollidingSlotError(OverpowerError):
     """Two declarations of one place, where the renderer could only keep one.
 
@@ -433,6 +507,8 @@ def read_recipe(path: Path) -> Recipe:
         description=_text(path, DESCRIPTION_KEY, document.get(DESCRIPTION_KEY)),
         server=server,
         slots=_slots(path, transport, server, document.get(SLOTS_KEY, [])),
+        preconditions=_preconditions(path, document.get(PRECONDITIONS_KEY, [])),
+        instructions=_instructions(path, document.get(INSTRUCTIONS_KEY)),
     )
 
 
@@ -558,6 +634,35 @@ def _role(path: Path, key: str, transport: Transport, value: object) -> Role:
     if carrier_of(role) is not transport:
         raise MismatchedSlotRoleError(path, key, role, transport)
     return role
+
+
+def _preconditions(path: Path, value: object) -> tuple[Precondition, ...]:
+    """`[[preconditions]]`, each one read whole, in declaration order."""
+    if not isinstance(value, list):
+        raise MalformedRecipeError(path, PRECONDITIONS_KEY, "a list of tables")
+    return tuple(
+        _precondition(path, f"{PRECONDITIONS_KEY}[{index}]", entry)
+        for index, entry in enumerate(cast("list[object]", value))
+    )
+
+
+def _precondition(path: Path, key: str, value: object) -> Precondition:
+    """One precondition: the check, out of the closed set, and what it checks for."""
+    table = _table(path, key, value, "a table")
+    _known(path, f"{key}.", table, _PRECONDITION_KEYS)
+    declared = _text(path, f"{key}.{_CHECK_FIELD}", table.get(_CHECK_FIELD))
+    if declared not in {member.value for member in Check}:
+        raise UnknownPreconditionCheckError(path, f"{key}.{_CHECK_FIELD}", declared)
+    return Precondition(
+        check=Check(declared), value=_field(path, f"{key}.{_VALUE_FIELD}", table.get(_VALUE_FIELD))
+    )
+
+
+def _instructions(path: Path, value: object) -> str | None:
+    """The prose the author left, or `None` — the only field that is optional and not a list."""
+    if value is None:
+        return None
+    return _text(path, INSTRUCTIONS_KEY, value)
 
 
 def _environment(path: Path, value: object) -> Mapping[str, str]:

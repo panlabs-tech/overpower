@@ -65,6 +65,16 @@ The one thing that differs between the renderers sharing a field-by-field walk,
 so it is the one thing handed in: `${VAR}`, `${input:<id>}` and `${env:VAR}` are
 the whole delta, and a second copy of the walk would be one more place for a
 field to go missing from.
+
+**It carries the hole `_transports` refuses, and the trade is deliberate.** A
+`dict[Dialect, ...]` is rejected two functions down because a new member would
+type-check clean against it; a parameter of this type has exactly that shape —
+`_devin` handing `_claude_reference` to `_headers` compiles, and no `assert_never`
+fires. What catches it is not the type checker but the file: every dialect is
+asserted against the bytes it produces, in `tests/test_writing.py`. The
+alternative is writing the literal-versus-slot merge rule once per dialect and
+trusting three copies to stay the same rule, which is the failure this class
+exists not to have.
 """
 
 

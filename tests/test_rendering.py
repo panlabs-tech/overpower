@@ -477,10 +477,11 @@ def test_a_devin_http_server_names_the_transport_in_a_field_of_its_own() -> None
 
     Vendor documentation, not measurement (`docs/research/mcp-config-formats.md`
     § Adendo 2026-08-13): the `devin` binary is not on the machine this was
-    written on, so this row carries the weaker grade of evidence that the Cursor
-    row does. `transport` defaults to `"http"` when absent, and it is written
-    anyway for the reason `type` is: the field that ends the guessing costs
-    nothing.
+    written on, so this row carries the weaker grade of evidence the research
+    already lists among its own weaknesses — the grade Cursor has *there*, which
+    has no row here at all. `transport` defaults to `"http"` when absent, and it
+    is written anyway for the reason `type` is: the field that ends the guessing
+    costs nothing.
     """
     fragment = server_of(
         recipe("cloudflare", HttpServer(url="https://mcp.example.com/mcp")), DEVIN_PROJECT

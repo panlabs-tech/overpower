@@ -1044,6 +1044,7 @@ def test_one_line_over_two_targets_warns_only_for_the_one_that_is_born_pending(
     assert code == 0
     joined = project.joined(output)
     warned = "is written, and the server does not connect"
+    assert ".devin/mcp_config.json" in joined
     assert f".mcp.json {warned}" in joined
     assert f"mcp_config.json {warned}" not in joined
     assert (root / ".devin" / "mcp_config.json").is_file()

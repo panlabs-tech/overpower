@@ -670,14 +670,20 @@ that asymmetry is the shape of the whole class rather than a gap in the
 transcription. There is **no canonical format** — measured, the same server has
 three root keys, three file names and three secret spellings across three
 targets, and the MCP spec itself documents the absence (SEP-2633). So a row here
-is a target somebody rendered and read the source for, never a path copied from
-a list.
+is a target somebody rendered and read the primary source for, never a path
+copied from a list.
 
-**The rows do not carry the same grade of evidence, and the difference is not
-recorded here.** `.mcp.json` was executed against Claude Code 2.1.220; the Devin
-row was read off the vendor's documentation with the binary absent from the
-machine. That distinction lives in the dialect's docstring and in
-`docs/research/mcp-config-formats.md` rather than in a column, because no code
+**That sentence used to say "rendered and measured", and the second row is what
+moved it.** Said plainly rather than edited quietly: `.mcp.json` was executed
+against Claude Code 2.1.220, and the Devin row was read off the vendor's
+documentation with the binary absent from the machine
+(https://github.com/panlabs-tech/overpower/issues/80). The bar that survives is
+*primary source, read directly* — which the research already treats as a grade it
+carries, and lists among its own weaknesses. What the bar still refuses is the
+thing it was written against: a path transcribed from somebody's list.
+
+**The difference between the two grades is not a column here.** It lives in the
+dialect's docstring and in `docs/research/mcp-config-formats.md`, because no code
 reads it — a field with no reader is a field that goes stale unnoticed. The day
 something branches on it, it becomes a column.
 

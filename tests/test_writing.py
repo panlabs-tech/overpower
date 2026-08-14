@@ -1237,7 +1237,8 @@ DEVIN_JSON = ".devin/mcp_config.json"
 """Where Devin reads MCP servers in a repository — vendor documentation, not measured.
 
 The binary was absent from the machine this row was written on, so the grade of
-evidence is the one the Cursor row carries and not the one `.mcp.json` carries
+evidence is the one the research already counts among its weaknesses — Cursor's
+grade *there*, which has no row here — and not the one `.mcp.json` carries
 (`docs/research/mcp-config-formats.md` § Adendo 2026-08-13).
 """
 
@@ -1353,19 +1354,31 @@ def test_a_slot_reaches_the_second_target_as_its_own_spelling_and_never_as_the_v
     assert ":-" not in after
 
 
+@pytest.mark.parametrize(
+    "kind",
+    [
+        pytest.param(CLOUDFLARE, id="no-slot"),
+        pytest.param(SLOTTED, id="env-slot-and-a-literal"),
+        pytest.param(BEARER, id="bearer-slot"),
+    ],
+)
 def test_the_plan_the_screen_and_the_second_document_name_the_same_keys(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], kind: str
 ) -> None:
     """The three-way identity, on the row that was not there when it was written.
 
-    Same shape as the first target's: what `--dry-run` announced, what the run
-    announced, and what the document holds afterwards are one set. It is repeated
-    rather than parametrised because the second target arrives with its own
-    parent directory, and `files_under(dry_root)` is the half that says the audit
-    created nothing while getting there.
+    Same shape and the same three recipes as the first target's, because the
+    identity is a property of the **plan**, not of a dialect: a second spelling
+    that had leaked into the announced key would show up here and nowhere else.
+
+    What is repeated rather than parametrised *with* the first target is the
+    target itself, and the reason is on the last assertion: this document arrives
+    with its own parent directory, so `files_under(dry_root)` being empty is the
+    half that says the audit did not create the directory on its way to
+    announcing the key.
     """
     # given
-    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": CLOUDFLARE})
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": kind})
     dry_root = target(tmp_path, monkeypatch, "dry")
     real_root = target(tmp_path, monkeypatch, "real")
     selectors = ("install", "--mcp", "cloudflare", "--runtime", "devin")

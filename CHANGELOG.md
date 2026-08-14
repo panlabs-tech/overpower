@@ -23,6 +23,13 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.10.0] - 2026-08-14
+
+### Added
+
+- O VS Code entra como alvo de enxerto: `.vscode/mcp.json`, chave raiz `servers`, e o slot renderizado como `${input:<id>}` mais uma entrada em `inputs[]` marcada `password: true` — a única grafia do espaço medido em que o segredo fica no cofre do sistema operacional em vez de em texto puro. ([#79](https://github.com/panlabs-tech/overpower/issues/79))
+
+
 ## [0.9.0] - 2026-08-13
 
 ### Added

@@ -1,4 +1,4 @@
-"""`(Recipe, document)` → the fragment to graft. A pure function over values.
+"""`(Recipe, document)` → the grafts to make. A pure function over values.
 
 **The contract is logical, never literal** — rule 4 of the model. The recipe
 carries transport, command or URL, and slots as **name and role**; *how* any of
@@ -42,17 +42,29 @@ from overpower.recipes import (
 from overpower.runtimes import MCP_DOCUMENTS, Dialect
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
     from overpower.recipes import Recipe, Slot
     from overpower.runtimes import McpDocument, Scope
 
-type JsonValue = str | Sequence[JsonValue] | Mapping[str, JsonValue]
-"""What a rendered server is made of, and the set is closed at three.
+type JsonValue = str | bool | Sequence[JsonValue] | Mapping[str, JsonValue]
+"""What a rendered graft is made of, and the set is closed at four.
 
-No number, no boolean and no null, because nothing in a recipe produces one: a
-server is strings, lists of strings and tables of strings all the way down.
-Widening this is a decision for whoever needs it, made where the need is.
+No number and no null, because nothing in a recipe produces one: a server is
+strings, lists of strings and tables of strings all the way down. Widening this
+was left as *"a decision for whoever needs it, made where the need is"*, and the
+need arrived: `password: true` is a **boolean** in the measured VS Code file, and
+the string `"true"` is not the same value — measured, what turns the OS keychain
+on is the boolean (`docs/research/mcp-config-formats.md`, trap 10).
+"""
+
+type Reference = Callable[[str], str]
+"""How one dialect spells *"the value of the slot named this"*.
+
+The one thing that differs between the two server renderers, so it is the one
+thing handed in: `${VAR}` against `${input:<id>}` is the whole delta, and a
+second copy of the field-by-field walk would be two places for a field to go
+missing from.
 """
 
 
@@ -78,6 +90,49 @@ class Fragment:
         `overpower.planning.DocumentKey.key`, where the datum lives.
         """
         return f"{self.root_key}.{self.name}"
+
+
+@dataclass(frozen=True)
+class Inputs:
+    """The prompts a document needs before its slots can be filled — the other graft.
+
+    It exists because one dialect spells a slot as a **reference to a declaration
+    elsewhere in the same file**: `${input:git-token}` is inert unless an entry
+    with that `id` is in `inputs[]`, so the reference and the declaration are two
+    keys of one document and a recipe that has a slot becomes two grafts in it.
+
+    A list and not a table, which is why this is not a second `Fragment`: the
+    entries have no key of their own, and *"the same entry"* is decided by a
+    **field inside them**. `identity` carries which one, so the writer is told
+    how to deduplicate rather than knowing — two recipes wanting `GITHUB_TOKEN`
+    want one prompt, and the append that keeps it at one is the writer's, from
+    the plan and nothing beyond it.
+    """
+
+    root_key: str
+    entries: tuple[Mapping[str, JsonValue], ...]
+    identity: str
+    """The field two entries are the same entry by, named for the writer."""
+
+    @property
+    def dotted(self) -> str:
+        """`inputs` — the whole path, which for a list *is* the root key.
+
+        The same property `Fragment` answers and for the same consumer: it is
+        what the plan prints and what the identity assertion reads. A list has no
+        leaf to name, so the honest whole path is one segment long.
+        """
+        return self.root_key
+
+
+type Graft = Fragment | Inputs
+"""One insertion into a document: a key under a table, or entries in a list.
+
+A union rather than one widened type, for the reason `Destination` is one in
+`overpower.planning`: the two are written by different mechanics — replace-or-
+append **by key** against append-or-replace **by a field of the value** — and a
+single type carrying both would make every reader ask which half it holds.
+"""
 
 
 BEARER_SCHEME = "Bearer"
@@ -108,7 +163,7 @@ class Target:
 
 
 CLAUDE_TRANSPORTS = frozenset({Transport.STDIO, Transport.HTTP})
-"""What the Claude dialect can spell, which today is everything a recipe can say.
+"""What the Claude dialect can spell, which is everything a recipe can say.
 
 Measured (`docs/research/mcp-config-formats.md`): `.mcp.json` discriminates the
 transport with an explicit `type` field and writes **both** bindings, so the two
@@ -117,8 +172,18 @@ and not about the model — the day a dialect lands that writes one of them, or
 that cannot spell a slot role, the answer moves **here**, with no recipe touched.
 Which is the whole reason it is a table in code and never a field (rule 4).
 
-It is the same set `_claude` matches on, and `_transports` is what keeps the two
-from drifting apart in silence.
+It is the same set the `CLAUDE` branch of `_server` covers, and `_transports` is
+what keeps the two from drifting apart in silence.
+"""
+
+VSCODE_TRANSPORTS = frozenset({Transport.STDIO, Transport.HTTP})
+"""What the VS Code dialect can spell, and it is the same two.
+
+Written as its own set rather than aliased to the one above, because they are
+equal by measurement and not by definition: `.vscode/mcp.json` happens to carry
+the same explicit `type` discriminator, and a dialect that loses one of the two
+must be able to shrink without dragging the other target with it. The equality
+is the fact; sharing the object would make it a rule.
 """
 
 
@@ -126,14 +191,17 @@ def _transports(dialect: Dialect) -> frozenset[Transport]:
     """Which transports `dialect` can spell — the capability half of rule 4.
 
     A `match` and never a mapping lookup, for the reason `Dialect` states on
-    itself: the set is closed *and* matched with `assert_never`, so a second
+    itself: the set is closed *and* matched with `assert_never`, so a third
     dialect lands as a hole the type checker names. A `dict[Dialect, ...]`
     subscript would type-check clean against a new member and raise `KeyError`
-    from inside `targets_of` — a silent default wearing a table's clothes.
+    from inside `targets_of` — a silent default wearing a table's clothes. It is
+    how the second dialect landed, and it worked.
     """
     match dialect:
         case Dialect.CLAUDE:
             return CLAUDE_TRANSPORTS
+        case Dialect.VSCODE:
+            return VSCODE_TRANSPORTS
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -160,27 +228,48 @@ def targets_of(
     )
 
 
-def render(recipe: Recipe, document: McpDocument) -> Fragment:
-    """The fragment `recipe` becomes inside `document`."""
+def render(recipe: Recipe, document: McpDocument) -> tuple[Graft, ...]:
+    """Every graft `recipe` becomes inside `document`, in the order they are written.
+
+    A tuple and never one fragment, because one dialect needs two: a VS Code slot
+    is a `${input:<id>}` **and** the `inputs[]` entry it points at, under a
+    different root key of the same document. The server graft is always first, so
+    a reader that wants *"the server"* takes the head rather than filtering.
+
+    Answering with a tuple rather than with an optional field on `Fragment` is
+    the same reasoning `Dialect` applies to itself: a third dialect that needs a
+    third graft is one more element, and a dialect that needs none is a shorter
+    tuple — neither one is a field the other dialects carry as `None`.
+    """
+    server = Fragment(root_key=document.root_key, name=recipe.name, value=_server(recipe, document))
     match document.dialect:
         case Dialect.CLAUDE:
-            return Fragment(root_key=document.root_key, name=recipe.name, value=_claude(recipe))
+            return (server,)
+        case Dialect.VSCODE:
+            prompts = _vscode_inputs(recipe.slots)
+            return (server,) if prompts is None else (server, prompts)
         case _ as unreachable:
             assert_never(unreachable)
 
 
-def _claude(recipe: Recipe) -> Mapping[str, JsonValue]:
-    """The Claude-style spelling: an explicit `type`, and the fields it admits.
+def _server(recipe: Recipe, document: McpDocument) -> Mapping[str, JsonValue]:
+    """The server table, in the fields both dialects admit and one spells apart.
 
-    `type` is written even though the loader defaults to stdio without it, and
-    that is deliberate: measured, the same file is read by three runtimes and
+    `type` is written even though both loaders default to stdio without it, and
+    that is deliberate: measured, `.mcp.json` alone is read by three runtimes and
     they infer the transport by three different rules, so the one field that
     ends the guessing costs nothing to write.
+
+    One walk of the fields for both dialects, because measured they differ in
+    **exactly one thing** — how a slot is referred to. Writing it twice would put
+    the shape of a server in two places, and the second one is where a field goes
+    missing the day a recipe grows one.
     """
+    reference = _reference(document.dialect)
     match recipe.server:
         case HttpServer(url):
             rendered: dict[str, JsonValue] = {"type": "http", "url": url}
-            headers = _claude_headers(recipe.slots)
+            headers = _headers(recipe.slots, reference)
             if headers:
                 rendered["headers"] = headers
             return rendered
@@ -188,7 +277,7 @@ def _claude(recipe: Recipe) -> Mapping[str, JsonValue]:
             rendered = {"type": "stdio", "command": command}
             if args:
                 rendered["args"] = list(args)
-            variables = _claude_environment(environment, recipe.slots)
+            variables = _environment(environment, recipe.slots, reference)
             if variables:
                 rendered["env"] = variables
             return rendered
@@ -196,26 +285,44 @@ def _claude(recipe: Recipe) -> Mapping[str, JsonValue]:
             assert_never(unreachable)
 
 
-def _claude_environment(
-    literals: Mapping[str, str], slots: Sequence[Slot]
+def _reference(dialect: Dialect) -> Reference:
+    """How `dialect` spells a slot, which is the only thing the two disagree on.
+
+    A `match` on the closed set for the reason every other one here is: the day a
+    third dialect arrives, this is one of the holes the type checker names, and
+    the alternative — a mapping with a default — would silently spell the new
+    target in somebody else's syntax. Measured, that failure does not show up in
+    a parse: it shows up as a literal `${input:x}` on the network.
+    """
+    match dialect:
+        case Dialect.CLAUDE:
+            return _claude_reference
+        case Dialect.VSCODE:
+            return _vscode_reference
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+def _environment(
+    literals: Mapping[str, str], slots: Sequence[Slot], reference: Reference
 ) -> Mapping[str, JsonValue]:
     """The `env` table: what is written because it can be, then what never is.
 
     The whole distinction of the class, in one table. `literals` are values that
     are **not** secret — the address of a panel — and they arrive written, so the
     server knows where to talk; a slot arrives as a reference the runtime
-    expands, so the secret stays in the environment where it already was.
+    expands, so the secret stays where it already was.
 
     The two cannot collide: a recipe naming one variable both ways is refused by
     the reader, which is what lets this be a merge rather than a decision.
     """
     return {
         **literals,
-        **{slot.name: _claude_reference(slot.name) for slot in slots if isinstance(slot, EnvSlot)},
+        **{slot.name: reference(slot.name) for slot in slots if isinstance(slot, EnvSlot)},
     }
 
 
-def _claude_headers(slots: Sequence[Slot]) -> Mapping[str, JsonValue]:
+def _headers(slots: Sequence[Slot], reference: Reference) -> Mapping[str, JsonValue]:
     """The `headers` table of an HTTP server, one entry per slot.
 
     Two refusals of the reader are what let this be a plain table. An `EnvSlot`
@@ -225,16 +332,16 @@ def _claude_headers(slots: Sequence[Slot]) -> Mapping[str, JsonValue]:
     `bearer` slots would both land on `Authorization`, and the loser would be a
     secret gone at exit 0.
     """
-    return dict(_claude_header(slot) for slot in slots if not isinstance(slot, EnvSlot))
+    return dict(_header(slot, reference) for slot in slots if not isinstance(slot, EnvSlot))
 
 
-def _claude_header(slot: HeaderSlot | BearerSlot) -> tuple[str, JsonValue]:
+def _header(slot: HeaderSlot | BearerSlot, reference: Reference) -> tuple[str, JsonValue]:
     """One header, named by the recipe or by the scheme, filled by reference."""
     match slot:
         case BearerSlot(name):
-            return AUTHORIZATION, f"{BEARER_SCHEME} {_claude_reference(name)}"
+            return AUTHORIZATION, f"{BEARER_SCHEME} {reference(name)}"
         case HeaderSlot(name, header):
-            return header, _claude_reference(name)
+            return header, reference(name)
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -255,3 +362,91 @@ def _claude_reference(name: str) -> str:
     (`overpower.planning.unset_slots`).
     """
     return f"${{{name}}}"
+
+
+INPUTS_KEY = "inputs"
+"""The root key VS Code reads its prompts from, beside `servers`.
+
+A constant here and not a column of `McpDocument`, for the reason that table
+gives for having no field for the file type: only one dialect has a second root
+key, so a column would be `None` on every other row — a field with no reader,
+going stale unnoticed. The spelling belongs with the dialect that spells it, the
+way `BEARER_SCHEME` does.
+"""
+
+INPUT_IDENTITY = "id"
+"""The field two prompts are the same prompt by, which the plan carries onward."""
+
+PROMPT_STRING = "promptString"
+"""The kind of input a slot becomes: a line the user types, never a pick list.
+
+`promptString` and not `promptCommand`, which runs a shell command to produce the
+value — axiom 1 without amendment: no third-party code runs, and a config file
+that can execute is exactly the hatch this product does not open.
+"""
+
+
+def _vscode_inputs(slots: Sequence[Slot]) -> Inputs | None:
+    """One prompt per slot, or `None` when the recipe asks for no secret at all.
+
+    `None` rather than an empty `Inputs`, because the two say different things to
+    everything downstream: an empty one would put `"inputs": []` in the user's
+    file and a key in the plan, for a server that has nothing to fill in.
+    Cloudflare authorises in the browser, and it is the ordinary case.
+    """
+    if not slots:
+        return None
+    return Inputs(
+        root_key=INPUTS_KEY,
+        entries=tuple(_prompt(slot.name) for slot in slots),
+        identity=INPUT_IDENTITY,
+    )
+
+
+def _prompt(name: str) -> Mapping[str, JsonValue]:
+    """One `inputs[]` entry, and `password` is the field that does the work.
+
+    Measured (`docs/research/mcp-config-formats.md`, trap 10): with
+    `password: true` the value the user types is encrypted under a key held in
+    the OS keychain — Keychain, DPAPI or libsecret — and only the ciphertext
+    reaches `state.vscdb`. **Without it the same value lands there in plain
+    text.** Neither one puts the secret in the repository, which is what makes
+    committing `.vscode/mcp.json` safe; only one of them makes it safe on the
+    machine, and this renderer has no reason to ever write the other.
+
+    `description` carries the **variable name** rather than prose, because it is
+    what the prompt shows: the person is being asked for `GITHUB_TOKEN`, and the
+    name of the variable is the only thing that tells them which secret that is.
+    """
+    return {
+        "type": PROMPT_STRING,
+        INPUT_IDENTITY: _input_id(name),
+        "description": name,
+        "password": True,
+    }
+
+
+def _input_id(name: str) -> str:
+    """`GIT_TOKEN` → `git-token`, the identifier shape the measured files use.
+
+    Derived from the slot name and never stored beside it, so the recipe carries
+    one name for one secret: two recipes that need `GITHUB_TOKEN` derive the same
+    id, land on the same entry, and the person is asked once.
+    """
+    return name.lower().replace("_", "-")
+
+
+def _vscode_reference(name: str) -> str:
+    """`${input:<id>}` — a pointer at the prompt, and **never** `${env:VAR}`.
+
+    The variant that is refused here is the measured one that fails in silence:
+    VS Code resolves `${env:X}` against the environment of its own process, and
+    a variable that is not there becomes the **empty string** with no error and
+    no prompt. `${env:X:-y}` does not help — it looks for a variable literally
+    named `X:-y` and returns empty too. The server comes up unauthenticated and
+    the failure arrives on the first call, far from the cause.
+
+    The prompt reference cannot fail that way: what is missing, the editor asks
+    for, and what is answered goes to the keychain (`_prompt`).
+    """
+    return f"${{input:{_input_id(name)}}}"

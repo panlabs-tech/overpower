@@ -60,12 +60,13 @@ from typing import TYPE_CHECKING, cast
 from overpower.errors import OverpowerError
 from overpower.grafting import EMPTY_DOCUMENT, grafted, read_document, write_document
 from overpower.planning import DirectoryTree, DocumentKey, WriteMode
-from overpower.rendering import Fragment
+from overpower.rendering import Fragment, Inputs
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from overpower.planning import Destination, Plan, Write
+    from overpower.rendering import Graft
 
 
 @dataclass(frozen=True)
@@ -170,8 +171,8 @@ def _perform(write: Write) -> WriteMode:
             return _land_link(origin, path)
         case DirectoryTree(path), WriteMode.JUNCTION, Path() as origin:
             return _land_junction(origin, path)
-        case DocumentKey(path), WriteMode.GRAFT, Fragment() as fragment:
-            _land_graft(fragment, path)
+        case DocumentKey(path), WriteMode.GRAFT, (Fragment() | Inputs()) as graft:
+            _land_graft(graft, path)
             return WriteMode.GRAFT
         case destination, mode, _:
             raise UnsupportedWriteError(destination, mode)
@@ -187,7 +188,7 @@ def _land_tree(source: Path, destination: Path) -> None:
     shutil.copytree(source, destination, symlinks=True)
 
 
-def _land_graft(fragment: Fragment, destination: Path) -> None:
+def _land_graft(graft: Graft, destination: Path) -> None:
     """Put one key into a document, and leave every other byte of it alone.
 
     Read, splice, write — never serialise. The whole argument is ADR 0016 and
@@ -195,16 +196,19 @@ def _land_graft(fragment: Fragment, destination: Path) -> None:
     is a **branch of the one write boundary** and not a second writer, so the
     plan is still the only thing that decides what lands.
 
+    One graft and not one recipe, which is what lets a recipe be two of them: a
+    VS Code slot lands the server and the prompt it points at under two root keys
+    of the same document, so the file is read and written twice and the second
+    pass reads what the first one wrote — the same path two servers on one line
+    already take.
+
     A document that is not there yet is created; a document that is there and
     does not parse was already refused before the first byte
     (`overpower.planning.broken_documents`), and refused again here if it ever
     reached this far.
     """
     text = read_document(destination) if destination.is_file() else EMPTY_DOCUMENT
-    write_document(
-        destination,
-        grafted(destination, text, fragment.root_key, fragment.name, fragment.value),
-    )
+    write_document(destination, grafted(destination, text, graft))
 
 
 def _land_link(source: Path, destination: Path) -> WriteMode:

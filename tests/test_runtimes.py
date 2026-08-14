@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from overpower.runtimes import (
+    MCP_DOCUMENTS,
     RUNTIMES,
     RUNTIMES_BY_KEY,
     UNIVERSAL_PROJECT_DIR,
@@ -23,6 +24,7 @@ from overpower.runtimes import (
     Runtime,
     Scope,
     detected_runtimes,
+    mcp_runtimes_in,
     places_of,
     resolve_global_dir,
     resolve_project_dir,
@@ -79,6 +81,39 @@ def runtime(key: str) -> Runtime:
 
 def test_table_size_matches_the_transcribed_upstream() -> None:
     assert len(RUNTIMES) == 76
+
+
+def test_the_mcp_table_is_not_a_subset_of_the_skills_transcription() -> None:
+    """The two axes are two tables, and neither one contains the other.
+
+    This is the decision https://github.com/panlabs-tech/overpower/issues/79
+    forced, pinned as a fact rather than left as prose. `vscode` owns
+    `.vscode/mcp.json` — no other runtime reads it — and upstream declares **no
+    skills row** for it, which is why the count above is still 76: a transcription
+    that grew a row of our own would stop being a transcription, and the numbers
+    the map states out loud would be measuring two different things at once.
+
+    The other direction is asserted at the same time, because it is what makes
+    this a pair of tables and not a hierarchy: `cursor` has a skills row and no
+    MCP document anywhere.
+    """
+    grafts = {key for key, _ in MCP_DOCUMENTS}
+
+    assert "vscode" in grafts
+    assert "vscode" not in RUNTIMES_BY_KEY
+    assert "cursor" in RUNTIMES_BY_KEY
+    assert "cursor" not in grafts
+
+
+def test_the_mcp_runtimes_of_a_scope_come_off_the_mcp_table() -> None:
+    """Read from the table that decides, never filtered out of the other one.
+
+    Filtering `runtimes_in` was the shape before the second target, and it worked
+    only while every MCP runtime happened to have a skills row. It would drop
+    `vscode` in silence — the target would exist, render, and be unnameable.
+    """
+    assert set(mcp_runtimes_in(Scope.PROJECT)) == {"claude-code", "vscode"}
+    assert mcp_runtimes_in(Scope.GLOBAL) == ()
 
 
 def test_every_key_is_unique() -> None:

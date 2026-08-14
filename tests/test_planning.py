@@ -15,10 +15,25 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from overpower.discovery import load_catalog
-from overpower.planning import DirectoryTree, DocumentKey, Request, WriteMode, plan_for
-from overpower.rendering import Fragment
-from overpower.runtimes import Environment, Scope
-from tests.support.project import CLAUDE, catalog_of, joined, run, target
+from overpower.planning import (
+    DirectoryTree,
+    DocumentKey,
+    Request,
+    WriteMode,
+    known_runtimes,
+    plan_for,
+)
+from overpower.rendering import Fragment, Inputs
+from overpower.runtimes import MCP_DOCUMENTS, Environment, Scope
+from tests.support.project import (
+    CLAUDE,
+    SLOT_VARIABLE,
+    SLOTTED,
+    catalog_of,
+    joined,
+    run,
+    target,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -84,6 +99,97 @@ def test_the_graft_class_lands_in_a_document_and_the_planner_says_which_key(
             value={"type": "http", "url": "https://mcp.example.com/mcp"},
         )
     ]
+
+
+def test_one_recipe_is_two_writes_of_one_landing_where_the_dialect_asks_for_two(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two keys, one place — the shape the VS Code dialect imposes on the plan.
+
+    A landing is a *place*, and both keys fall in the same file, so announcing
+    two landings would say the run touches two documents. The writes are in
+    render order because that is the order the writer performs them, and the
+    second one counts **zero files**: the report at the end counts what landed on
+    disk, and one file did.
+    """
+    # given
+    content = catalog_of(tmp_path, monkeypatch, mcps={"panel": SLOTTED})
+    root = target(tmp_path, monkeypatch)
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+
+    plan = plan_for(
+        Request(mcps=("panel",), runtimes=("vscode",), scope=Scope.PROJECT),
+        catalog,
+        root,
+        Environment.from_process(),
+    )
+
+    (landing,) = plan.selections[0].landings
+    assert landing.place == root / ".vscode" / "mcp.json"
+    assert landing.keys == ("servers.panel", "inputs")
+    assert landing.files == 1
+    assert [write.source for write in landing.writes] == [
+        Fragment(
+            root_key="servers",
+            name="panel",
+            value={
+                "type": "stdio",
+                "command": "uvx",
+                "args": ["panel-server", "--repository", "."],
+                "env": {
+                    "PANEL_URL": "https://panel.example.com",
+                    SLOT_VARIABLE: "${input:panel-token}",
+                },
+            },
+        ),
+        Inputs(
+            root_key="inputs",
+            entries=(
+                {
+                    "type": "promptString",
+                    "id": "panel-token",
+                    "description": SLOT_VARIABLE,
+                    "password": True,
+                },
+            ),
+            identity="id",
+        ),
+    ]
+
+
+def test_every_runtime_the_mcp_table_names_is_one_the_flag_accepts() -> None:
+    """A target nobody can select is a target that does not exist.
+
+    The two tables stopped being nested when `vscode` arrived — it owns
+    `.vscode/mcp.json` and has no row in the skills transcription — so what
+    `--runtime` validates against is the union of both, and this is the assertion
+    that the union has not fallen behind either half.
+    """
+    named = {key for key, _ in MCP_DOCUMENTS}
+
+    assert named <= set(known_runtimes())
+    assert "vscode" in named
+
+
+def test_a_graft_only_runtime_is_refused_in_the_scope_that_has_no_document(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """It is nameable and it still has nowhere to land on the machine — ADR 0009.
+
+    `vscode` reads no skills anywhere and has an MCP document only in a
+    repository, so in global scope both halves of the union say no. Exit 3, the
+    same code the two skills runtimes without a global directory already get, and
+    for the same reason: the value is real and the destination is not.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"panel": SLOTTED})
+    target(tmp_path, monkeypatch)
+
+    code, output = run(capsys, *("install", "--mcp", "panel", "--runtime", "vscode", "--global"))
+
+    assert code == 3
+    assert "vscode" in joined(output)
+    assert "no destination in global scope" in joined(output)
 
 
 def test_a_runtime_with_no_mcp_document_refuses_the_whole_line(

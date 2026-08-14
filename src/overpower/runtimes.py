@@ -68,14 +68,27 @@ class Dialect(StrEnum):
     `mcpServers`, `${input:}` instead of `${VAR}`. A dialect per runtime would
     have to answer twice for VS Code and could only be wrong once.
 
-    One member today, which is the tracer bullet's slice
-    (https://github.com/panlabs-tech/overpower/issues/76). The set is closed and
-    matched with `assert_never` in `overpower.rendering`, so the second target
-    lands as a compiler-visible hole rather than as a silent default.
+    Two members, and the second one arrived exactly as designed: the set is
+    closed and matched with `assert_never` in `overpower.rendering`, so
+    https://github.com/panlabs-tech/overpower/issues/79 landed as a
+    compiler-visible hole in every `match` rather than as a silent default. The
+    third (https://github.com/panlabs-tech/overpower/issues/80) will land the
+    same way.
     """
 
     CLAUDE = "claude"
     """`mcpServers`, an explicit `type`, and `${VAR}` interpolation."""
+
+    VSCODE = "vscode"
+    """`servers`, and a slot spelled `${input:<id>}` against an `inputs[]` entry.
+
+    The one dialect whose slot is **two grafts and not one**: the reference and
+    the prompt it points at live under different root keys of the same document.
+    That is not decoration — measured, the `password: true` on the prompt is what
+    encrypts the value under a key in the OS keychain, and it is the only spelling
+    in the whole measured space where the secret is *stored* protected rather
+    than merely referenced (`docs/research/mcp-config-formats.md`, trap 10).
+    """
 
 
 @dataclass(frozen=True)
@@ -613,22 +626,39 @@ MCP_DOCUMENTS: Mapping[tuple[str, Scope], McpDocument] = MappingProxyType(
             dialect=Dialect.CLAUDE,
             born_pending=True,
         ),
+        # Measured in https://github.com/panlabs-tech/overpower/issues/17:
+        # `.vscode/mcp.json`, JSONC, `servers`, and the secret held by the OS
+        # keychain through `inputs[]`. Nothing is born pending here — what VS
+        # Code gates is Workspace Trust, which is a fact of the folder and not of
+        # the server, so it is not a per-graft warning (ADR 0014).
+        ("vscode", Scope.PROJECT): McpDocument(
+            relative=".vscode/mcp.json",
+            root_key="servers",
+            dialect=Dialect.VSCODE,
+        ),
     }
 )
 """Where each (runtime, scope) pair reads MCP servers — **and the function is partial**.
 
-Skills have a destination for all 76 rows in project scope; MCP has one, and
+Skills have a destination for all 76 rows in project scope; MCP has two, and
 that asymmetry is the shape of the whole class rather than a gap in the
 transcription. There is **no canonical format** — measured, the same server has
 three root keys, three file names and three secret spellings across three
 targets, and the MCP spec itself documents the absence (SEP-2633). So a row here
 is a target somebody rendered and measured, never a path copied from a list.
 
+**This table is the closed set of MCP runtimes, and it is not a subset of
+`RUNTIMES`.** `vscode` has no row in the skills transcription — upstream has
+none, and the transcription is a transcription — yet it is the target that owns
+`.vscode/mcp.json`, which no other runtime reads. So the key is a `str` and not
+a `Runtime`: *which classes a runtime can receive* is a per-class table, and the
+two tables intersect without either containing the other
+(https://github.com/panlabs-tech/overpower/issues/79).
+
 Where the pair has no row the pair **does not exist**: `overpower.planning`
 refuses the whole line with exit 3 rather than inventing a file, which is ADR
-0009's reading applied to the second axis. The remaining targets and the machine
-scope are https://github.com/panlabs-tech/overpower/issues/79, /issues/80 and
-/issues/81.
+0009's reading applied to the second axis. The remaining target and the machine
+scope are https://github.com/panlabs-tech/overpower/issues/80 and /issues/81.
 """
 
 
@@ -647,30 +677,40 @@ class McpPlace:
     readers: tuple[str, ...]
 
 
-def mcp_document_of(runtime: Runtime, scope: Scope) -> McpDocument | None:
-    """Where `runtime` reads MCP servers in `scope`, or `None` when the pair has none.
+def mcp_document_of(key: str, scope: Scope) -> McpDocument | None:
+    """Where `key` reads MCP servers in `scope`, or `None` when the pair has none.
 
     `None` is a real answer and not a failure — the caller has to refuse the
     runtime rather than invent a file for it, the same contract
     `resolve_global_dir` already has.
+
+    A **key** and not a `Runtime`, because the two axes are two tables and
+    neither one contains the other: `vscode` owns `.vscode/mcp.json` and has no
+    row in the skills transcription, and `cursor` has a row there and no MCP
+    document anywhere. Taking a `Runtime` would have made the graft axis a subset
+    of the copy axis by signature, which measured it is not
+    (https://github.com/panlabs-tech/overpower/issues/79).
     """
-    return MCP_DOCUMENTS.get((runtime.key, scope))
+    return MCP_DOCUMENTS.get((key, scope))
 
 
 def mcp_runtimes_in(scope: Scope) -> tuple[str, ...]:
     """The runtime keys that can receive an MCP server in `scope`, in table order.
 
+    Read straight off `MCP_DOCUMENTS` rather than filtered out of `runtimes_in`,
+    which is the same change of authority `mcp_document_of` describes: the set of
+    MCP runtimes is what the MCP table says it is, and filtering the skills table
+    would silently drop every target that has no skills row.
+
     One implementation, so the refusal and every screen that lists the
     alternatives cannot disagree about who is on it — the same reason
     `runtimes_in` is single.
     """
-    return tuple(
-        runtime.key for runtime in runtimes_in(scope) if mcp_document_of(runtime, scope) is not None
-    )
+    return tuple(key for (key, at), _ in MCP_DOCUMENTS.items() if at is scope)
 
 
-def mcp_places_of(runtimes: Sequence[Runtime], scope: Scope, root: Path) -> tuple[McpPlace, ...]:
-    """Each distinct document `runtimes` read in `scope`, with all of its readers.
+def mcp_places_of(keys: Sequence[str], scope: Scope, root: Path) -> tuple[McpPlace, ...]:
+    """Each distinct document `keys` read in `scope`, with all of its readers.
 
     `root` is what the destinations hang off — the repository in project scope,
     the home in global — exactly as it is for the copy class, so this needs no
@@ -683,12 +723,12 @@ def mcp_places_of(runtimes: Sequence[Runtime], scope: Scope, root: Path) -> tupl
     would be two chances to word it differently.
     """
     grouped: dict[Path, tuple[McpDocument, list[str]]] = {}
-    for runtime in runtimes:
-        document = mcp_document_of(runtime, scope)
+    for key in keys:
+        document = mcp_document_of(key, scope)
         if document is None:
             continue
         path = _join(root, document.relative)
-        grouped.setdefault(path, (document, []))[1].append(runtime.key)
+        grouped.setdefault(path, (document, []))[1].append(key)
     return tuple(
         McpPlace(path=path, document=document, readers=tuple(readers))
         for path, (document, readers) in grouped.items()

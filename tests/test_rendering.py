@@ -1,4 +1,4 @@
-"""The renderer: values in, one fragment out, and no disk anywhere.
+"""The renderer: values in, the grafts out, and no disk anywhere.
 
 Mirror of `src/overpower/rendering.py`. Nothing here is built on a filesystem
 and nothing needs a double — the renderer is a pure function, and what it
@@ -6,10 +6,10 @@ consumes is a value the reader already validated. The doctrine says so in as
 many words: *"no double is born for the renderer; what needs a fixture is the
 recipe, which is a value."*
 
-This is where the matrix of target by dialect is asserted. One target today
-(https://github.com/panlabs-tech/overpower/issues/76), so the matrix has one
-column and the assertions are about **what that column spells** — the root key
-it lands under, the explicit `type`, and the fields each transport carries.
+This is where the matrix of target by dialect is asserted. Two columns since
+https://github.com/panlabs-tech/overpower/issues/79, and the assertions are
+about **what each column spells** — the root key it lands under, the explicit
+`type`, the fields each transport carries, and the grafts one recipe becomes.
 
 It is also where *"which targets a recipe serves"* is proved to be **derived**
 (rule 4): the answer is read off the table of documents, so the same recipe —
@@ -33,16 +33,27 @@ from overpower.recipes import (
     StdioServer,
     Transport,
 )
-from overpower.rendering import CLAUDE_TRANSPORTS, Target, render, targets_of
-from overpower.runtimes import MCP_DOCUMENTS, Scope
+from overpower.rendering import (
+    CLAUDE_TRANSPORTS,
+    VSCODE_TRANSPORTS,
+    Fragment,
+    Inputs,
+    Target,
+    render,
+    targets_of,
+)
+from overpower.runtimes import MCP_DOCUMENTS, McpDocument, Scope
 
 CLAUDE_PROJECT = MCP_DOCUMENTS[("claude-code", Scope.PROJECT)]
-"""The one row the table has, read from the table rather than rebuilt here.
+"""The Claude row, read from the table rather than rebuilt here.
 
 A fixture that spelled `mcpServers` itself could only prove the renderer agrees
 with the test; read off the table, it proves the renderer agrees with the row
 that decides where the file is.
 """
+
+VSCODE_PROJECT = MCP_DOCUMENTS[("vscode", Scope.PROJECT)]
+"""The VS Code row, read from the table for the same reason."""
 
 
 def recipe(name: str, server: HttpServer | StdioServer, *slots: Slot) -> Recipe:
@@ -55,6 +66,25 @@ def recipe(name: str, server: HttpServer | StdioServer, *slots: Slot) -> Recipe:
     )
 
 
+def server_of(asked: Recipe, document: McpDocument) -> Fragment:
+    """The server graft, which is the first one and in one dialect the only one.
+
+    A recipe becomes **one or more** grafts in a document — VS Code takes a
+    second one, in `inputs[]` — so the tests that are about the server say which
+    graft they mean instead of indexing a tuple in fifteen places.
+    """
+    first, *_ = render(asked, document)
+    assert isinstance(first, Fragment), "the server graft is always the first one"
+    return first
+
+
+def inputs_of(asked: Recipe, document: McpDocument) -> Inputs | None:
+    """The `inputs[]` graft, or `None` where the dialect asks for none."""
+    found = [graft for graft in render(asked, document) if isinstance(graft, Inputs)]
+    assert len(found) <= 1, "one document takes one `inputs` graft, however many slots feed it"
+    return found[0] if found else None
+
+
 def test_an_http_server_renders_its_url_under_an_explicit_type() -> None:
     """`type` is written even where the loader would infer it.
 
@@ -62,7 +92,7 @@ def test_an_http_server_renders_its_url_under_an_explicit_type() -> None:
     transport by three different rules, so the one field that ends the guessing
     costs nothing to write.
     """
-    fragment = render(
+    fragment = server_of(
         recipe("cloudflare", HttpServer(url="https://mcp.example.com/mcp")), CLAUDE_PROJECT
     )
 
@@ -74,7 +104,7 @@ def test_a_stdio_server_renders_its_command_its_args_and_its_environment() -> No
         command="uvx", args=("mcp-server-git", "."), env={"PANEL": "https://panel.example.com"}
     )
 
-    fragment = render(recipe("git", server), CLAUDE_PROJECT)
+    fragment = server_of(recipe("git", server), CLAUDE_PROJECT)
 
     assert fragment.value == {
         "type": "stdio",
@@ -86,13 +116,13 @@ def test_a_stdio_server_renders_its_command_its_args_and_its_environment() -> No
 
 def test_a_stdio_server_with_nothing_to_say_writes_no_empty_fields() -> None:
     """An `"args": []` nobody asked for is a field the reader has to interpret."""
-    fragment = render(recipe("bare", StdioServer(command="uvx")), CLAUDE_PROJECT)
+    fragment = server_of(recipe("bare", StdioServer(command="uvx")), CLAUDE_PROJECT)
 
     assert fragment.value == {"type": "stdio", "command": "uvx"}
 
 
 def test_the_fragment_names_the_root_key_the_document_reads() -> None:
-    fragment = render(recipe("cloudflare", HttpServer(url="https://x/mcp")), CLAUDE_PROJECT)
+    fragment = server_of(recipe("cloudflare", HttpServer(url="https://x/mcp")), CLAUDE_PROJECT)
 
     assert fragment.root_key == "mcpServers"
     assert fragment.name == "cloudflare"
@@ -101,7 +131,7 @@ def test_the_fragment_names_the_root_key_the_document_reads() -> None:
 def test_the_fragment_spells_the_whole_key_path_and_not_just_the_leaf() -> None:
     """It is what the plan prints, and under unconditional overwriting (ADR 0013)
     that line is the reader's only chance to notice the key is theirs."""
-    fragment = render(recipe("cloudflare", HttpServer(url="https://x/mcp")), CLAUDE_PROJECT)
+    fragment = server_of(recipe("cloudflare", HttpServer(url="https://x/mcp")), CLAUDE_PROJECT)
 
     assert fragment.dotted == "mcpServers.cloudflare"
 
@@ -126,7 +156,7 @@ def test_an_env_slot_renders_as_the_reference_this_target_expands() -> None:
     recipe that stored any of the three would be right once and silently wrong
     twice.
     """
-    fragment = render(
+    fragment = server_of(
         recipe("hostinger-vps", StdioServer(command="npx"), EnvSlot(name="HOSTINGER_API_TOKEN")),
         CLAUDE_PROJECT,
     )
@@ -143,7 +173,7 @@ def test_a_literal_and_a_slot_share_the_environment_table_without_mixing() -> No
     """
     server = StdioServer(command="npx", env={"COOLIFY_BASE_URL": "https://vps.panlabs.tech"})
 
-    fragment = render(
+    fragment = server_of(
         recipe("coolify", server, EnvSlot(name="COOLIFY_ACCESS_TOKEN")), CLAUDE_PROJECT
     )
 
@@ -159,7 +189,7 @@ def test_a_bearer_slot_assembles_the_authorization_header_out_of_the_role() -> N
     That is what will let a target which assembles the header itself — Codex's
     `bearer_token_env_var` — be served out of this same recipe with no new field.
     """
-    fragment = render(
+    fragment = server_of(
         recipe(
             "github",
             HttpServer(url="https://api.githubcopilot.com/mcp"),
@@ -172,7 +202,7 @@ def test_a_bearer_slot_assembles_the_authorization_header_out_of_the_role() -> N
 
 
 def test_a_header_slot_fills_the_header_it_names() -> None:
-    fragment = render(
+    fragment = server_of(
         recipe(
             "paneled",
             HttpServer(url="https://panel.example.com/mcp"),
@@ -188,7 +218,7 @@ def test_a_recipe_with_no_slot_gets_no_empty_table_to_interpret() -> None:
     """Cloudflare authorises in the browser: there is nothing to fill in, so nothing is written."""
     asked = recipe("cloudflare", HttpServer(url="https://mcp.cloudflare.com/mcp"))
 
-    fragment = render(asked, CLAUDE_PROJECT)
+    fragment = server_of(asked, CLAUDE_PROJECT)
 
     assert fragment.value == {"type": "http", "url": "https://mcp.cloudflare.com/mcp"}
 
@@ -218,7 +248,7 @@ def test_no_role_ever_renders_a_default(slotted: Recipe) -> None:
     **literally**: the file parses, the run is green, and the failure appears on
     the first call. Two files of this organisation carry it today.
     """
-    rendered = str(render(slotted, CLAUDE_PROJECT).value)
+    rendered = str(server_of(slotted, CLAUDE_PROJECT).value)
 
     assert "${TOKEN}" in rendered
     assert ":-" not in rendered
@@ -243,9 +273,178 @@ def test_a_slot_is_a_reference_and_never_the_value_behind_it(
     """
     monkeypatch.setenv("TOKEN", "SUPER-SECRET-42")
 
-    rendered = str(render(slotted, CLAUDE_PROJECT).value)
+    rendered = str(server_of(slotted, CLAUDE_PROJECT).value)
 
     assert "SUPER-SECRET-42" not in rendered
+
+
+# --------------------------------------------------------------------------- #
+# the VS Code dialect: `servers`, `${input:}`, and the vault behind `password`
+# --------------------------------------------------------------------------- #
+
+
+def test_the_vscode_fragment_lands_under_the_root_key_that_document_reads() -> None:
+    """`servers`, and getting it wrong is the measured silent failure.
+
+    Trap 5 of the research: `mcpServers` inside `.vscode/mcp.json` is a file that
+    parses, installs green, and is **inert** — the editor reads a key that is not
+    there and says nothing.
+    """
+    fragment = server_of(recipe("cloudflare", HttpServer(url="https://x/mcp")), VSCODE_PROJECT)
+
+    assert fragment.root_key == "servers"
+    assert fragment.dotted == "servers.cloudflare"
+
+
+def test_a_slot_becomes_a_prompt_reference_and_never_an_environment_one() -> None:
+    """`${input:<id>}`, and **never** `${env:VAR}` — the second one is trap 3.
+
+    Measured: VS Code resolves `${env:X}` against the environment of its own
+    process, and a variable that is not there becomes the **empty string**, in
+    silence. The server comes up unauthenticated and the failure lands on the
+    first call, far from the cause. The prompt reference cannot fail that way —
+    the editor asks.
+    """
+    fragment = server_of(
+        recipe("git", StdioServer(command="uvx"), EnvSlot(name="GIT_TOKEN")), VSCODE_PROJECT
+    )
+
+    assert fragment.value["env"] == {"GIT_TOKEN": "${input:git-token}"}
+    assert "${env:" not in str(fragment.value)
+
+
+def test_a_slot_adds_the_input_that_puts_the_secret_in_the_operating_system_vault() -> None:
+    """`password: true` is not cosmetic — it is what turns the encryption on.
+
+    Measured (trap 10): with it, what the user types is encrypted under a key in
+    the OS keychain and the ciphertext goes to `state.vscdb`. **Without it the
+    value goes in plain text** to the same database. Neither one puts the secret
+    in the repository, which is what makes committing the file safe — but only
+    one of them makes it safe on the machine.
+    """
+    inputs = inputs_of(
+        recipe("git", StdioServer(command="uvx"), EnvSlot(name="GIT_TOKEN")), VSCODE_PROJECT
+    )
+
+    assert inputs is not None
+    assert inputs.entries == (
+        {"type": "promptString", "id": "git-token", "description": "GIT_TOKEN", "password": True},
+    )
+
+
+def test_the_server_and_its_input_are_two_grafts_of_the_same_recipe() -> None:
+    """One recipe, one document, **two keys** — the shape this dialect imposes.
+
+    The reference and the thing it refers to live under different root keys, so
+    what a recipe becomes in a document stopped being a single fragment here.
+    They are one landing all the same, because they fall in the same file.
+    """
+    grafts = render(
+        recipe("git", StdioServer(command="uvx"), EnvSlot(name="GIT_TOKEN")), VSCODE_PROJECT
+    )
+
+    assert tuple(graft.dotted for graft in grafts) == ("servers.git", "inputs")
+
+
+def test_a_recipe_with_no_slot_asks_for_no_input_at_all() -> None:
+    """An empty `inputs[]` is a prompt the user would have to interpret.
+
+    Cloudflare authorises in the browser: there is nothing to fill in, so the
+    second graft does not exist rather than existing empty.
+    """
+    asked = recipe("cloudflare", HttpServer(url="https://mcp.cloudflare.com/mcp"))
+
+    assert inputs_of(asked, VSCODE_PROJECT) is None
+    assert len(render(asked, VSCODE_PROJECT)) == 1
+
+
+def test_a_bearer_slot_assembles_the_header_out_of_the_prompt_reference() -> None:
+    """The scheme is the renderer's word and the spelling is the target's.
+
+    Both halves move independently, and this is the case that shows it: the same
+    `BearerSlot` that spelled `Bearer ${TOKEN}` one dialect over spells
+    `Bearer ${input:token}` here, with nothing in the recipe touched.
+    """
+    fragment = server_of(
+        recipe(
+            "github",
+            HttpServer(url="https://api.githubcopilot.com/mcp"),
+            BearerSlot(name="GITHUB_PAT_TOKEN"),
+        ),
+        VSCODE_PROJECT,
+    )
+
+    assert fragment.value["headers"] == {"Authorization": "Bearer ${input:github-pat-token}"}
+
+
+def test_every_slot_of_a_recipe_becomes_its_own_input() -> None:
+    """Two secrets are two prompts, and the literal beside them is still written.
+
+    The `inputs[]` block is a list and the server's table is a table, so the two
+    are asserted together: what belongs in the prompt is only what the recipe
+    called a slot.
+    """
+    server = StdioServer(command="npx", env={"COOLIFY_BASE_URL": "https://vps.panlabs.tech"})
+    asked = recipe("coolify", server, EnvSlot(name="COOLIFY_ACCESS_TOKEN"), EnvSlot(name="EXTRA"))
+
+    fragment = server_of(asked, VSCODE_PROJECT)
+    inputs = inputs_of(asked, VSCODE_PROJECT)
+
+    assert fragment.value["env"] == {
+        "COOLIFY_BASE_URL": "https://vps.panlabs.tech",
+        "COOLIFY_ACCESS_TOKEN": "${input:coolify-access-token}",
+        "EXTRA": "${input:extra}",
+    }
+    assert inputs is not None
+    assert tuple(entry["id"] for entry in inputs.entries) == ("coolify-access-token", "extra")
+
+
+def test_the_input_is_identified_by_the_field_the_writer_deduplicates_on() -> None:
+    """The plan carries *how* two entries are the same entry, so the writer need not know.
+
+    Two recipes wanting `GITHUB_TOKEN` want **one** prompt, and the append that
+    keeps it at one has to be told which field decides. Carrying it here is the
+    graft half of *"the writer consumes the plan and nothing beyond it"*.
+    """
+    inputs = inputs_of(
+        recipe("git", StdioServer(command="uvx"), EnvSlot(name="GIT_TOKEN")), VSCODE_PROJECT
+    )
+
+    assert inputs is not None
+    assert inputs.identity == "id"
+    assert inputs.root_key == "inputs"
+
+
+def test_the_two_dialects_spell_one_recipe_two_ways_with_the_recipe_untouched() -> None:
+    """Rule 4 at the point it costs the most: the same slot, two grafias.
+
+    Measured, the two are mutually illegible and **fail in runtime, never in
+    parse**: `${GIT_TOKEN}` in the VS Code file is not expanded, and
+    `${input:git-token}` in `.mcp.json` reaches the network raw. A recipe that
+    stored either string would be right once and silently wrong once.
+    """
+    asked = recipe("git", StdioServer(command="uvx"), EnvSlot(name="GIT_TOKEN"))
+
+    assert server_of(asked, CLAUDE_PROJECT).value["env"] == {"GIT_TOKEN": "${GIT_TOKEN}"}
+    assert server_of(asked, VSCODE_PROJECT).value["env"] == {"GIT_TOKEN": "${input:git-token}"}
+
+
+@pytest.mark.parametrize(
+    "slotted",
+    [
+        pytest.param(recipe("env", StdioServer(command="npx"), EnvSlot(name="TOKEN")), id="env"),
+        pytest.param(
+            recipe("bearer", HttpServer(url="https://x/mcp"), BearerSlot(name="TOKEN")), id="bearer"
+        ),
+    ],
+)
+def test_the_vscode_dialect_never_reads_the_environment_either(
+    slotted: Recipe, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The second dialect is a second chance to leak, and it does not take it."""
+    monkeypatch.setenv("TOKEN", "SUPER-SECRET-42")
+
+    assert "SUPER-SECRET-42" not in str(render(slotted, VSCODE_PROJECT))
 
 
 # --------------------------------------------------------------------------- #
@@ -253,14 +452,17 @@ def test_a_slot_is_a_reference_and_never_the_value_behind_it(
 # --------------------------------------------------------------------------- #
 
 CLAUDE_TARGET = Target(runtime="claude-code", scope=Scope.PROJECT)
-"""The one pair the table has today, which is therefore the whole answer."""
+"""The pair the tracer bullet measured first."""
+
+VSCODE_TARGET = Target(runtime="vscode", scope=Scope.PROJECT)
+"""The second pair, and the one that makes the matrix a matrix."""
 
 
 def test_a_recipe_is_offered_every_pair_whose_document_can_spell_it() -> None:
-    """The answer is a walk of the table, so today it is the one row on it."""
+    """The answer is a walk of the table, so it is every row on it."""
     served = targets_of(recipe("cloudflare", HttpServer(url="https://x/mcp")))
 
-    assert served == (CLAUDE_TARGET,)
+    assert served == (CLAUDE_TARGET, VSCODE_TARGET)
 
 
 SERVERS_BY_TRANSPORT = {
@@ -274,34 +476,47 @@ test here instead of as a case nobody wrote.
 """
 
 
-def test_both_transports_are_served_by_the_one_target_that_is_measured() -> None:
+def test_both_transports_are_served_by_every_target_that_is_measured() -> None:
     """They coincide, and the *reason* they coincide is the point of the test.
 
     `.mcp.json` discriminates the transport with an explicit `type` and writes
-    both bindings — measured (`docs/research/mcp-config-formats.md`) — so the
-    honest answer for `stdio` and for `http` is the same set. The two are
-    asserted side by side rather than in one parametrised case so that the day a
-    dialect lands that writes only one of them, exactly one of these two tests
-    goes red and names which half moved.
+    both bindings, and `.vscode/mcp.json` does the same — measured
+    (`docs/research/mcp-config-formats.md`) — so the honest answer for `stdio`
+    and for `http` is the same set. The two are asserted side by side rather
+    than in one parametrised case so that the day a dialect lands that writes
+    only one of them, exactly one of these two tests goes red and names which
+    half moved.
 
-    **The known limit, stated rather than papered over.** With one dialect that
-    writes both, *no recipe can tell the transport half of the derivation from a
-    tautology*: a predicate that ignored the transport entirely would keep every
-    test in this file green. What can be pinned today is the capability itself
-    against the renderer that has to honour it — the test below — and the table
-    half, which `test_the_answer_follows_the_table_and_never_the_recipe` moves
-    for real. The transport half becomes observable with the second target
-    (https://github.com/panlabs-tech/overpower/issues/79).
+    **The known limit, stated rather than papered over.** The second target
+    landed (https://github.com/panlabs-tech/overpower/issues/79) and did *not*
+    lift it: VS Code spells both transports too, so *no recipe can still tell
+    the transport half of the derivation from a tautology* — a predicate that
+    ignored the transport entirely would keep every test in this file green.
+    What moves it is not another target, it is a target that **cannot** spell
+    one of them: the Devin CLI is the candidate on the table
+    (https://github.com/panlabs-tech/overpower/issues/80). Until then what is
+    pinned is the capability itself against the renderer that has to honour it —
+    the test below, now over both dialects — and the table half, which
+    `test_the_answer_follows_the_table_and_never_the_recipe` moves for real.
     """
     over_http = targets_of(recipe("cloudflare", HttpServer(url="https://x/mcp")))
     over_stdio = targets_of(recipe("git", StdioServer(command="uvx")))
 
-    assert over_http == (CLAUDE_TARGET,)
-    assert over_stdio == (CLAUDE_TARGET,)
+    assert over_http == (CLAUDE_TARGET, VSCODE_TARGET)
+    assert over_stdio == (CLAUDE_TARGET, VSCODE_TARGET)
 
 
-def test_the_capability_table_claims_exactly_what_the_dialect_writes() -> None:
-    """`CLAUDE_TRANSPORTS` is a promise, and `_claude` is who keeps it.
+@pytest.mark.parametrize(
+    ("document", "claimed"),
+    [
+        pytest.param(CLAUDE_PROJECT, CLAUDE_TRANSPORTS, id="claude"),
+        pytest.param(VSCODE_PROJECT, VSCODE_TRANSPORTS, id="vscode"),
+    ],
+)
+def test_the_capability_table_claims_exactly_what_the_dialect_writes(
+    document: McpDocument, claimed: frozenset[Transport]
+) -> None:
+    """A transport set is a promise, and the branch that renders it is who keeps it.
 
     The two are one edit apart and drift in silence: a transport added to the
     set without a branch in the renderer offers a target that cannot be written,
@@ -309,19 +524,23 @@ def test_the_capability_table_claims_exactly_what_the_dialect_writes() -> None:
     is read back out of the **rendered fragment** — the `type` that will be in
     the user's file — and compared with the set that decides who is offered.
 
+    Parametrised over the dialects rather than written once per dialect, because
+    the claim is about the *pairing* and not about either half: a third dialect
+    is a row here and no new prose.
+
     **Every member of the closed set is rendered, never only the claimed ones.**
-    Measured while writing this: filtering the left side by `CLAUDE_TRANSPORTS`
+    Measured while writing this: filtering the left side by the claimed set
     makes both sides shrink together, so narrowing the set to `{http}` left the
     test green — the same self-consistency P3 refuses in the sdist gate.
     """
     assert set(SERVERS_BY_TRANSPORT) == set(Transport), "a transport with no server to render"
 
     written = {
-        str(render(recipe("probe", server), CLAUDE_PROJECT).value["type"])
+        str(server_of(recipe("probe", server), document).value["type"])
         for server in SERVERS_BY_TRANSPORT.values()
     }
 
-    assert written == {str(transport) for transport in CLAUDE_TRANSPORTS}
+    assert written == {str(transport) for transport in claimed}
 
 
 def test_the_answer_follows_the_table_and_never_the_recipe() -> None:
@@ -335,10 +554,10 @@ def test_the_answer_follows_the_table_and_never_the_recipe() -> None:
     asked = recipe("cloudflare", HttpServer(url="https://x/mcp"))
 
     assert targets_of(asked, {}) == ()
-    assert targets_of(asked, MCP_DOCUMENTS) == (CLAUDE_TARGET,)
+    assert targets_of(asked, MCP_DOCUMENTS) == (CLAUDE_TARGET, VSCODE_TARGET)
 
 
-def test_a_second_scope_on_the_table_becomes_a_second_target() -> None:
+def test_a_second_scope_on_the_table_becomes_another_target() -> None:
     """The machine scope has no MCP document yet, and the day it has one this grows.
 
     https://github.com/panlabs-tech/overpower/issues/81 is that day. The row is
@@ -351,4 +570,8 @@ def test_a_second_scope_on_the_table_becomes_a_second_target() -> None:
 
     served = targets_of(recipe("cloudflare", HttpServer(url="https://x/mcp")), documents)
 
-    assert served == (CLAUDE_TARGET, Target(runtime="claude-code", scope=Scope.GLOBAL))
+    assert served == (
+        CLAUDE_TARGET,
+        VSCODE_TARGET,
+        Target(runtime="claude-code", scope=Scope.GLOBAL),
+    )

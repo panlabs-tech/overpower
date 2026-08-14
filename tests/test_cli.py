@@ -887,6 +887,58 @@ def test_a_run_that_grafts_nothing_says_nothing_about_approval(
     assert "pending approval" not in project.joined(output)
 
 
+def test_a_graft_into_vscode_says_nothing_about_approval(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The warning is true of one target and is not printed at the other (ADR 0014).
+
+    `born_pending` is a column of the document table because it is a fact of the
+    pair (runtime, scope): a server in `.mcp.json` is born `⏸ Pending approval`
+    in Claude Code, and one in `.vscode/mcp.json` is not — what VS Code gates is
+    Workspace Trust, which is a fact of the **folder** and not of the server, so
+    a per-graft line about it would be a warning that appears everywhere.
+
+    Asserted with a slotted recipe on purpose: this is the run with the most to
+    say at exit 0 — two keys and an unset variable — and the approval line still
+    is not one of the things it says.
+    """
+    # given
+    project.catalog_of(tmp_path, monkeypatch, mcps={"panel": project.SLOTTED})
+    root = project.target(tmp_path, monkeypatch)
+
+    code, output = project.run(capsys, "install", "--mcp", "panel", "--runtime", "vscode")
+
+    assert code == 0
+    joined = project.joined(output)
+    assert "pending approval" not in joined
+    assert "approve" not in joined
+    assert (root / ".vscode" / "mcp.json").is_file()
+
+
+def test_a_graft_only_runtime_refuses_a_line_that_also_asks_for_a_skill(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """`vscode` renders MCP and reads no skills, and half a line is never written.
+
+    The mirror of the refusal a skills-only runtime already gets for `--mcp`, and
+    the same reading: the whole line is refused rather than the half of it that
+    has a destination, because *"success with the wrong content"* is the class
+    this product exists to avoid. Exit **3** — the target is real, the flag is
+    real, and what does not exist is the destination for that class.
+    """
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "alpha", mcps={"panel": project.SLOTTED})
+    root = project.target(tmp_path, monkeypatch)
+
+    code, output = project.run(
+        capsys, "install", "--skill", "alpha", "--mcp", "panel", "--runtime", "vscode"
+    )
+
+    assert code == 3
+    assert "reads no skills" in project.joined(output)
+    assert list(root.iterdir()) == []
+
+
 def test_the_dry_run_of_a_graft_names_the_key_and_writes_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:

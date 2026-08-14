@@ -482,7 +482,9 @@ def _slots(path: Path, transport: Transport, server: Server, value: object) -> t
     if not isinstance(value, list):
         raise MalformedRecipeError(path, SLOTS_KEY, "a list of tables")
     written = server.env if isinstance(server, StdioServer) else NO_ENVIRONMENT
-    taken = {_filled(name): f"`[{SERVER_KEY}.env]`" for name in written}
+    # A literal fills the variable it names, and only a stdio server has any —
+    # so this is the whole of the `[server.env]` side of the comparison.
+    taken = dict.fromkeys(written, f"`[{SERVER_KEY}.env]`")
     slots: list[Slot] = []
     for index, entry in enumerate(cast("list[object]", value)):
         key = f"{SLOTS_KEY}[{index}]"
@@ -496,7 +498,7 @@ def _slots(path: Path, transport: Transport, server: Server, value: object) -> t
     return tuple(slots)
 
 
-def _filled(slot: Slot | str) -> str:
+def _filled(slot: Slot) -> str:
     """What a slot occupies in the rendered server — the thing two of them can share.
 
     A variable for an `env` slot, a header for the two roles that travel in
@@ -510,8 +512,6 @@ def _filled(slot: Slot | str) -> str:
     through in the one spelling somebody would actually use to sneak past it.
     """
     match slot:
-        case str():
-            return slot
         case EnvSlot(name):
             return name
         case HeaderSlot(_, header):

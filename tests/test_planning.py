@@ -15,16 +15,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from overpower.discovery import load_catalog
-from overpower.planning import (
-    DirectoryTree,
-    DocumentKey,
-    Request,
-    WriteMode,
-    known_runtimes,
-    plan_for,
-)
+from overpower.planning import DirectoryTree, DocumentKey, Request, WriteMode, plan_for
 from overpower.rendering import Fragment, Inputs
-from overpower.runtimes import MCP_DOCUMENTS, Environment, Scope
+from overpower.runtimes import MCP_DOCUMENTS, Environment, Scope, known_runtimes
 from tests.support.project import (
     CLAUDE,
     SLOT_VARIABLE,

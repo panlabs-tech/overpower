@@ -35,7 +35,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import pytest
-from json5 import loads as json5_loads
 
 from overpower import cli, remote, writing
 from overpower.discovery import Artifact, ArtifactType
@@ -56,6 +55,7 @@ from tests.support.project import (
     joined,
     keys_in,
     landings_of,
+    parsed,
     paths_in,
     pinned,
     run,
@@ -784,16 +784,6 @@ VSCODE = ("--runtime", "vscode")
 """The selector under test, spelled once: the second target the product renders."""
 
 
-def parsed(path: Path) -> dict[str, object]:
-    """The document as values, for the assertions that are about what it *says*.
-
-    Read with the tolerant loader because that is what the file is — JSONC — and
-    a test that reached for `json.loads` would pass on the file this product
-    writes and fail on the file a user hands it.
-    """
-    return cast("dict[str, object]", json5_loads(path.read_text(encoding="utf-8")))
-
-
 def test_a_vscode_install_writes_the_server_and_the_prompt_into_one_document(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1000,6 +990,73 @@ def test_a_comment_in_the_vscode_document_survives_both_grafts(
     assert lost_lines(text, after) == []
     assert "// the servers I set up by hand" in after
     assert "antigo" in parsed(document)["servers"]  # pyright: ignore[reportOperatorIssue]
+
+
+def test_a_trailing_comma_keeps_the_entry_it_terminates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """JSONC admits a trailing comma, and this file is where they are idiomatic.
+
+    Appending after one is where the comma can be stranded: the whitespace
+    before the closing brace hangs off the **comma** and not off the last value,
+    so moving it the way the no-comma path does leaves a `,` alone on a line of
+    its own. Valid JSONC, and a diff line nobody wrote — which is the whole thing
+    ADR 0016 buys a dependency to avoid.
+
+    Asserted on the bytes, in both shapes the document has: the object under
+    `servers` and the list under `inputs`.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"panel": SLOTTED})
+    root = target(tmp_path, monkeypatch)
+    document = root / VSCODE_JSON
+    document.parent.mkdir(parents=True)
+    text = (
+        '{\n  "servers": {\n    "antigo": { "type": "stdio", "command": "node" },\n  },\n'
+        '  "inputs": [\n    { "type": "promptString", "id": "outro" },\n  ],\n}\n'
+    )
+    document.write_text(text, encoding="utf-8", newline="")
+
+    code, _ = run(capsys, "install", "--mcp", "panel", *VSCODE)
+
+    assert code == 0
+    after = document.read_text(encoding="utf-8")
+    assert lost_lines(text, after) == []
+    assert "\n  ,\n" not in after
+    assert "\n,\n" not in after
+    assert "    },\n  },\n" in after
+    assert "    },\n  ],\n" in after
+
+
+def test_a_prompt_written_with_the_other_quote_is_the_same_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The lookup that decides append-against-replace has to see the key that is there.
+
+    A false miss costs a **duplicate**, not a retry: the entry is appended beside
+    the one it should have replaced, and the person is asked for the same secret
+    twice. The tolerant parser accepts both quote styles, so a document written
+    by hand with single quotes is a document that already has the key — and the
+    same holds for the root key itself, which would otherwise gain a second
+    `inputs`.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"panel": SLOTTED})
+    root = target(tmp_path, monkeypatch)
+    document = root / VSCODE_JSON
+    document.parent.mkdir(parents=True)
+    document.write_text(
+        "{\n  'inputs': [\n    { 'type': 'promptString', 'id': 'panel-token' }\n  ]\n}\n",
+        encoding="utf-8",
+        newline="",
+    )
+
+    code, _ = run(capsys, "install", "--mcp", "panel", *VSCODE)
+
+    assert code == 0
+    after = document.read_text(encoding="utf-8")
+    assert after.count("promptString") == 1
+    assert after.count("inputs") == 1
 
 
 def test_a_prompt_list_that_is_not_a_list_is_refused_before_the_first_byte(

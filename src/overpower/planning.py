@@ -53,11 +53,11 @@ from typing import TYPE_CHECKING
 from overpower.errors import BadInvocationError, RefusedError
 from overpower.grafting import read_document, refuse_if_broken
 from overpower.recipes import Recipe
-from overpower.rendering import Fragment, Inputs, render
+from overpower.rendering import Fragment, Inputs, expands_from_environment, render
 from overpower.runtimes import (
-    MCP_DOCUMENTS,
     RUNTIMES_BY_KEY,
     Scope,
+    known_runtimes,
     mcp_document_of,
     mcp_places_of,
     mcp_runtimes_in,
@@ -66,12 +66,12 @@ from overpower.runtimes import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping, Sequence
+    from collections.abc import Callable, Iterable, Mapping, Sequence
     from pathlib import Path
 
     from overpower.discovery import Artifact, Bundle, Catalog, Framework
     from overpower.rendering import Graft
-    from overpower.runtimes import Environment, McpPlace, Runtime
+    from overpower.runtimes import Environment, McpDocument, McpPlace, Runtime
 
 
 class WriteMode(StrEnum):
@@ -428,17 +428,23 @@ class NoSkillsDestinationError(RefusedError):
     target, the flag is real, nothing about the line is malformed. What does not
     exist is the destination for *that class*.
 
-    Scope is not in the message because it is not in the fact: this runtime reads
-    no skills in a repository and none on the machine either, so naming a scope
-    would suggest the other one works.
+    Scope is not in the message because it is not in the fact: this runtime has
+    no skills destination in a repository and none on the machine either, so
+    naming a scope would suggest the other one works.
+
+    **It says *destination* and never *"reads no skills"*, which would be false.**
+    Measured, VS Code does read `.agents/skills` — it just reads the one 19 other
+    rows write, and it has no row of its own to name. So what the refusal means
+    is *"there is nowhere for `--runtime vscode` to put a skill"*, and the fix it
+    names is the true one: name a runtime that writes the folder this one reads.
     """
 
     def __init__(self, key: str) -> None:
-        """Name the runtime and the two ways out, which are the only two."""
+        """Name the runtime, why it has nowhere to put a skill, and the two ways out."""
         self.key = key
         super().__init__(
-            f"`{key}` receives MCP servers and reads no skills; "
-            "drop it from --runtime, or drop the skills from the line"
+            f"`{key}` takes MCP servers and has no skills destination of its own; "
+            "name a runtime that writes the folder it reads, or drop the skills from the line"
         )
 
 
@@ -561,7 +567,7 @@ def pending_activation(plan: Plan, scope: Scope) -> tuple[Path, ...]:
     return tuple(sorted(found))
 
 
-def unset_slots(plan: Plan, variables: Mapping[str, str]) -> tuple[str, ...]:
+def unset_slots(plan: Plan, variables: Mapping[str, str], scope: Scope) -> tuple[str, ...]:
     """Slot variables this environment does not carry — a warning, never a refusal.
 
     **The variable has to exist when the runtime starts, not when the overpower
@@ -574,10 +580,21 @@ def unset_slots(plan: Plan, variables: Mapping[str, str]) -> tuple[str, ...]:
     `Bearer ${NAO_EXISTE}` **literally** on the request, so the server answers
     401 and the cause is a file nobody is looking at.
 
+    **And it is said only where it is true**, which is what `scope` is for. That
+    failure is a property of the *dialect* and not of the slot: a
+    `${input:<id>}` is filled from a prompt and the OS keychain, so there is no
+    variable to be absent and the editor asks. Telling somebody to export a
+    variable nothing will read is the same defect as the approval line appearing
+    everywhere — a warning nobody can act on, which is a warning nobody reads
+    (ADR 0014). Where a plan lands in both kinds of document the warning stands,
+    because one of the two really does read the environment.
+
     Sorted and deduplicated: two servers may need the same variable, and one line
     per variable is what the reader has to act on — the same reading
     `pending_activation` applies to documents.
     """
+    if not _lands_where_the_environment_is_read(plan, scope):
+        return ()
     return tuple(
         sorted(
             {
@@ -592,13 +609,38 @@ def unset_slots(plan: Plan, variables: Mapping[str, str]) -> tuple[str, ...]:
     )
 
 
-def _born_pending(readers: Sequence[str], scope: Scope) -> bool:
-    """Whether any runtime reading this place leaves the server waiting for a human."""
+def _lands_where_the_environment_is_read(plan: Plan, scope: Scope) -> bool:
+    """Whether any document this plan grafts into fills its slots from the environment."""
+    return any(
+        _any_document(
+            landing.readers, scope, lambda document: expands_from_environment(document.dialect)
+        )
+        for selection in plan.selections
+        for landing in selection.landings
+        if any(isinstance(write.destination, DocumentKey) for write in landing.writes)
+    )
+
+
+def _any_document(
+    readers: Sequence[str], scope: Scope, carries: Callable[[McpDocument], bool]
+) -> bool:
+    """Whether any runtime reading this place lands in a document that `carries`.
+
+    Two questions have this shape, and both are facts of the (runtime, scope)
+    pair rather than of the CLI: whether the server is born waiting for a human,
+    and whether its slot is read out of the process environment. One walk, so a
+    third question arrives as a predicate instead of as a third loop.
+    """
     for key in readers:
         document = mcp_document_of(key, scope)
-        if document is not None and document.born_pending:
+        if document is not None and carries(document):
             return True
     return False
+
+
+def _born_pending(readers: Sequence[str], scope: Scope) -> bool:
+    """Whether any runtime reading this place leaves the server waiting for a human."""
+    return _any_document(readers, scope, lambda document: document.born_pending)
 
 
 def _refuse_a_runtime_with_no_document(keys: Sequence[str], scope: Scope) -> None:
@@ -764,25 +806,6 @@ def _write_for(
     return Write(
         source=canonical / artifact.name, destination=destination, mode=mode, files=artifact.files
     )
-
-
-def known_runtimes() -> tuple[str, ...]:
-    """Every key `--runtime` accepts anywhere, in table order — **both** axes of it.
-
-    The skills transcription is not the whole table any more. `vscode` owns
-    `.vscode/mcp.json`, which no other runtime reads, and upstream has no row for
-    it — so the set a `--runtime` value is checked against is the *union* of the
-    two, and the day a graft-only target arrives it is nameable without a row
-    being invented in a transcription
-    (https://github.com/panlabs-tech/overpower/issues/79).
-
-    Upstream's order first and unchanged, then the graft-only targets in the
-    order the MCP table declares them: the order the plan lists places in is the
-    order the writer performs them, and the targets upstream never heard of come
-    after the ones it did.
-    """
-    grafts = dict.fromkeys(key for key, _ in MCP_DOCUMENTS)
-    return (*RUNTIMES_BY_KEY, *(key for key in grafts if key not in RUNTIMES_BY_KEY))
 
 
 def _selected_runtimes(keys: Sequence[str], scope: Scope) -> tuple[str, ...]:

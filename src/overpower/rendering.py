@@ -206,6 +206,29 @@ def _transports(dialect: Dialect) -> frozenset[Transport]:
             assert_never(unreachable)
 
 
+def expands_from_environment(dialect: Dialect) -> bool:
+    """Whether a slot written for `dialect` is filled out of the process environment.
+
+    The other capability half of rule 4, and it is what decides whether *"this
+    variable is not set here"* is advice or noise. `${VAR}` is read out of the
+    environment of the runtime's own process, so an absent variable is a measured
+    failure at the far end — Claude Code sent `Bearer ${NAO_EXISTE}` literally on
+    the wire. `${input:<id>}` is read out of a prompt and the OS keychain, so
+    there is no variable to be absent: the editor asks.
+
+    A `match` on the closed set for the reason every other one here is — a third
+    dialect must land as a hole and not as a default, because defaulting either
+    way ships a wrong warning at exit 0.
+    """
+    match dialect:
+        case Dialect.CLAUDE:
+            return True
+        case Dialect.VSCODE:
+            return False
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
 def targets_of(
     recipe: Recipe, documents: Mapping[tuple[str, Scope], McpDocument] = MCP_DOCUMENTS
 ) -> tuple[Target, ...]:

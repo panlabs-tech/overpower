@@ -351,6 +351,18 @@ def keys_in(output: str) -> set[str]:
     return {prefix for key in named for prefix in _prefixes(key)}
 
 
+def parsed(path: Path) -> dict[str, object]:
+    """The document as values, for assertions that are about what it *says*.
+
+    Read with the tolerant loader because that is what the file is — `.mcp.json`
+    is strict JSON and `.vscode/mcp.json` is JSONC — and a helper that reached
+    for `json.loads` would pass on the file this product writes and fail on the
+    file a user hands it. It is the same loader `document_keys` uses, and beside
+    it for that reason.
+    """
+    return cast("dict[str, object]", loads(path.read_text(encoding="utf-8")))
+
+
 def document_keys(path: Path) -> set[str]:
     """Every key of a JSON document, dotted, to the two levels a graft occupies.
 

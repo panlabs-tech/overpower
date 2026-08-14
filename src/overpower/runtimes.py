@@ -709,6 +709,28 @@ def mcp_runtimes_in(scope: Scope) -> tuple[str, ...]:
     return tuple(key for (key, at), _ in MCP_DOCUMENTS.items() if at is scope)
 
 
+def known_runtimes() -> tuple[str, ...]:
+    """Every key `--runtime` accepts anywhere, in table order — **both** axes of it.
+
+    The skills transcription stopped being the whole table. `vscode` owns
+    `.vscode/mcp.json`, which no other runtime reads, and upstream has no row for
+    it — so what a `--runtime` value is checked against is the **union** of the
+    two, and a graft-only target is nameable without a row being invented inside
+    a transcription (ADR 0017).
+
+    Here and not in `overpower.planning` for the reason `runtimes_in` is here:
+    the tables live in this module, and a caller that walked them itself would be
+    a second place that has to learn about a third one.
+
+    Upstream's order first and unchanged, then the graft-only targets in the
+    order the MCP table declares them: the order the plan lists places in is the
+    order the writer performs them, and the targets upstream never heard of come
+    after the ones it did.
+    """
+    grafts = dict.fromkeys(key for key, _ in MCP_DOCUMENTS)
+    return (*RUNTIMES_BY_KEY, *(key for key in grafts if key not in RUNTIMES_BY_KEY))
+
+
 def mcp_places_of(keys: Sequence[str], scope: Scope, root: Path) -> tuple[McpPlace, ...]:
     """Each distinct document `keys` read in `scope`, with all of its readers.
 

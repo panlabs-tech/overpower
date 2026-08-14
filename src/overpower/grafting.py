@@ -366,10 +366,11 @@ def _element_index_of(listing: JSONArray, identity: str, wanted: str) -> int | N
     rather than refused: the list is the user's too, and something else living in
     it is not a document we may not graft into — it is one we leave alone.
 
-    Read through `String` rather than `DoubleQuotedString` because this is a
-    **value** and JSON5 admits both quotes for one; a hand-written `'git-token'`
-    is the same id as `"git-token"`, and treating it as a different one would
-    append the duplicate this function exists to prevent.
+    Read through `String`, which is what both quote styles descend from: a
+    hand-written `'git-token'` is the same id as `"git-token"`, and treating it
+    as a different one would append the duplicate this function exists to
+    prevent. `_index_of` reads the **key** of the field the same way, and for the
+    same reason.
     """
     for index, element in enumerate(listing.values):
         if not isinstance(element, JSONObject):
@@ -392,16 +393,18 @@ def _appended_element(listing: JSONArray, value: Value, layout: _Layout) -> None
     move for the same reason — the comma lands before the trailing whitespace, so
     a comment sitting at the end of the list survives the insertion.
     """
-    if listing.values:
+    if listing.trailing_comma is not None:
+        value.wsc_before = _wsc(layout.newline + layout.entry)
+        listing.trailing_comma.wsc_after = _ending(listing.trailing_comma.wsc_after, layout)
+    elif listing.values:
         tail = listing.values[-1].wsc_after
         listing.values[-1].wsc_after = []
         value.wsc_before = _wsc(layout.newline + layout.entry)
+        value.wsc_after = _ending(tail, layout)
     else:
         tail = listing.leading_wsc
         listing.leading_wsc = _wsc(layout.newline + layout.entry)
-    if not any(isinstance(part, str) and "\n" in part for part in tail):
-        tail = [*tail, layout.newline + layout.closing]
-    value.wsc_after = tail
+        value.wsc_after = _ending(tail, layout)
     listing.values.append(value)
 
 
@@ -414,17 +417,19 @@ def _appended(obj: JSONObject, name: str, value: Value, layout: _Layout) -> None
     comma inside the comment and drop it from the document.
     """
     key = _key(name)
-    if obj.keys:
+    value.wsc_before = _wsc(" ")
+    if obj.trailing_comma is not None:
+        key.wsc_before = _wsc(layout.newline + layout.entry)
+        obj.trailing_comma.wsc_after = _ending(obj.trailing_comma.wsc_after, layout)
+    elif obj.keys:
         tail = obj.values[-1].wsc_after
         obj.values[-1].wsc_after = []
         key.wsc_before = _wsc(layout.newline + layout.entry)
+        value.wsc_after = _ending(tail, layout)
     else:
         tail = obj.leading_wsc
         obj.leading_wsc = _wsc(layout.newline + layout.entry)
-    if not any(isinstance(part, str) and "\n" in part for part in tail):
-        tail = [*tail, layout.newline + layout.closing]
-    value.wsc_before = _wsc(" ")
-    value.wsc_after = tail
+        value.wsc_after = _ending(tail, layout)
     obj.keys.append(key)
     obj.values.append(value)
 
@@ -478,15 +483,37 @@ def _index_of(obj: JSONObject, name: str) -> int | None:
     """Where `name` sits among the object's keys, or `None` when it is not there.
 
     A key is a quoted string in every measured file and may be a bare identifier
-    in JSON5, so both spellings answer: a document written by hand as
-    `{mcpServers: {}}` is still a document that has that key.
+    in JSON5, so every spelling answers: a document written by hand as
+    `{mcpServers: {}}` — or as `{'mcpServers': {}}` — is still a document that has
+    that key.
+
+    `String` and not `DoubleQuotedString`, which is the one both quote styles
+    descend from. Narrowing to the double-quoted spelling made the lookup answer
+    `None` for a key that is right there, and **the cost of a false `None` is a
+    duplicate**: the caller appends instead of replacing, so the document ends up
+    carrying the key twice — a second `inputs`, or a prompt asked for twice. The
+    same reasoning `_element_index_of` gives for reading a value through `String`
+    applies to the key, and it applies harder, because this is the lookup that
+    decides append against replace.
     """
     for index, key in enumerate(obj.keys):
-        if isinstance(key, DoubleQuotedString) and key.characters == name:
+        if isinstance(key, String) and key.characters == name:
             return index
         if isinstance(key, Identifier) and key.name == name:
             return index
     return None
+
+
+def _ending(tail: Sequence[str | Comment], layout: _Layout) -> list[str | Comment]:
+    """`tail`, guaranteed to break the line before the bracket that closes the node.
+
+    A document written on one line — `{"mcpServers": {}}` — carries no newline to
+    move, so one is invented; a document that has one keeps its own bytes, which
+    is what makes a tab-indented or CRLF file come back the way it went in.
+    """
+    if any(isinstance(part, str) and "\n" in part for part in tail):
+        return list(tail)
+    return [*tail, layout.newline + layout.closing]
 
 
 def _indent_of(wsc: Sequence[str | Comment]) -> str | None:

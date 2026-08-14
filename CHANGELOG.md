@@ -27,7 +27,12 @@ navigable index of the decisions that produced it.
 
 ### Added
 
-- O VS Code entra como alvo de enxerto: `.vscode/mcp.json`, chave raiz `servers`, e o slot renderizado como `${input:<id>}` mais uma entrada em `inputs[]` marcada `password: true` — a única grafia do espaço medido em que o segredo fica no cofre do sistema operacional em vez de em texto puro. ([#79](https://github.com/panlabs-tech/overpower/issues/79))
+- O VS Code entra como alvo de enxerto: `.vscode/mcp.json`, chave raiz `servers`, e o slot renderizado como `${input:<id>}` mais uma entrada em `inputs[]` marcada `password: true` — a única grafia do espaço medido em que o segredo fica no cofre do sistema operacional em vez de em texto puro. `--runtime vscode` passa a ser nomeável, ainda que o VS Code não tenha linha na tabela de skills. ([#79](https://github.com/panlabs-tech/overpower/issues/79))
+
+### Fixed
+
+- O enxerto passou a achar uma chave escrita com aspas simples. A busca só reconhecia a grafia com aspas duplas, e um falso "não achei" custa uma **duplicata**: a entrada era acrescentada ao lado da que devia substituir — um segundo `inputs`, ou o mesmo segredo perguntado duas vezes.
+  Um documento que termina a última entrada com vírgula não ganha mais uma `,` órfã numa linha só. Em JSONC a vírgula final é idiomática, e o espaço antes da chave de fechamento pendura nela e não no último valor — movê-lo deixava para trás uma linha que ninguém escreveu. ([#79](https://github.com/panlabs-tech/overpower/issues/79))
 
 
 ## [0.9.0] - 2026-08-13

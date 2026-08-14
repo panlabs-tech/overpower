@@ -363,11 +363,20 @@ def ask_runtimes(scope: Scope, root: Path, environment: Environment) -> tuple[st
 def runtime_choices(scope: Scope, detected: frozenset[str]) -> list[questionary.Choice]:
     """The runtimes of this scope that are a real choice — the universal group excluded.
 
-    `runtimes_in(scope)` is the one implementation the screen and the flag
-    validator both consume, so global scope never offers the two runtimes with
-    no destination there. What the universal group of **that** scope holds —
-    19 rows in project, 6 in global — is drawn by `locked_block` instead, above
-    the list rather than in it.
+    `runtimes_in(scope)` is the one implementation of *the skills half*, so global
+    scope never offers the two runtimes with no destination there. What the
+    universal group of **that** scope holds — 19 rows in project, 6 in global —
+    is drawn by `locked_block` instead, above the list rather than in it.
+
+    **The flag validator now accepts more than this list offers, and the gap is
+    named rather than papered over.** Since ADR 0017 `--runtime` takes the union
+    of the two tables, so `vscode` is typeable and is *not* here: this list is
+    also used for a line that may carry skills, and offering a target that the
+    next step refuses is the screen that lies about what is takeable — which ADR
+    0008 exists to refuse. Closing it means the step knowing which classes the
+    line carries, which is
+    https://github.com/panlabs-tech/overpower/issues/85. Until then a graft-only
+    target is reached by naming it on the flag.
 
     The split is #65's, and it is measured rather than tidy: inside the list the
     19 locked rows filled the terminal and left **one** choosable row visible;

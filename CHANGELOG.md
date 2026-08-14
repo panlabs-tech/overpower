@@ -23,6 +23,13 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.17.0] - 2026-08-14
+
+### Added
+
+- **`--from` alcança `--mcp`: a receita federada, no mesmo schema da embutida.** `install --mcp <slug> --from <url>` acha a receita em `.overpower/mcp/<slug>.toml` no repositório apontado — raiz do repo, subpasta ou a pasta da receita dão o mesmo resultado, e uma receita não encontrada recusa com **exit 3** sem o fallback rodar. `list --mcp <slug> --from <url>` mostra a receita sem instalar nada. O canal é o mesmo do `--skill`: exclusivo, sem cache, e o `git` roda de verdade contra o remoto apontado. ([#83](https://github.com/panlabs-tech/overpower/issues/83))
+
+
 ## [0.16.0] - 2026-08-14
 
 ### Added

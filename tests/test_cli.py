@@ -761,8 +761,9 @@ def test_the_plan_names_its_artifacts_on_all_three_ways_in(
         return (("fw",), (), ())
 
     def project_scope(
-        cwd: Path, _environment: Environment, _console: Console
+        cwd: Path, _environment: Environment, _console: Console, *, sourced: bool = False
     ) -> tuple[Scope, Path]:
+        del sourced
         return Scope.PROJECT, cwd
 
     def fixed_runtimes(_scope: Scope, _root: Path, _environment: Environment) -> tuple[str, ...]:
@@ -1956,7 +1957,10 @@ def _wizard_steps(
         opened.append("artifacts")
         return ((), (), ("alpha",))
 
-    def ask_scope(cwd: Path, environment: Environment, _console: Console) -> tuple[Scope, Path]:
+    def ask_scope(
+        cwd: Path, environment: Environment, _console: Console, *, sourced: bool = False
+    ) -> tuple[Scope, Path]:
+        del sourced
         opened.append("scope")
         return scope, (cwd if scope is Scope.PROJECT else environment.home)
 

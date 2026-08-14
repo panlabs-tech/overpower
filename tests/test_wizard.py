@@ -44,7 +44,7 @@ from overpower.runtimes import (
     universal_runtimes,
 )
 from overpower.screens import RAIL, THEME
-from tests.support.project import catalog_of
+from tests.support.project import catalog_of, custom_recipe
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -245,6 +245,32 @@ def test_ask_scope_outside_a_repository_has_one_answer_and_asks_nothing(
     environment = _environment(tmp_path / "home")
 
     result = wizard.ask_scope(bare, environment, _console())
+
+    assert result == (Scope.GLOBAL, environment.home)
+    assert asked == []
+
+
+def test_ask_scope_with_a_sourced_recipe_has_one_answer_and_asks_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR 0015, the same move as the outside-repository case: `Project` is not a legal answer.
+
+    Inside a real repository on purpose — the only fact that must decide the
+    answer here is `sourced`, not `git_root`, which the outside-repository case
+    already covers on its own.
+    """
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    asked: list[object] = []
+
+    def refuse_to_ask(*_args: object, **_kwargs: object) -> _Answered:
+        asked.append(1)
+        return _Answered(None)
+
+    monkeypatch.setattr(wizard.questionary, "select", refuse_to_ask)
+    environment = _environment(tmp_path / "home")
+
+    result = wizard.ask_scope(repo, environment, _console(), sourced=True)
 
     assert result == (Scope.GLOBAL, environment.home)
     assert asked == []
@@ -704,7 +730,10 @@ def test_the_real_questionary_builds_the_locked_and_searchable_list(
 # --------------------------------------------------------------------------- #
 
 
-def _project_scope(cwd: Path, _environment: Environment, _console: Console) -> tuple[Scope, Path]:
+def _project_scope(
+    cwd: Path, _environment: Environment, _console: Console, *, sourced: bool = False
+) -> tuple[Scope, Path]:
+    del sourced
     return Scope.PROJECT, cwd
 
 
@@ -804,9 +833,11 @@ def test_run_wizard_opens_only_the_steps_the_request_left_open(
         steps.append("artifacts")
         return ((), (), ("alpha",))
 
-    def scope_step(cwd: Path, environment: Environment, console: Console) -> tuple[Scope, Path]:
+    def scope_step(
+        cwd: Path, environment: Environment, console: Console, *, sourced: bool = False
+    ) -> tuple[Scope, Path]:
         steps.append("scope")
-        return _project_scope(cwd, environment, console)
+        return _project_scope(cwd, environment, console, sourced=sourced)
 
     def runtime_step(scope: Scope, root: Path, environment: Environment) -> tuple[str, ...]:
         steps.append("runtimes")
@@ -863,6 +894,68 @@ def test_run_wizard_opens_the_mcp_runtime_step_for_a_line_that_carries_mcps(
     request, _ = outcome
     assert request.runtimes == ("claude-code",)
     assert request.mcps == ("cloudflare",)
+
+
+def test_run_wizard_asks_scope_naming_a_selected_recipe_that_brings_its_own_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR 0015: a `[source]` recipe is known before scope is asked, so the step can say so."""
+    # given
+    content = catalog_of(tmp_path, monkeypatch)
+    custom_recipe(
+        tmp_path,
+        "homegrown",
+        'description = "x"\ntransport = "stdio"\n\n[source]\nurl = "https://github.com/x/y"\n\n'
+        '[server]\ncommand = "uv"\n',
+    )
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    asked = Request(mcps=("homegrown",))
+    seen: list[bool] = []
+
+    def scope_step(
+        _cwd: Path, _environment: Environment, _console: Console, *, sourced: bool = False
+    ) -> tuple[Scope, Path]:
+        seen.append(sourced)
+        return Scope.GLOBAL, tmp_path
+
+    monkeypatch.setattr(wizard, "ask_artifacts", _never_called)
+    monkeypatch.setattr(wizard, "ask_scope", scope_step)
+    monkeypatch.setattr(wizard, "ask_mcp_runtimes", _fixed_mcp_runtimes)
+
+    outcome = wizard.run_wizard(
+        asked, catalog, Environment.from_process(), tmp_path, None, console=_console()
+    )
+
+    assert outcome is not None
+    assert seen == [True]
+
+
+def test_run_wizard_asks_scope_naming_no_source_for_an_ordinary_recipe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ordinary case, unaffected: no `[source]`, the wizard still asks freely."""
+    # given
+    content = catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": "https://mcp.example.com/mcp"})
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    asked = Request(mcps=("cloudflare",))
+    seen: list[bool] = []
+
+    def scope_step(
+        _cwd: Path, _environment: Environment, _console: Console, *, sourced: bool = False
+    ) -> tuple[Scope, Path]:
+        seen.append(sourced)
+        return Scope.GLOBAL, tmp_path
+
+    monkeypatch.setattr(wizard, "ask_artifacts", _never_called)
+    monkeypatch.setattr(wizard, "ask_scope", scope_step)
+    monkeypatch.setattr(wizard, "ask_mcp_runtimes", _fixed_mcp_runtimes)
+
+    outcome = wizard.run_wizard(
+        asked, catalog, Environment.from_process(), tmp_path, None, console=_console()
+    )
+
+    assert outcome is not None
+    assert seen == [False]
 
 
 @pytest.mark.parametrize(

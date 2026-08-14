@@ -30,7 +30,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, assert_never
 
-from overpower.recipes import BearerSlot, EnvSlot, HeaderSlot, HttpServer, StdioServer
+from overpower.recipes import (
+    AUTHORIZATION,
+    BearerSlot,
+    EnvSlot,
+    HeaderSlot,
+    HttpServer,
+    StdioServer,
+)
 from overpower.runtimes import Dialect
 
 if TYPE_CHECKING:
@@ -72,14 +79,15 @@ class Fragment:
         return f"{self.root_key}.{self.name}"
 
 
-AUTHORIZATION = "Authorization"
 BEARER_SCHEME = "Bearer"
-"""The header a `bearer` slot becomes, assembled here and never in the recipe.
+"""The word a `bearer` slot becomes here, and never in the recipe.
 
-Keeping the word out of the recipe is what makes the role portable: a target
-that spells the same intent with a field instead of a string — Codex's
-`bearer_token_env_var` — is served from the very same declaration, with no new
-field and no second reading of what the recipe meant.
+The **header** it goes in is a fact of the scheme and lives with the reader
+(`overpower.recipes.AUTHORIZATION`), which needs it to catch two slots filling
+it. The *spelling* is what belongs here: a target that says the same thing with
+a field instead of a string — Codex's `bearer_token_env_var` — is served from
+the very same declaration, with no new field and no second reading of what the
+recipe meant.
 """
 
 
@@ -141,9 +149,12 @@ def _claude_environment(
 def _claude_headers(slots: Sequence[Slot]) -> Mapping[str, JsonValue]:
     """The `headers` table of an HTTP server, one entry per slot.
 
-    An `EnvSlot` never reaches here: an HTTP server launches no process, so the
-    reader refuses that pairing **by name** (`MismatchedSlotRoleError`) rather
-    than leaving this function to drop a secret in silence.
+    Two refusals of the reader are what let this be a plain table. An `EnvSlot`
+    never reaches here — an HTTP server launches no process, so that pairing is
+    refused by name (`MismatchedSlotRoleError`). And no two slots fill one header
+    (`CollidingSlotError`), so building a `dict` cannot drop one of them: two
+    `bearer` slots would both land on `Authorization`, and the loser would be a
+    secret gone at exit 0.
     """
     return dict(_claude_header(slot) for slot in slots if not isinstance(slot, EnvSlot))
 

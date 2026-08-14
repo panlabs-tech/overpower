@@ -646,20 +646,12 @@ def _warn_about_unset_slots(plan: Plan, environment: Environment) -> None:
     missing = unset_slots(plan, environment.variables)
     if not missing:
         return
-    listed = ", ".join(missing)
-    subject = "this variable is" if len(missing) == 1 else "these variables are"
-    _out.print(
-        Text.assemble(
-            ("not set here", "op.warn"),
-            " ",
-            (
-                (
-                    f"{listed} — the server reads {'it' if len(missing) == 1 else 'them'} when the "
-                    f"runtime starts, so {subject} yours to export before you use the server"
-                ),
-                "op.dim",
-            ),
-        )
+    one = len(missing) == 1
+    _warn(
+        "not set here",
+        f"{', '.join(missing)} — the server reads {'it' if one else 'them'} when the runtime "
+        f"starts, so {'this variable is' if one else 'these variables are'} yours to export "
+        "before you use the server",
     )
 
 
@@ -680,19 +672,22 @@ def _warn_about_activation(plan: Plan, scope: Scope, root: Path) -> None:
     if not pending:
         return
     listed = ", ".join(shortened(path, root) for path in pending)
-    _out.print(
-        Text.assemble(
-            ("pending approval", "op.warn"),
-            " ",
-            (
-                (
-                    f"{listed} is written, and the server does not connect until you "
-                    "approve it — Claude Code asks the next time it starts in this repository"
-                ),
-                "op.dim",
-            ),
-        )
+    _warn(
+        "pending approval",
+        f"{listed} is written, and the server does not connect until you approve it — "
+        "Claude Code asks the next time it starts in this repository",
     )
+
+
+def _warn(label: str, prose: str) -> None:
+    """One line of *"it worked, and here is what is still yours to do"*.
+
+    Both warnings of the graft have the same shape because they are the same
+    kind of statement — exit 0, the write was correct, and the remaining act is
+    the user's — so they are drawn once. A second spelling of a warning would be
+    a second thing to keep looking like the product.
+    """
+    _out.print(Text.assemble((label, "op.warn"), " ", (prose, "op.dim")))
 
 
 @app.command()

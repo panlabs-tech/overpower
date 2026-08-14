@@ -138,6 +138,37 @@ class Role(StrEnum):
     """`Authorization: Bearer <secret>`, assembled by the renderer."""
 
 
+AUTHORIZATION = "Authorization"
+"""The header a `bearer` slot fills, and a fact of the scheme rather than of a target.
+
+It lives here and not in the renderer because the **reader** needs it: two
+`bearer` slots fill this one header, and catching that is what keeps a secret
+from disappearing into a table. How the header is *written* — the word `Bearer`
+in Claude Code, a `bearer_token_env_var` field in Codex — stays the renderer's.
+"""
+
+
+def carrier_of(role: Role) -> Transport:
+    """The transport that has somewhere to put a secret with this role.
+
+    One implementation of the pairing, so the refusal and the message it prints
+    cannot disagree, and a fourth role is a hole the type checker points at
+    rather than two conditions somebody has to remember to edit together.
+
+    A server reached over HTTP launches no process, so it has no environment to
+    receive a variable; a server launched as a process makes no request, so it
+    has no header to carry one. Every measured target agrees, because there is
+    nothing here for them to disagree about.
+    """
+    match role:
+        case Role.ENV:
+            return Transport.STDIO
+        case Role.HEADER | Role.BEARER:
+            return Transport.HTTP
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
 @dataclass(frozen=True)
 class EnvSlot:
     """A secret the server reads out of its own environment."""
@@ -323,6 +354,27 @@ class UnknownSlotRoleError(OverpowerError):
         super().__init__(f"{path}: `{key}` is `{role}`, which is no role; the set is: {listed}")
 
 
+class CollidingSlotError(OverpowerError):
+    """Two declarations of one place, where the renderer could only keep one.
+
+    The place, never the name: two `bearer` slots carry two different variables
+    and fill the **same** header, and a table built out of them would silently
+    keep the last. So would a slot whose variable `[server.env]` already writes —
+    there the loser is either *the address never lands* or *the secret does*.
+
+    Refused here so that the renderer has no such branch at all. Every other
+    resolution of the contradiction is a choice made on the author's behalf, at
+    exit 0, in a file they will not read again.
+    """
+
+    def __init__(self, path: Path, key: str, place: str, held: str) -> None:
+        """Name the slot, what it would fill, and who already fills it."""
+        self.path = path
+        self.key = key
+        self.place = place
+        super().__init__(f"{path}: `{key}` fills `{place}`, and {held} already does")
+
+
 class MismatchedSlotRoleError(OverpowerError):
     """A role the declared transport has nowhere to put.
 
@@ -344,7 +396,7 @@ class MismatchedSlotRoleError(OverpowerError):
         self.key = key
         self.role = role
         self.transport = transport
-        wanted = Transport.STDIO if role is Role.ENV else Transport.HTTP
+        wanted = carrier_of(role)
         super().__init__(
             f"{path}: `{key}` is `{role}`, and a `{transport}` server has nowhere to carry it; "
             f"the role `{role}` needs transport `{wanted}`"
@@ -418,28 +470,56 @@ def _server(path: Path, transport: Transport, value: object) -> Server:
 
 
 def _slots(path: Path, transport: Transport, server: Server, value: object) -> tuple[Slot, ...]:
-    """`[[slots]]`, each one read whole, and every name unique in the file.
+    """`[[slots]]`, each one read whole, and no two of them filling one place.
 
-    Uniqueness is checked against the slots already read **and** against
-    `[server.env]`, because both end up as keys of one table: a name declared
-    twice would collapse into a single entry at render time, and whichever
-    declaration lost would lose in silence — with the losing case being either
-    *the address is missing* or *the secret is written*.
+    **Uniqueness is of the place a slot fills, never of the name it carries**,
+    and the difference is the whole reason this check exists: two `bearer` slots
+    carry different variables and fill the *same* header, so a renderer building
+    a table would keep one of them and drop the other at exit 0 — a secret gone
+    from a file nobody re-reads. `[server.env]` joins the same comparison,
+    because a literal and a slot end up as keys of one table too.
     """
     if not isinstance(value, list):
         raise MalformedRecipeError(path, SLOTS_KEY, "a list of tables")
     written = server.env if isinstance(server, StdioServer) else NO_ENVIRONMENT
+    taken = {_filled(name): f"`[{SERVER_KEY}.env]`" for name in written}
     slots: list[Slot] = []
     for index, entry in enumerate(cast("list[object]", value)):
-        slot = _slot(path, f"{SLOTS_KEY}[{index}]", transport, entry)
-        if slot.name in written or any(slot.name == seen.name for seen in slots):
-            raise MalformedRecipeError(
-                path,
-                f"{SLOTS_KEY}[{index}].{_NAME_FIELD}",
-                "a name nothing else in this recipe already carries",
-            )
+        key = f"{SLOTS_KEY}[{index}]"
+        slot = _slot(path, key, transport, entry)
+        place = _filled(slot)
+        held = taken.get(place)
+        if held is not None:
+            raise CollidingSlotError(path, key, place, held)
+        taken[place] = key
         slots.append(slot)
     return tuple(slots)
+
+
+def _filled(slot: Slot | str) -> str:
+    """What a slot occupies in the rendered server — the thing two of them can share.
+
+    A variable for an `env` slot, a header for the two roles that travel in
+    one. `Authorization` is the answer for `bearer` because that is a fact of
+    the **scheme** and not of a target: every target that has the role at all
+    fills that header with it, including the one that assembles it from a field.
+
+    Compared case-insensitively for the header roles, because HTTP field names
+    are case-insensitive (RFC 9110 §5.1) — `authorization` and `Authorization`
+    are one header, and a comparison that missed that would let the collision
+    through in the one spelling somebody would actually use to sneak past it.
+    """
+    match slot:
+        case str():
+            return slot
+        case EnvSlot(name):
+            return name
+        case HeaderSlot(_, header):
+            return header.lower()
+        case BearerSlot():
+            return AUTHORIZATION.lower()
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
 def _slot(path: Path, key: str, transport: Transport, value: object) -> Slot:
@@ -465,13 +545,17 @@ def _slot(path: Path, key: str, transport: Transport, value: object) -> Slot:
 
 
 def _role(path: Path, key: str, transport: Transport, value: object) -> Role:
-    """The declared role, as a member of the closed set the transport can carry."""
-    if not isinstance(value, str):
-        raise MalformedRecipeError(path, key, "a non-empty string")
-    if value not in {member.value for member in Role}:
-        raise UnknownSlotRoleError(path, key, value)
-    role = Role(value)
-    if (role is Role.ENV) is not (transport is Transport.STDIO):
+    """The declared role, as a member of the closed set the transport can carry.
+
+    Missing and *absent* are answered before *unknown*: `role = ""` is a line
+    nobody finished writing, and telling its author that the empty string is no
+    role would be true and useless.
+    """
+    declared = _text(path, key, value)
+    if declared not in {member.value for member in Role}:
+        raise UnknownSlotRoleError(path, key, declared)
+    role = Role(declared)
+    if carrier_of(role) is not transport:
         raise MismatchedSlotRoleError(path, key, role, transport)
     return role
 

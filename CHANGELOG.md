@@ -48,10 +48,17 @@ navigable index of the decisions that produced it.
 
   **Papel e transporte se pareiam no leitor**, com erro nomeado: processo recebe variável,
   requisição recebe header, e o par que não existe é recusado **antes de qualquer
-  renderização** — do mesmo jeito que papel fora do conjunto fechado, nome declarado ao mesmo
-  tempo como slot e como literal, e `header` sem o header que ele preenche. Uma receita que
-  passa do leitor é uma receita que renderiza, e por isso o renderizador não tem ramo nenhum
-  onde um segredo possa sumir calado.
+  renderização** — do mesmo jeito que papel fora do conjunto fechado e `header` sem o header
+  que ele preenche.
+
+  **E dois slots nunca preenchem o mesmo lugar.** A unicidade é do **lugar**, não do nome:
+  dois slots `bearer` carregam variáveis diferentes e caem no mesmo `Authorization`, então
+  uma tabela construída com os dois guardaria o último e perderia o primeiro — segredo
+  sumido, com exit 0, num arquivo que ninguém relê. Vale para header em duas grafias
+  (nome de campo HTTP é case-insensitive) e para nome declarado ao mesmo tempo como slot e
+  como literal em `[server.env]`. Uma variável **pode** preencher dois lugares diferentes,
+  porque aí não se perde nada. Uma receita que passa do leitor é uma receita que renderiza, e
+  por isso o renderizador não tem ramo nenhum onde um segredo possa sumir calado.
 
   **Variável de slot ausente é aviso e exit 0.** Ela precisa existir quando o runtime sobe, e
   não quando o overpower roda — o ambiente do editor não é o deste shell. Mas o aviso sai,

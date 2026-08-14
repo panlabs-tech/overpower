@@ -18,6 +18,7 @@ import pytest
 
 from overpower.recipes import (
     BearerSlot,
+    CollidingSlotError,
     EnvSlot,
     ForbiddenTransportError,
     HeaderSlot,
@@ -362,6 +363,7 @@ def test_a_role_the_transport_cannot_carry_is_refused_naming_both(
         pytest.param('role = "bearer"\n', "slots[0].name", id="no-name"),
         pytest.param('name = ""\nrole = "bearer"\n', "slots[0].name", id="empty-name"),
         pytest.param('name = "TOKEN"\n', "slots[0].role", id="no-role"),
+        pytest.param('name = "TOKEN"\nrole = ""\n', "slots[0].role", id="empty-role"),
     ],
 )
 def test_a_malformed_slot_names_the_slot_and_the_field(tmp_path: Path, slot: str, key: str) -> None:
@@ -401,19 +403,68 @@ def test_a_slot_that_is_not_a_table_is_refused_naming_the_field(tmp_path: Path) 
     assert refused.value.key == "slots[0]"
 
 
-def test_two_slots_of_the_same_name_are_refused(tmp_path: Path) -> None:
-    """They would collapse into one entry at render time, and the loser is silent."""
-    path = write_recipe(
-        tmp_path,
-        "twice",
-        f'{HTTP}\n[[slots]]\nname = "TOKEN"\nrole = "bearer"\n\n'
-        '[[slots]]\nname = "TOKEN"\nrole = "header"\nheader = "X-Panel-Token"\n',
-    )
+@pytest.mark.parametrize(
+    ("slots", "place"),
+    [
+        pytest.param(
+            '[[slots]]\nname = "TOKEN_A"\nrole = "bearer"\n\n'
+            '[[slots]]\nname = "TOKEN_B"\nrole = "bearer"\n',
+            "authorization",
+            id="two-bearers-one-header",
+        ),
+        pytest.param(
+            '[[slots]]\nname = "TOKEN_A"\nrole = "bearer"\n\n'
+            '[[slots]]\nname = "TOKEN_B"\nrole = "header"\nheader = "authorization"\n',
+            "authorization",
+            id="a-header-spelling-the-one-bearer-fills",
+        ),
+        pytest.param(
+            '[[slots]]\nname = "TOKEN_A"\nrole = "header"\nheader = "X-Panel-Token"\n\n'
+            '[[slots]]\nname = "TOKEN_B"\nrole = "header"\nheader = "x-panel-token"\n',
+            "x-panel-token",
+            id="one-header-in-two-cases",
+        ),
+    ],
+)
+def test_two_slots_that_fill_one_place_are_refused_naming_the_place(
+    tmp_path: Path, slots: str, place: str
+) -> None:
+    """Uniqueness is of the **place**, never of the name, and that is the whole point.
 
-    with pytest.raises(MalformedRecipeError) as refused:
+    Two `bearer` slots carry two different variables and fill one header, so a
+    renderer building a table would keep the last and drop the first — a secret
+    gone, at exit 0, out of a file nobody reads again. HTTP field names are
+    case-insensitive, so the two spellings of one header are one place too.
+    """
+    path = write_recipe(tmp_path, "colliding", f"{HTTP}\n{slots}")
+
+    with pytest.raises(CollidingSlotError) as refused:
         read_recipe(path)
 
-    assert refused.value.key == "slots[1].name"
+    assert refused.value.key == "slots[1]"
+    assert refused.value.place == place
+
+
+def test_one_variable_may_fill_two_different_places(tmp_path: Path) -> None:
+    """The refusal is of a lost secret, not of a repeated name.
+
+    A server that wants the same token in two headers gets both: nothing
+    overwrites anything, so there is nothing for the reader to protect the
+    author from — and refusing it would be a rule with no defect behind it.
+    """
+    recipe = read_recipe(
+        write_recipe(
+            tmp_path,
+            "twice",
+            f'{HTTP}\n[[slots]]\nname = "TOKEN"\nrole = "bearer"\n\n'
+            '[[slots]]\nname = "TOKEN"\nrole = "header"\nheader = "X-Panel-Token"\n',
+        )
+    )
+
+    assert recipe.slots == (
+        BearerSlot(name="TOKEN"),
+        HeaderSlot(name="TOKEN", header="X-Panel-Token"),
+    )
 
 
 def test_a_name_declared_both_as_a_secret_and_as_a_literal_is_refused(tmp_path: Path) -> None:
@@ -421,7 +472,8 @@ def test_a_name_declared_both_as_a_secret_and_as_a_literal_is_refused(tmp_path: 
 
     `[server.env]` means *write this value*; a slot means *never write it*. A
     reader that let both through would resolve the contradiction by overwriting
-    one of them, and whichever lost would lose in silence.
+    one of them, and whichever lost would lose in silence — either the address
+    never lands, or the secret does.
     """
     path = write_recipe(
         tmp_path,
@@ -430,10 +482,11 @@ def test_a_name_declared_both_as_a_secret_and_as_a_literal_is_refused(tmp_path: 
         '[server.env]\nPANEL_TOKEN = "written"\n\n[[slots]]\nname = "PANEL_TOKEN"\nrole = "env"\n',
     )
 
-    with pytest.raises(MalformedRecipeError) as refused:
+    with pytest.raises(CollidingSlotError) as refused:
         read_recipe(path)
 
-    assert refused.value.key == "slots[0].name"
+    assert refused.value.key == "slots[0]"
+    assert "server.env" in str(refused.value)
 
 
 def test_a_recipe_with_no_slots_at_all_carries_none(tmp_path: Path) -> None:

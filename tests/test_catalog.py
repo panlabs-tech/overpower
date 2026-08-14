@@ -457,13 +457,25 @@ def test_the_packaged_roots_resolve_to_a_loadable_catalog() -> None:
     assert catalog.mcps
 
 
-PINNED = re.compile(r"@\d+(\.\d+)*$")
-"""A package specifier that names one exact version, at the end of an argument.
+PINNED = re.compile(r"@\d+\.\d+\.\d+$")
+"""One exact version, at the end of an argument: `major.minor.patch` and nothing else.
 
-`hostinger-api-mcp@0.2.5` and `@masonator/coolify-mcp@2.12.0` both match, and
-the scope of the second — the `@` that opens it — does not, because the pattern
-is anchored at the end.
+`hostinger-api-mcp@0.2.5` and `@masonator/coolify-mcp@2.12.0` match. `pkg@2` does
+**not**, and that is the point rather than strictness for its own sake: npm reads
+`@2` as a range, so it floats.
 """
+
+
+def names_a_package(word: str) -> bool:
+    """Whether an argument of the launch line names a package to resolve.
+
+    The `@` is the tell, in both spellings npm has: a scope opens with one, a
+    version is introduced by one. It does not catch an unscoped name carrying no
+    version at all — `npx -y coolify-mcp` reads as a bare word — and that limit
+    is why the test below also asserts that a version is pinned *somewhere* on
+    the line, rather than resting on this alone.
+    """
+    return "@" in word
 
 
 def test_every_embedded_stdio_recipe_pins_an_exact_version() -> None:
@@ -489,8 +501,9 @@ def test_every_embedded_stdio_recipe_pins_an_exact_version() -> None:
         server = recipe.server
         assert isinstance(server, StdioServer)
         words = (server.command, *server.args)
-        assert any(PINNED.search(word) for word in words), recipe.name
-        assert not any("@latest" in word for word in words), recipe.name
+        named = [word for word in words if names_a_package(word)]
+        assert named, recipe.name
+        assert all(PINNED.search(word) for word in named), recipe.name
 
 
 def test_the_embedded_recipes_exercise_the_matrix_they_were_chosen_for() -> None:
@@ -501,18 +514,23 @@ def test_the_embedded_recipes_exercise_the_matrix_they_were_chosen_for() -> None
     a branch of the renderer that an embedded recipe reaches, so a target added
     later cannot pass its own tests while leaving a hole in the shipped catalog.
 
-    The role `header` is deliberately **not** here. No server this organisation
-    runs uses one, and the alternative would be to invent a recipe — while the
-    whole point of this set is that none of it is invented: it came out of
-    configuration four repositories already keep by hand, which is the very
+    The role `header` is deliberately **not** required here. No server this
+    organisation runs uses one, and the alternative would be to invent a recipe —
+    while the whole point of this set is that none of it is invented: it came out
+    of configuration four repositories already keep by hand, which is the very
     configuration the graft exists to stop copying.
+
+    Asserted as **coverage and not as inventory** — `<=`, never `==`. The day
+    curation adds a fifth recipe, this test has nothing to say about it; it goes
+    red only when a branch stops being reached, which is the only thing it is
+    here to notice.
     """
     recipes = load_catalog(content_root(), catalog_file()).mcps
     servers = [recipe.server for recipe in recipes]
     slots = [slot for recipe in recipes for slot in recipe.slots]
 
-    assert {type(server) for server in servers} == {StdioServer, HttpServer}
-    assert {type(slot) for slot in slots} == {EnvSlot, BearerSlot}
+    assert {StdioServer, HttpServer} <= {type(server) for server in servers}
+    assert {EnvSlot, BearerSlot} <= {type(slot) for slot in slots}
     assert any(not recipe.slots for recipe in recipes)
     assert any(
         isinstance(recipe.server, StdioServer) and recipe.server.env and recipe.slots

@@ -9,7 +9,7 @@ name = "overpower"
 # from the VCS — measured in #2, `hatch-vcs` under `git clone --depth 1` (the
 # default of `actions/checkout`) fails to find the tag, warns, *succeeds*, and
 # publishes an invented version.
-version = "0.16.0"
+version = "0.17.0"
 description = "Installs curated AI Frameworks into a repository or a machine"
 readme = "README.md"
 requires-python = ">=3.12"

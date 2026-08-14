@@ -1208,13 +1208,13 @@ def test_an_mcp_name_outside_the_catalog_exits_two(
     assert list(root.iterdir()) == []
 
 
-def test_from_and_mcp_on_one_line_are_refused_before_anything_is_fetched(
+def test_from_with_a_bundle_still_exits_two_now_that_mcp_has_joined_skill(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:
-    """A federated recipe is the next slice (#83), and until then the flag says so.
+    """The unit that stays refused (#83 moved `--mcp` off this list, not `--bundle`).
 
     Refused for the *line*, so it needs neither a git repository nor a network to
-    be told — the same reasoning that refuses `--from` with a bundle.
+    be told.
     """
     # given
     project.catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": MCP_URL})
@@ -1223,11 +1223,11 @@ def test_from_and_mcp_on_one_line_are_refused_before_anything_is_fetched(
     code, output = project.run(
         capsys,
         *("install", "--from", "https://github.com/owner/repo"),
-        *("--mcp", "cloudflare", "--runtime", "claude-code"),
+        *("--bundle", "api-python", "--runtime", "claude-code"),
     )
 
     assert code == 2
-    assert "--mcp" in project.joined(output)
+    assert "--bundle" in project.joined(output)
 
 
 def test_a_line_that_mixes_a_skill_and_a_server_writes_both(
@@ -2230,6 +2230,53 @@ def test_the_three_depths_of_url_install_the_same_skill(
     assert not (root / project.CLAUDE / "beta").exists()
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param(REMOTE, id="repository root"),
+        pytest.param(f"{REMOTE}/tree/main/.overpower", id="a subfolder"),
+        pytest.param(f"{REMOTE}/tree/main/.overpower/mcp", id="the recipe's own folder"),
+    ],
+)
+def test_the_three_depths_of_url_install_the_same_mcp_recipe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture, url: str
+) -> None:
+    """`--mcp` joined `--skill` under `--from` in #83: the embedded catalog stays shut."""
+    # given
+    root = project.target(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    monkeypatch.setattr(
+        remote, "fetch_with_git", git_remote.planting(git_remote.mcp_recipe_files("cloudflare"))
+    )
+
+    code, _ = project.run(
+        capsys, "install", "--from", url, "--mcp", "cloudflare", "--runtime", "claude-code", "--yes"
+    )
+
+    assert code == 0
+    assert (root / ".mcp.json").is_file()
+
+
+def test_an_mcp_recipe_that_is_not_found_remotely_exits_three_and_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """Same axis as the skill search: obtained, searched, and the answer is no."""
+    # given
+    root = project.target(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    monkeypatch.setattr(
+        remote, "fetch_with_git", git_remote.planting(git_remote.mcp_recipe_files("cloudflare"))
+    )
+
+    code, output = project.run(
+        capsys, "install", "--from", REMOTE, "--mcp", "vercel", "--runtime", "claude-code", "--yes"
+    )
+
+    assert code == 3
+    assert "vercel" in project.joined(output)
+    assert list(root.iterdir()) == []
+
+
 def test_a_search_that_finds_nothing_does_not_fall_back(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:
@@ -2417,3 +2464,48 @@ def test_a_url_that_is_not_a_github_repository_exits_two_before_obtaining_anythi
 
     assert code == 2
     assert "gitlab.com" in project.joined(output)
+
+
+def test_list_mcp_from_shows_the_recipe_and_writes_nothing(
+    monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The other AC of #83: `list --mcp <slug> --from <url>` needs no target at all."""
+    # given
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    monkeypatch.setattr(
+        remote, "fetch_with_git", git_remote.planting(git_remote.mcp_recipe_files("cloudflare"))
+    )
+
+    code, output = output_of(capsys, ["list", "--mcp", "cloudflare", "--from", REMOTE])
+
+    assert code == 0
+    assert "cloudflare" in output
+    assert "claude-code" in project.joined(output)
+
+
+def test_list_from_with_no_mcp_exits_two_before_obtaining_anything(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A search root and nothing to look for costs a repository download otherwise."""
+    code, output = output_of(capsys, ["list", "--from", REMOTE])
+
+    assert code == 2
+    assert "--mcp" in project.joined(output)
+
+
+@pytest.mark.parametrize(
+    "unit",
+    [
+        pytest.param(("--ai-framework", "matt-pocock"), id="--ai-framework"),
+        pytest.param(("--bundle", "api-python"), id="--bundle"),
+        pytest.param(("--skill", "grilling"), id="--skill"),
+    ],
+)
+def test_list_from_with_another_unit_exits_two(
+    capsys: pytest.CaptureFixture[str], unit: tuple[str, str]
+) -> None:
+    """`list --from` reaches an MCP recipe only, narrower than `install --from`."""
+    code, output = output_of(capsys, ["list", *unit, "--from", REMOTE])
+
+    assert code == 2
+    assert unit[0] in project.joined(output)

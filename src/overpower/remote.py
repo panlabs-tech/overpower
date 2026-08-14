@@ -4,14 +4,22 @@ The vendored copy ages by construction — measured, the upstream moved a versio
 in two days — so `--from` points at **any GitHub repository, with no
 registration**. It is exclusive: with it, only the remote is consulted, which is
 what extinguishes the question of precedence between embedded and remote before
-anyone has to answer it. And it holds **for `--skill` only** in v0.1.0: a skill
-is the one unit that exists in the market, while a bundle and an AI Framework
-only exist in a repository that already knows the overpower.
+anyone has to answer it. And it holds **for `--skill` and `--mcp` only** in
+v0.1.0: those two are the units that exist outside a repository that already
+knows the overpower, while a bundle and an AI Framework only exist in one
+(https://github.com/panlabs-tech/overpower/issues/83).
 
 **The URL is a search root, not an address.** The repository root, a subfolder
 and the artifact's own folder give the *same* result, and the deepest one only
 buys a shorter walk. `tree/<ref>/<path>` pins a branch, a tag **or a SHA** with
 no field of our own — reproducibility for free.
+
+**A skill is found by its own `SKILL.md`; a recipe, by the fixed convention
+path `.overpower/mcp/<slug>.toml`** (`docs/agents/domain.md` § Vocabulário) —
+the one half of that convention the MCP spec's tracer bullet fixed without
+deciding the other, which is what a bundle or an AI Framework in a home-made
+repository still waits on (#26). Both searches obey the same root rule; only
+what they match at the bottom of the walk differs.
 
 **Obtention has two paths and one search** (ADR 0007,
 https://github.com/panlabs-tech/overpower/issues/25):
@@ -71,11 +79,13 @@ from urllib.request import urlopen
 
 from overpower.discovery import SKILL_FILE, ArtifactType, Catalog, artifact_at
 from overpower.errors import BadInvocationError, OverpowerError, RefusedError
+from overpower.recipes import RECIPE_SUFFIX, read_recipe
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Sequence
 
     from overpower.discovery import Artifact
+    from overpower.recipes import Recipe
 
 _GIT = "git"
 """Invoked by name and without a shell. Resolving an absolute path would pin the
@@ -108,6 +118,16 @@ _PRIMARY_DIR = "git"
 _FALLBACK_DIR = "tarball"
 """Each path unpacks into its own subdirectory of the scratch, so a primary that
 failed halfway cannot leave debris inside the tree the fallback then lands."""
+
+_FEDERATED_MCP_DIR = (".overpower", "mcp")
+"""The fixed two segments a recipe's parent directory must end in.
+
+A recipe has no folder of its own the way a skill does — one flat directory
+holds every `<slug>.toml` — so the search matches a **fixed path suffix**
+instead of a free-form folder name. Checked as the last two `.parts` of the
+match's parent rather than as a prefix of `root`, which is what makes the same
+check pass at any of the three depths: the suffix is there whether `root` is
+the repository, `.overpower`, or `.overpower/mcp` itself."""
 
 
 class BadRemoteUrlError(BadInvocationError):
@@ -175,6 +195,42 @@ class AmbiguousRemoteSkillError(RefusedError):
     answered anyway: picking one would be the class of defect this product exists
     not to commit. The fix is in the caller's hands — a deeper URL is a narrower
     search root — so every candidate travels in the message.
+    """
+
+    def __init__(self, name: str, source: Source, found: Sequence[Path]) -> None:
+        """Name every candidate, relative to the search root, so a deeper URL is one edit."""
+        self.name = name
+        self.source = source
+        self.found = tuple(found)
+        listed = ", ".join(path.as_posix() for path in self.found)
+        super().__init__(
+            f"`{name}` is ambiguous under {source.shown}: {listed}. "
+            "Point --from at one of them instead"
+        )
+
+
+class RemoteRecipeNotFoundError(RefusedError):
+    """No `.overpower/mcp/<slug>.toml` under the search root names this recipe.
+
+    Exit **3**, the same axis as `RemoteSkillNotFoundError`: the search space is
+    a whole repository someone else owns, so the product ran, looked, and the
+    answer is no — not the exit **2** the embedded catalog's closed list answers
+    a typo with.
+    """
+
+    def __init__(self, name: str, source: Source) -> None:
+        """Name what was looked for and where, in the terms of the URL."""
+        self.name = name
+        self.source = source
+        super().__init__(f"no recipe named `{name}` under {source.shown}")
+
+
+class AmbiguousRemoteRecipeError(RefusedError):
+    """More than one `.overpower/mcp/{name}.toml` sits under the search root.
+
+    Same reasoning as `AmbiguousRemoteSkillError`: picking one would be the
+    class of defect this product exists not to commit, so every candidate
+    travels in the message and the fix stays in the caller's hands.
     """
 
     def __init__(self, name: str, source: Source, found: Sequence[Path]) -> None:
@@ -266,8 +322,10 @@ def _ref_and_subpath(url: str, below: Sequence[str]) -> tuple[str, str]:
 
 
 @contextmanager
-def catalog_from(url: str, names: Sequence[str]) -> Generator[Catalog]:
-    """The remote skills `names`, as a catalog, for the life of the block.
+def catalog_from(
+    url: str, skills: Sequence[str] = (), mcps: Sequence[str] = ()
+) -> Generator[Catalog]:
+    """The remote `skills` and `mcps`, as a catalog, for the life of the block.
 
     A `Catalog` and not a new type, so everything downstream — planning, the
     screen, the writer — stays exactly as it is: `--from` changes *where the
@@ -284,8 +342,9 @@ def catalog_from(url: str, names: Sequence[str]) -> Generator[Catalog]:
         root = _search_root(obtain(source, scratch), source)
         yield Catalog(
             frameworks=(),
-            pool=tuple(_skill_called(name, root, source) for name in dict.fromkeys(names)),
+            pool=tuple(_skill_called(name, root, source) for name in dict.fromkeys(skills)),
             bundles=(),
+            mcps=tuple(_mcp_called(name, root, source) for name in dict.fromkeys(mcps)),
         )
     finally:
         discard(scratch)
@@ -528,3 +587,26 @@ def _skill_called(name: str, root: Path, source: Source) -> Artifact:
             name, source, [match.relative_to(root) for match in matches]
         )
     return artifact_at(matches[0], ArtifactType.SKILL)
+
+
+def _mcp_called(name: str, root: Path, source: Source) -> Recipe:
+    """The one recipe named `name` under `.overpower/mcp/` somewhere below `root`.
+
+    Read through `read_recipe` — the same reader the embedded catalog uses — so
+    a recipe that gets past this function is a recipe that renders, whether it
+    came from `catalog/mcps/` or from someone else's repository.
+    """
+    matches = sorted(
+        {
+            found
+            for found in root.rglob(f"{name}{RECIPE_SUFFIX}")
+            if found.is_file() and found.parent.parts[-2:] == _FEDERATED_MCP_DIR
+        }
+    )
+    if not matches:
+        raise RemoteRecipeNotFoundError(name, source)
+    if len(matches) > 1:
+        raise AmbiguousRemoteRecipeError(
+            name, source, [match.relative_to(root) for match in matches]
+        )
+    return read_recipe(matches[0])

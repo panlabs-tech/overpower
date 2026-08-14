@@ -85,33 +85,47 @@ def runtime(key: str) -> Runtime:
     return RUNTIMES_BY_KEY[key]
 
 
+def _reads_the_universal_path(row: Runtime) -> bool:
+    """Whether `row` has a project destination and it is `.agents/skills`.
+
+    `vscode` has no `project_dir` at all (ADR 0018) — the guard is what keeps
+    every direct walk of `RUNTIMES` in this file from crashing on it.
+    """
+    return row.project_dir is not None and row.project_dir.relative == UNIVERSAL_PROJECT_DIR
+
+
 # --- the numbers the map states -------------------------------------------
 
 
-def test_table_size_matches_the_transcribed_upstream() -> None:
-    assert len(RUNTIMES) == 76
+def test_table_size_is_the_seventy_six_transcribed_plus_vscode() -> None:
+    """77, not 76 — ADR 0018 gave `vscode` a row with no skill destination.
+
+    The 76 transcribed rows are still a mechanical mirror of upstream; `vscode`
+    is the one row this map renders itself, so the wizard's MCP step can name
+    it. `test_project_scope_accepts_every_runtime_with_a_skill_destination`
+    below is what still measures "76" as a fact about skills.
+    """
+    assert len(RUNTIMES) == 77
 
 
-def test_the_mcp_table_is_not_a_subset_of_the_skills_transcription() -> None:
-    """The two axes are two tables, and neither one contains the other.
+def test_the_mcp_table_keys_now_nest_inside_runtimes_but_prove_nothing_there() -> None:
+    """ADR 0018: every graft target has a row in `RUNTIMES`, and a row still proves nothing.
 
-    This is the decision https://github.com/panlabs-tech/overpower/issues/79
-    forced, pinned as a fact rather than left as prose. `vscode` owns
-    `.vscode/mcp.json` — no other runtime reads it — and upstream declares **no
-    skills row** for it, which is why the count above is still 76: a transcription
-    that grew a row of our own would stop being a transcription, and the numbers
-    the map states out loud would be measuring two different things at once.
-
-    The other direction is asserted at the same time, because it is what makes
-    this a pair of tables and not a hierarchy: `cursor` has a skills row and no
-    MCP document anywhere.
+    `vscode` joined `claude-code` and `devin` there, so the MCP table's keys are
+    now a subset of `RUNTIMES_BY_KEY` — the direction
+    https://github.com/panlabs-tech/overpower/issues/79 once measured false. The
+    other direction still fails, which is what keeps this a pair of tables and
+    not a hierarchy: `cursor` has a skills row and no MCP document anywhere. And
+    `vscode`'s own row proves the type-level decision was right regardless of set
+    membership — `mcp_document_of` takes a `key: str` because a row in
+    `RUNTIMES` no longer means the key has a skill destination to speak of.
     """
     grafts = {key for key, _ in MCP_DOCUMENTS}
 
-    assert "vscode" in grafts
-    assert "vscode" not in RUNTIMES_BY_KEY
+    assert grafts <= set(RUNTIMES_BY_KEY)
     assert "cursor" in RUNTIMES_BY_KEY
     assert "cursor" not in grafts
+    assert RUNTIMES_BY_KEY["vscode"].project_dir is None
 
 
 def test_the_mcp_runtimes_of_a_scope_come_off_the_mcp_table() -> None:
@@ -130,17 +144,19 @@ def test_every_key_is_unique() -> None:
 
 
 def test_distinct_project_paths_are_fewer_than_runtimes() -> None:
-    assert len({r.project_dir.relative for r in RUNTIMES}) == 55
+    paths = {r.project_dir.relative for r in RUNTIMES if r.project_dir is not None}
+    assert len(paths) == 55
 
 
 def test_universal_project_path_is_shared_by_nineteen_runtimes() -> None:
-    universal = [r for r in RUNTIMES if r.project_dir.relative == UNIVERSAL_PROJECT_DIR]
+    universal = [r for r in RUNTIMES if _reads_the_universal_path(r)]
     assert len(universal) == 19
 
 
-def test_two_runtimes_declare_no_global_destination() -> None:
+def test_three_runtimes_declare_no_global_destination() -> None:
+    """`vscode` joins `eve` and `promptscript` — ADR 0018 gave it no destination there either."""
     without = sorted(r.key for r in RUNTIMES if r.global_dir is None)
-    assert without == ["eve", "promptscript"]
+    assert without == ["eve", "promptscript", "vscode"]
 
 
 def test_distinct_global_paths_under_a_default_environment() -> None:
@@ -168,21 +184,25 @@ def test_agents_skills_is_the_most_shared_global_path() -> None:
 # here instead of on a user's machine.
 
 
-def test_project_scope_accepts_every_runtime() -> None:
-    assert runtimes_in(Scope.PROJECT) == RUNTIMES
+def test_project_scope_accepts_every_runtime_with_a_skill_destination() -> None:
+    """76, not the 77 `RUNTIMES` now carries — `vscode` has none to offer (ADR 0018)."""
+    offered = runtimes_in(Scope.PROJECT)
+    assert offered == tuple(r for r in RUNTIMES if r.project_dir is not None)
+    assert len(offered) == 76
 
 
-def test_global_scope_accepts_seventy_four_of_the_seventy_six() -> None:
+def test_global_scope_accepts_seventy_four_of_the_seventy_seven() -> None:
     assert len(runtimes_in(Scope.GLOBAL)) == 74
 
 
-def test_global_scope_drops_exactly_the_two_without_a_destination() -> None:
+def test_global_scope_drops_exactly_the_three_without_a_destination() -> None:
+    """`vscode` joins `eve` and `promptscript` — ADR 0018."""
     offered = {r.key for r in runtimes_in(Scope.GLOBAL)}
-    assert {r.key for r in RUNTIMES} - offered == {"eve", "promptscript"}
+    assert {r.key for r in RUNTIMES} - offered == {"eve", "promptscript", "vscode"}
 
 
 def test_global_scope_preserves_upstream_declaration_order() -> None:
-    dropped = {"eve", "promptscript"}
+    dropped = {"eve", "promptscript", "vscode"}
     assert [r.key for r in runtimes_in(Scope.GLOBAL)] == [
         r.key for r in RUNTIMES if r.key not in dropped
     ]
@@ -210,7 +230,7 @@ def test_every_runtime_offered_in_a_scope_has_somewhere_to_land() -> None:
 
 
 def test_the_universal_group_in_project_scope_is_everyone_who_reads_that_path() -> None:
-    reads_it = [r.key for r in RUNTIMES if r.project_dir.relative == UNIVERSAL_PROJECT_DIR]
+    reads_it = [r.key for r in RUNTIMES if _reads_the_universal_path(r)]
 
     grouped = [r.key for r in universal_runtimes(Scope.PROJECT)]
 
@@ -290,7 +310,11 @@ def test_the_universal_group_and_the_rest_partition_the_scoped_table(
 
 
 def test_only_four_project_paths_were_verified_in_primary_source() -> None:
-    measured = sorted(r.key for r in RUNTIMES if r.project_dir.evidence is Evidence.MEASURED)
+    measured = sorted(
+        r.key
+        for r in RUNTIMES
+        if r.project_dir is not None and r.project_dir.evidence is Evidence.MEASURED
+    )
     assert measured == ["claude-code", "codex", "cursor", "github-copilot"]
 
 
@@ -303,10 +327,20 @@ def test_only_one_global_path_was_verified_in_primary_source() -> None:
     assert measured == ["claude-code"]
 
 
-def test_vs_code_has_no_row_although_the_map_measured_it() -> None:
-    """Recorded as a test because it is the one gap a reader would assume away."""
-    assert not [r for r in RUNTIMES if "code" in r.key and "vs" in r.display_name.lower()]
-    assert "vscode" not in RUNTIMES_BY_KEY
+def test_vs_code_has_a_row_with_no_skill_destination_of_any_kind() -> None:
+    """ADR 0018: the gap flips. `vscode` is nameable now, and still has nowhere to put a skill.
+
+    Recorded as a test for the reason its predecessor was: it is the one fact a
+    reader would assume from the shape of the other 76 rows, and it is wrong.
+    """
+    row = RUNTIMES_BY_KEY["vscode"]
+    assert row.display_name == "VS Code"
+    assert row.project_dir is None
+    assert row.global_dir is None
+
+
+PROJECT_CAPABLE = tuple(r for r in RUNTIMES if r.project_dir is not None)
+"""`RUNTIMES` minus `vscode` — every row `resolve_project_dir` can actually answer."""
 
 
 # --- project resolution ----------------------------------------------------
@@ -317,7 +351,7 @@ def test_project_path_is_joined_under_the_given_root() -> None:
     assert resolve_project_dir(runtime("claude-code"), root) == root / ".claude" / "skills"
 
 
-@pytest.mark.parametrize("row", RUNTIMES, ids=[r.key for r in RUNTIMES])
+@pytest.mark.parametrize("row", PROJECT_CAPABLE, ids=[r.key for r in PROJECT_CAPABLE])
 def test_project_path_never_leaves_a_separator_inside_one_component(
     row: Runtime,
 ) -> None:
@@ -328,13 +362,14 @@ def test_project_path_never_leaves_a_separator_inside_one_component(
     `factory/skills`, and on Windows a junction API that only accepts `str`
     would then be handed the wrong string.
     """
+    assert row.project_dir is not None
     resolved = resolve_project_dir(row, REPO)
     expected = len(PurePosixPath(row.project_dir.relative).parts)
     assert resolved.parts[-expected:] == PurePosixPath(row.project_dir.relative).parts
     assert all("/" not in part and "\\" not in part for part in resolved.parts[1:])
 
 
-@pytest.mark.parametrize("row", RUNTIMES, ids=[r.key for r in RUNTIMES])
+@pytest.mark.parametrize("row", PROJECT_CAPABLE, ids=[r.key for r in PROJECT_CAPABLE])
 def test_project_path_is_relative_to_the_root(row: Runtime) -> None:
     root = REPO
     assert resolve_project_dir(row, root).is_relative_to(root)
@@ -530,9 +565,9 @@ def test_places_of_collapses_runtimes_that_read_the_same_directory() -> None:
     target and deliver twenty), and the `doctor` walks each place once instead
     of nineteen times.
     """
-    universal = [row for row in RUNTIMES if row.project_dir.relative == UNIVERSAL_PROJECT_DIR]
+    universal = [row for row in RUNTIMES if _reads_the_universal_path(row)]
 
-    places = places_of(RUNTIMES, Scope.PROJECT, REPO, environment())
+    places = places_of(runtimes_in(Scope.PROJECT), Scope.PROJECT, REPO, environment())
 
     assert places[resolve_project_dir(universal[0], REPO)] == tuple(row.key for row in universal)
 

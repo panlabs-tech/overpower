@@ -35,10 +35,11 @@ from overpower.discovery import load_catalog
 from overpower.packaged import catalog_file, content_root
 from overpower.planning import Request
 from overpower.runtimes import (
-    RUNTIMES,
     UNIVERSAL_PROJECT_DIR,
     Environment,
     Scope,
+    mcp_document_of,
+    mcp_runtimes_in,
     runtimes_in,
     universal_runtimes,
 )
@@ -355,13 +356,13 @@ def test_the_universal_heading_covers_exactly_the_runtimes_that_read_that_path()
     reads_the_path = {
         runtime.key
         for runtime in runtimes_in(Scope.PROJECT)
-        if runtime.project_dir.relative == UNIVERSAL_PROJECT_DIR
+        if runtime.project_dir is not None and runtime.project_dir.relative == UNIVERSAL_PROJECT_DIR
     }
 
     offered = {choice.value for choice in wizard.runtime_choices(Scope.PROJECT, frozenset())}
 
     assert {runtime.key for runtime in universal_runtimes(Scope.PROJECT)} == reads_the_path
-    assert offered == {runtime.key for runtime in RUNTIMES} - reads_the_path
+    assert offered == {runtime.key for runtime in runtimes_in(Scope.PROJECT)} - reads_the_path
 
 
 def test_no_runtime_is_grouped_under_a_path_it_does_not_read() -> None:
@@ -519,6 +520,71 @@ def test_ask_runtimes_returns_none_on_interruption(
     monkeypatch.setattr(wizard.questionary, "checkbox", _answering(None))
 
     assert wizard.ask_runtimes(Scope.PROJECT, tmp_path, _environment(tmp_path)) is None
+
+
+# --------------------------------------------------------------------------- #
+# #97: the graft class gets its own runtime step — no universal group,
+# labelled by file, counted by its own table.
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    "scope", [pytest.param(Scope.PROJECT, id="project"), pytest.param(Scope.GLOBAL, id="global")]
+)
+def test_mcp_runtime_choices_offer_only_mcp_documents_in_scope_with_no_universal_group(
+    scope: Scope,
+) -> None:
+    choices = wizard.mcp_runtime_choices(scope, frozenset())
+
+    assert {choice.value for choice in choices} == set(mcp_runtimes_in(scope))
+    assert all(choice.disabled is None for choice in choices)
+
+
+def test_mcp_runtime_choices_label_each_row_by_the_file_it_receives() -> None:
+    choices = wizard.mcp_runtime_choices(Scope.PROJECT, frozenset())
+
+    by_key = {choice.value: str(choice.title) for choice in choices}
+    document = mcp_document_of("vscode", Scope.PROJECT)
+    assert document is not None
+    assert document.relative in by_key["vscode"]
+    assert "VS Code" in by_key["vscode"]
+
+
+def test_mcp_runtime_choices_pre_check_exactly_what_was_detected() -> None:
+    choices = wizard.mcp_runtime_choices(Scope.PROJECT, frozenset({"vscode"}))
+
+    checked = {choice.value for choice in choices if choice.checked}
+    assert checked == {"vscode"}
+
+
+def test_ask_mcp_runtimes_answers_only_what_was_picked_with_no_locked_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The mirror of `ask_runtimes`'s union, minus the union: nothing is added unasked."""
+    monkeypatch.setattr(wizard.questionary, "checkbox", _answering(["vscode"]))
+
+    result = wizard.ask_mcp_runtimes(Scope.PROJECT, tmp_path, _environment(tmp_path))
+
+    assert result == ("vscode",)
+
+
+def test_ask_mcp_runtimes_with_nothing_picked_answers_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No universal group means an empty pick is a genuinely empty answer."""
+    monkeypatch.setattr(wizard.questionary, "checkbox", _answering([]))
+
+    result = wizard.ask_mcp_runtimes(Scope.PROJECT, tmp_path, _environment(tmp_path))
+
+    assert result == ()
+
+
+def test_ask_mcp_runtimes_returns_none_on_interruption(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(wizard.questionary, "checkbox", _answering(None))
+
+    assert wizard.ask_mcp_runtimes(Scope.PROJECT, tmp_path, _environment(tmp_path)) is None
 
 
 def test_the_runtime_list_is_searchable_and_pays_for_it_with_the_j_and_k_keys(
@@ -756,6 +822,47 @@ def test_run_wizard_opens_only_the_steps_the_request_left_open(
 
     assert outcome is not None
     assert steps == opened
+
+
+def _fixed_mcp_runtimes(_scope: Scope, _root: Path, _environment: Environment) -> tuple[str, ...]:
+    return ("claude-code",)
+
+
+def _never_called(*_args: object, **_kwargs: object) -> object:
+    message = "this step must not open on a line that already answered it"
+    raise AssertionError(message)
+
+
+def _never_ask_runtimes(*_args: object, **_kwargs: object) -> tuple[str, ...]:
+    message = "a line that carries `mcps` must open the graft class's own runtime step"
+    raise AssertionError(message)
+
+
+def test_run_wizard_opens_the_mcp_runtime_step_for_a_line_that_carries_mcps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#97: `--mcp` with no `--runtime` reaches `ask_mcp_runtimes`, never the skills step.
+
+    A mixed line (skills and MCP, no `--runtime`) never reaches `run_wizard` at
+    all — `overpower.cli` refuses it before the wizard opens — so `asked.mcps`
+    truthy here is always the whole line, and the artifacts step is skipped the
+    same way a filled `asked.skills` already skips it.
+    """
+    # given
+    asked = Request(mcps=("cloudflare",))
+    monkeypatch.setattr(wizard, "ask_artifacts", _never_called)
+    monkeypatch.setattr(wizard, "ask_scope", _project_scope)
+    monkeypatch.setattr(wizard, "ask_runtimes", _never_ask_runtimes)
+    monkeypatch.setattr(wizard, "ask_mcp_runtimes", _fixed_mcp_runtimes)
+
+    outcome = wizard.run_wizard(
+        asked, None, Environment.from_process(), tmp_path, None, console=_console()
+    )
+
+    assert outcome is not None
+    request, _ = outcome
+    assert request.runtimes == ("claude-code",)
+    assert request.mcps == ("cloudflare",)
 
 
 @pytest.mark.parametrize(

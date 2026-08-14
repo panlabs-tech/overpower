@@ -10,6 +10,7 @@
 │      overpower install --mcp cloudflare                                      │
 │                                                                              │
 │    url      https://mcp.cloudflare.com/mcp                                   │
-│    targets  claude-code · project                                            │
+│    targets  claude-code, vscode, devin                                       │
+│    scopes   project, global                                                  │
 │                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯

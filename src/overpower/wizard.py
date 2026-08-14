@@ -69,8 +69,12 @@ from prompt_toolkit.shortcuts.prompt import PromptSession
 from questionary.prompts import common
 
 from overpower.runtimes import (
+    RUNTIMES_BY_KEY,
     Scope,
+    detected_mcp_runtimes,
     detected_runtimes,
+    mcp_document_of,
+    mcp_runtimes_in,
     runtimes_in,
     universal_place,
     universal_runtimes,
@@ -174,9 +178,11 @@ def run_wizard(  # noqa: PLR0913 — the five the steps need, plus the console t
     ai_frameworks, bundles, skills = asked.ai_frameworks, asked.bundles, asked.skills
     # `asked.mcps` is a selection like the other three, so a line that names one
     # has already answered this step — the wizard opens the gaps and not the
-    # steps. What it does *not* yet do is offer MCP servers to pick, or scope the
-    # runtime step to the ones that can take one, which is
-    # https://github.com/panlabs-tech/overpower/issues/85.
+    # steps. What it does *not* yet do is offer MCP servers to pick from inside
+    # it, which is https://github.com/panlabs-tech/overpower/issues/85. The
+    # runtime step below already knows which class the line carries (#97): a
+    # mixed line never reaches here — `overpower.cli` refuses it before the
+    # wizard opens — so `asked.mcps` truthy here means the whole line is graft.
     if not (ai_frameworks or bundles or skills or asked.mcps):
         if catalog is None:  # pragma: no cover — `overpower.cli` decides the two together
             message = "the artifacts step opened with no catalog to read"
@@ -197,8 +203,14 @@ def run_wizard(  # noqa: PLR0913 — the five the steps need, plus the console t
 
     runtimes = asked.runtimes
     if not runtimes:
-        console.print(noted(f"{len(runtimes_in(scope))} runtimes read this scope"))
-        chosen = ask_runtimes(scope, root, environment)
+        if asked.mcps:
+            console.print(
+                noted(f"{len(mcp_runtimes_in(scope))} runtimes take an MCP server in this scope")
+            )
+            chosen = ask_mcp_runtimes(scope, root, environment)
+        else:
+            console.print(noted(f"{len(runtimes_in(scope))} runtimes read this scope"))
+            chosen = ask_runtimes(scope, root, environment)
         if chosen is None:
             return None
         runtimes = chosen
@@ -364,19 +376,17 @@ def runtime_choices(scope: Scope, detected: frozenset[str]) -> list[questionary.
     """The runtimes of this scope that are a real choice — the universal group excluded.
 
     `runtimes_in(scope)` is the one implementation of *the skills half*, so global
-    scope never offers the two runtimes with no destination there. What the
-    universal group of **that** scope holds — 19 rows in project, 6 in global —
-    is drawn by `locked_block` instead, above the list rather than in it.
+    scope never offers the two runtimes with no destination there, and `vscode`
+    is never among them either (ADR 0018): it has a row in the table now, but no
+    `project_dir` for `runtimes_in` to find. What the universal group of **that**
+    scope holds — 19 rows in project, 6 in global — is drawn by `locked_block`
+    instead, above the list rather than in it.
 
-    **The flag validator now accepts more than this list offers, and the gap is
-    named rather than papered over.** Since ADR 0017 `--runtime` takes the union
-    of the two tables, so `vscode` is typeable and is *not* here: this list is
-    also used for a line that may carry skills, and offering a target that the
-    next step refuses is the screen that lies about what is takeable — which ADR
-    0008 exists to refuse. Closing it means the step knowing which classes the
-    line carries, which is
-    https://github.com/panlabs-tech/overpower/issues/85. Until then a graft-only
-    target is reached by naming it on the flag.
+    **This list is the skills half only.** Since #97 the runtime step knows
+    which class the line carries and calls `mcp_runtime_choices` for the other
+    one — a mixed line never reaches either, refused by `overpower.cli` before
+    the wizard opens — so a target this list omits is never one the next step
+    would have accepted.
 
     The split is #65's, and it is measured rather than tidy: inside the list the
     19 locked rows filled the terminal and left **one** choosable row visible;
@@ -388,6 +398,58 @@ def runtime_choices(scope: Scope, detected: frozenset[str]) -> list[questionary.
         for runtime in runtimes_in(scope)
         if runtime.key not in included
     ]
+
+
+def ask_mcp_runtimes(scope: Scope, root: Path, environment: Environment) -> tuple[str, ...] | None:
+    """Which runtimes should receive this server — the graft class's own step (#97).
+
+    Not `ask_runtimes` filtered: the two classes disagree about the whole shape
+    of the step, not only about which rows are offered. There is no universal
+    group to lock — ADR 0011's group is a fact of the skills class, a path every
+    member shares, and the graft class has no such path — so every row here is a
+    real choice and the step draws no static block above the list. And a row is
+    labelled by the **file** it writes, not by a directory: `.vscode/mcp.json`
+    is what tells the reader apart from `.mcp.json`, where a shared directory
+    name like `.agents/skills` tells the skills step's reader apart.
+    """
+    choices = mcp_runtime_choices(scope, detected_mcp_runtimes(scope, root, environment))
+    with _railed(header=_hint_block(_HINT)):
+        picked = questionary.checkbox(
+            _MCP_RUNTIME_QUESTION,
+            choices=choices,
+            qmark=_QMARK,
+            instruction=_NO_INSTRUCTION,
+            use_search_filter=True,
+            use_jk_keys=False,
+            style=QUESTIONARY_STYLE,
+        ).ask()
+    if picked is None:
+        return None
+    chosen = set(picked)
+    return tuple(key for key in mcp_runtimes_in(scope) if key in chosen)
+
+
+def mcp_runtime_choices(scope: Scope, detected: frozenset[str]) -> list[questionary.Choice]:
+    """Every runtime that can receive a server in this scope — no group excluded.
+
+    `mcp_runtimes_in(scope)` is the whole set the class offers here, unlike the
+    skills half where the universal group is drawn separately: the graft class
+    has nothing in common to draw that way, so every key returned is a choice.
+    """
+    return [_mcp_choice(key, scope, detected) for key in mcp_runtimes_in(scope)]
+
+
+def _mcp_choice(key: str, scope: Scope, detected: frozenset[str]) -> questionary.Choice:
+    """One graft target, labelled by the file it writes and pre-checked by detection."""
+    document = mcp_document_of(key, scope)
+    if document is None:  # pragma: no cover — `key` comes straight off `mcp_runtimes_in(scope)`
+        message = f"`{key}` has no MCP document in {scope}, despite `mcp_runtimes_in`"
+        raise AssertionError(message)
+    return questionary.Choice(
+        f"{RUNTIMES_BY_KEY[key].display_name} ({document.relative})",
+        value=key,
+        checked=key in detected,
+    )
 
 
 def locked_block(scope: Scope) -> Callable[[], StyleAndTextTuples]:
@@ -542,6 +604,7 @@ would be the only line of the flow that did not sit on the same column.
 
 _SCOPE_QUESTION = "Where should this install write to?"
 _RUNTIME_QUESTION = "Which runtimes should read this equipment?"
+_MCP_RUNTIME_QUESTION = "Which runtimes should receive this server?"
 _HINT = "↑↓ move · space select · enter confirm"
 _SELECT_HINT = "↑↓ move · enter confirm"
 _NO_INSTRUCTION = ""

@@ -651,9 +651,17 @@ def _refuse_a_runtime_with_no_document(keys: Sequence[str], scope: Scope) -> Non
 
 
 def _refuse_a_runtime_with_no_skills(keys: Sequence[str]) -> None:
-    """Refuse the line if any selected runtime has no skills directory at all."""
+    """Refuse the line if any selected runtime has no skills directory at all.
+
+    Filtered by *has a skill destination*, not by membership in
+    `RUNTIMES_BY_KEY` (ADR 0018): since `vscode` joined that table with neither
+    a project nor a global directory, presence alone stopped proving anything —
+    `runtimes_in` made the same move on the screen side, and this is its mirror
+    on the refusal side.
+    """
     for key in keys:
-        if key not in RUNTIMES_BY_KEY:
+        runtime = RUNTIMES_BY_KEY.get(key)
+        if runtime is None or runtime.project_dir is None:
             raise NoSkillsDestinationError(key)
 
 
@@ -860,13 +868,22 @@ def _selected_runtimes(keys: Sequence[str], scope: Scope) -> tuple[str, ...]:
 def _that_take_skills(keys: Sequence[str]) -> tuple[Runtime, ...]:
     """The rows of the skills table these keys name, in the order they were given.
 
-    A key with no row is dropped rather than refused, and the drop is not a
-    silent default: `_refuse_a_runtime_with_no_skills` has already run whenever
-    the line carries anything of the copy class, so what reaches here without a
-    row is a graft-only target on a line that asked for no skill — and a target
-    with nothing to receive contributes no landing.
+    A key with no skill destination is dropped rather than refused, and the
+    drop is not a silent default: `_refuse_a_runtime_with_no_skills` has
+    already run whenever the line carries anything of the copy class, so what
+    reaches here without one is a graft-only target on a line that asked for no
+    skill — and a target with nothing to receive contributes no landing.
+
+    Filtered by `project_dir is not None` and not by membership in
+    `RUNTIMES_BY_KEY` (ADR 0018): `vscode` is a member with no destination, and
+    handing its row to `places_of` would ask `resolve_project_dir` for a path
+    the row does not have.
     """
-    return tuple(RUNTIMES_BY_KEY[key] for key in keys if key in RUNTIMES_BY_KEY)
+    return tuple(
+        runtime
+        for key in keys
+        if (runtime := RUNTIMES_BY_KEY.get(key)) is not None and runtime.project_dir is not None
+    )
 
 
 def _selected_skills(names: Sequence[str], catalog: Catalog) -> tuple[Artifact, ...]:

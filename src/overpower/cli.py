@@ -42,7 +42,7 @@ from rich.console import Console
 from rich.text import Text
 from typer.core import TyperGroup
 
-from overpower.discovery import load_catalog
+from overpower.discovery import UnknownNameError, load_catalog
 from overpower.errors import BadInvocationError, OverpowerError, RefusedError
 from overpower.inspection import Terminal, diagnose
 from overpower.packaged import catalog_file, content_root
@@ -218,6 +218,41 @@ class OutsideRepositoryError(BadInvocationError):
         super().__init__(
             "not inside a git repository: pass --global to write under the home directory"
         )
+
+
+class MixedClassesWithoutRuntimeError(BadInvocationError):
+    """A skill and an MCP server on one line, with no `--runtime` to split them.
+
+    Since ADR 0018 the runtime step has two distinct shapes, one per class —
+    the skills step locks the universal group, the graft step has none — and a
+    line naming both has no single shape for the wizard to open. `--runtime`
+    named explicitly settles which runtimes each class reaches without asking
+    the step to be two things at once; the other way out is two commands, one
+    per class (https://github.com/panlabs-tech/overpower/issues/97).
+    """
+
+    def __init__(self) -> None:
+        """Name both ways out: naming the runtimes, or splitting the line."""
+        super().__init__(
+            "a skill and an MCP server on one line need --runtime named explicitly, "
+            "or two separate commands — one per class"
+        )
+
+
+class McpNameBelongsToAnotherFlagError(BadInvocationError):
+    """A `--mcp` name the catalog has, filed under a different unit entirely.
+
+    The closed-list miss `UnknownNameError` already answers is *"nothing has
+    this name"*; this is a narrower, more useful miss — *something* has it, on
+    a flag that was not typed. Naming the right one is a smaller correction than
+    the closed list `UnknownNameError` would have printed instead.
+    """
+
+    def __init__(self, name: str, flag: str) -> None:
+        """Name the value, and the flag its catalog entry actually answers to."""
+        self.name = name
+        self.flag = flag
+        super().__init__(f"`{name}` is not an MCP server in this catalog; it is named under {flag}")
 
 
 class _BannerGroup(TyperGroup):
@@ -479,6 +514,25 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
         dry_run=dry_run,
         yes=yes,
     )
+    # The line decides this on its own — no catalog, no scope, no terminal — so
+    # it is refused before any of the three, on the wizard path and the flag
+    # path alike: since ADR 0018 the runtime step has two distinct shapes, one
+    # per class, and a line naming both has no single shape to open. Naming
+    # `--runtime` explicitly settles which runtimes each class reaches;
+    # splitting into two commands is the other way out
+    # (https://github.com/panlabs-tech/overpower/issues/97).
+    if mcps and (frameworks or bundles or skills) and not asked.runtimes:
+        raise MixedClassesWithoutRuntimeError
+
+    already_read: Catalog | None = None
+    if mcps:
+        # Loaded here and reused below rather than deferred to `_perform`: on a
+        # terminal line missing --runtime that call happens only after the
+        # whole wizard has already asked its questions, and a slug the catalog
+        # does not have should cost none of them.
+        already_read = load_catalog(content_root(), catalog_file())
+        _refuse_an_mcp_name_from_the_wrong_class(already_read, mcps)
+
     selected = bool(frameworks or bundles or skills or mcps)
     # **The trigger is the gap, not the empty line**
     # (https://github.com/panlabs-tech/overpower/issues/57): there is a
@@ -494,7 +548,6 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
     # and nothing else: the wizard is one gesture, not a question per absent flag.
     asking_scope = wizarding and not asked.runtimes and not global_
 
-    already_read: Catalog | None = None
     if wizarding:
         # Resolved ahead of the banner and of every question: a line with
         # nowhere legal to write is refused with no screen at all, the same way
@@ -567,6 +620,35 @@ def _refuse_a_line_from_cannot_answer(
         raise UnsupportedRemoteUnitError(given)
     if not skills:
         raise NothingToSearchForError
+
+
+def _refuse_an_mcp_name_from_the_wrong_class(catalog: Catalog, mcps: Sequence[str]) -> None:
+    """Refuse a `--mcp` name the recipe table misses, before the wizard opens.
+
+    `plan_for` already raises `UnknownNameError` for the plain miss — this does
+    not replace it, it moves the same question earlier and sharpens the answer
+    when the name turns out to be real, just filed under a different flag
+    (https://github.com/panlabs-tech/overpower/issues/97).
+    """
+    for name in mcps:
+        if any(recipe.name == name for recipe in catalog.mcps):
+            continue
+        other = _flag_naming(catalog, name)
+        if other is not None:
+            raise McpNameBelongsToAnotherFlagError(name, other)
+        unit = "MCP server"
+        raise UnknownNameError(unit, name, (recipe.name for recipe in catalog.mcps))
+
+
+def _flag_naming(catalog: Catalog, name: str) -> str | None:
+    """Which other selector's namespace already carries `name`, or `None`."""
+    if any(item.name == name for item in catalog.frameworks):
+        return AI_FRAMEWORK_FLAG
+    if any(item.name == name for item in catalog.pool):
+        return SKILL_FLAG
+    if any(item.name == name for item in catalog.bundles):
+        return BUNDLE_FLAG
+    return None
 
 
 def _perform(

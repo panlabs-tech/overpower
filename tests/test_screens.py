@@ -244,13 +244,15 @@ bytes are ours, so no curation refresh can move a recorded screen."""
 MCP_TARGET = Target(runtime="claude-code", scope=Scope.PROJECT)
 
 RECORDED_TARGETS = (MCP_TARGET,)
-"""What the recorded recipe screens are drawn with: the table's one row today.
+"""What the recorded recipe screens are drawn with: one pair, and ours.
 
 Spelled here rather than derived, for the reason every recorded screen is drawn
 from a fixture: a recording that moved when the *table* grew would spend the
-signal that says which screens a change had licence to move. That the screen
-shows what `targets_of` actually answers is the wiring, and it is asserted
-through the command in `test_cli.py`.
+signal that says which screens a change had licence to move. The table has since
+grown — https://github.com/panlabs-tech/overpower/issues/80 put a second row on
+it — and these recordings did not move, which is the property working rather than
+a recording gone stale. That the screen shows what `targets_of` actually answers
+is the wiring, and it is asserted through the command in `test_cli.py`.
 """
 
 

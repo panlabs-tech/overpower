@@ -151,20 +151,13 @@ def test_an_unknown_flag_exits_two(capsys: pytest.CaptureFixture[str]) -> None:
 
 
 def test_the_runtime_help_warns_the_two_classes_disagree() -> None:
-    """Skill and MCP each have their own runtime table (ADR 0017) — a runtime
-    that takes one can refuse the other. The help for `--runtime` used to stay
-    silent about that and let the reader find out from an exit 3.
-
-    Through `piped()`, not `output_of()`: in process, `GITHUB_ACTIONS` forces
-    `rich` to colour and rewrap the panel, which can split the wording across
-    an escape sequence or a line break. The child's env is scrubbed instead.
-    """
+    """DIAGNOSTIC: prints the normalised output so a CI failure shows the
+    real content instead of pytest's truncated diff."""
     result = piped("install", "--help")
+    unwrapped = " ".join(result.stdout.decode(errors="replace").split())
+    print(unwrapped)  # noqa: T201 — temporary, removed once the platform gap is diagnosed
 
     assert result.returncode == 0
-    # Whitespace-normalised: the panel wraps this help text at whatever width
-    # the platform's console reports, and the wrap point moves with it.
-    unwrapped = " ".join(result.stdout.decode(errors="replace").split())
     assert "not every runtime takes every class" in unwrapped
 
 

@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from overpower.discovery import load_catalog
-from overpower.planning import DirectoryTree, DocumentKey, Request, WriteMode, plan_for
+from overpower.planning import DirectoryTree, DocumentKey, Request, Write, WriteMode, plan_for
 from overpower.rendering import Fragment, Inputs
 from overpower.runtimes import MCP_DOCUMENTS, Environment, Scope, known_runtimes
 from tests.support.project import (
@@ -24,6 +24,7 @@ from tests.support.project import (
     SLOT_VARIABLE,
     SLOTTED,
     catalog_of,
+    custom_recipe,
     joined,
     run,
     target,
@@ -615,3 +616,77 @@ def test_a_skill_naming_other_skills_in_its_text_writes_only_itself(
     )
 
     assert [selection.name for selection in plan.selections] == ["wayfinder"]
+
+
+# --------------------------------------------------------------------------- #
+# [source]: the clone is a second write of the same selection (#84)
+# --------------------------------------------------------------------------- #
+
+SOURCED = """\
+description = "A server with code of its own."
+transport = "stdio"
+
+[source]
+url = "https://github.com/example/homegrown-mcp"
+
+[server]
+command = "uv"
+args = ["run", "--project", "{source}", "server.py"]
+"""
+
+
+def test_a_sourced_recipe_costs_a_clone_landing_alongside_its_graft(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Issue #84: the clone is a second write of the selection, never a side effect."""
+    # given
+    content = catalog_of(tmp_path, monkeypatch)
+    custom_recipe(tmp_path, "homegrown", SOURCED)
+    root = target(tmp_path, monkeypatch)
+    cloned = tmp_path / "scratch" / "homegrown"
+    (cloned / "pkg").mkdir(parents=True)
+    (cloned / "pkg" / "server.py").write_text("x", encoding="utf-8")
+    (cloned / "readme.md").write_text("x", encoding="utf-8")
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+
+    plan = plan_for(
+        Request(mcps=("homegrown",), runtimes=("claude-code",), scope=Scope.GLOBAL),
+        catalog,
+        root,
+        Environment.from_process(),
+        sources={"homegrown": cloned},
+    )
+
+    (selection,) = plan.selections
+    clone_landing, graft_landing = selection.landings
+    destination = root / ".overpower" / "mcp" / "homegrown"
+    assert clone_landing.place == destination
+    assert clone_landing.readers == graft_landing.readers
+    assert clone_landing.files == 2
+    assert clone_landing.writes == (
+        Write(source=cloned, destination=DirectoryTree(destination), mode=WriteMode.CLONE, files=2),
+    )
+    (write,) = graft_landing.writes
+    assert isinstance(write.source, Fragment)
+    assert write.source.value["args"] == ["run", "--project", str(destination), "server.py"]
+
+
+def test_a_recipe_with_no_source_costs_no_clone_landing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ordinary case, unaffected: no `[source]`, one landing, exactly as before."""
+    # given
+    content = catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": "https://mcp.example.com/mcp"})
+    root = target(tmp_path, monkeypatch)
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+
+    plan = plan_for(
+        Request(mcps=("cloudflare",), runtimes=("claude-code",), scope=Scope.PROJECT),
+        catalog,
+        root,
+        Environment.from_process(),
+    )
+
+    (selection,) = plan.selections
+    assert len(selection.landings) == 1
+    assert all(write.mode is not WriteMode.CLONE for write in selection.landings[0].writes)

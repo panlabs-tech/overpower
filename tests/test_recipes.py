@@ -133,7 +133,6 @@ def test_a_transport_outside_the_closed_set_is_refused_naming_it(
 @pytest.mark.parametrize(
     "field",
     [
-        pytest.param('[source]\nsubdir = "."\n', id="source"),
         pytest.param('transports = "http"\n', id="typo"),
         pytest.param('targets = ["claude-code"]\n', id="targets"),
     ],
@@ -183,6 +182,79 @@ def test_the_source_token_with_no_source_to_resolve_it_is_refused_by_name(tmp_pa
         read_recipe(path)
 
     assert refused.value.key == "server.args"
+
+
+# --------------------------------------------------------------------------- #
+# [source]: code the recipe brings, cloned to the machine
+# --------------------------------------------------------------------------- #
+
+SOURCED = """\
+description = "A server built from its own repository."
+transport = "stdio"
+
+[source]
+url = "https://github.com/example/homegrown-mcp"
+
+[server]
+command = "uv"
+args = ["run", "--project", "{source}", "server.py"]
+"""
+
+
+def test_a_source_field_is_read_as_the_url_to_clone(tmp_path: Path) -> None:
+    recipe = read_recipe(write_recipe(tmp_path, "homegrown", SOURCED))
+
+    assert recipe.source == "https://github.com/example/homegrown-mcp"
+
+
+def test_a_recipe_with_no_source_carries_none(tmp_path: Path) -> None:
+    recipe = read_recipe(write_recipe(tmp_path, "cloudflare", HTTP))
+
+    assert recipe.source is None
+
+
+def test_the_source_token_with_a_source_to_resolve_it_is_admitted(tmp_path: Path) -> None:
+    """This reader only admits the token — it never substitutes it.
+
+    Resolving `{source}` into the clone's absolute path is
+    `overpower.rendering.render`'s job, once (type, runtime, scope) are known;
+    this module's whole concern is whether the token is even legal here.
+    """
+    recipe = read_recipe(write_recipe(tmp_path, "homegrown", SOURCED))
+
+    assert recipe.server == StdioServer(
+        command="uv", args=("run", "--project", "{source}", "server.py")
+    )
+
+
+@pytest.mark.parametrize(
+    ("source", "key"),
+    [
+        pytest.param("", "source.url", id="no-url"),
+        pytest.param('url = ""\n', "source.url", id="empty-url"),
+        pytest.param('url = "x"\nsubdir = "."\n', "source.subdir", id="unknown-field"),
+    ],
+)
+def test_a_malformed_source_names_the_field(tmp_path: Path, source: str, key: str) -> None:
+    path = write_recipe(tmp_path, "homegrown", f"{HTTP}\n[source]\n{source}")
+
+    with pytest.raises((MalformedRecipeError, UnknownRecipeFieldError)) as refused:
+        read_recipe(path)
+
+    assert refused.value.key == key
+
+
+def test_a_source_that_is_not_a_table_is_refused_naming_the_field(tmp_path: Path) -> None:
+    path = write_recipe(
+        tmp_path,
+        "homegrown",
+        f'source = "https://github.com/x/y"\n{HTTP}',
+    )
+
+    with pytest.raises(MalformedRecipeError) as refused:
+        read_recipe(path)
+
+    assert refused.value.key == "source"
 
 
 @pytest.mark.parametrize(

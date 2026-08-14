@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, assert_never
 
 from overpower.recipes import (
     AUTHORIZATION,
+    SOURCE_TOKEN,
     BearerSlot,
     EnvSlot,
     HeaderSlot,
@@ -43,6 +44,7 @@ from overpower.runtimes import MCP_DOCUMENTS, Dialect
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
+    from pathlib import Path
 
     from overpower.recipes import Recipe, Slot
     from overpower.runtimes import McpDocument, Scope
@@ -281,7 +283,7 @@ def targets_of(
     )
 
 
-def render(recipe: Recipe, document: McpDocument) -> tuple[Graft, ...]:
+def render(recipe: Recipe, document: McpDocument, source: Path | None = None) -> tuple[Graft, ...]:
     """Every graft `recipe` becomes inside `document`, in the order they are written.
 
     A tuple and never one fragment, because one dialect needs two: a VS Code slot
@@ -293,24 +295,43 @@ def render(recipe: Recipe, document: McpDocument) -> tuple[Graft, ...]:
     the same reasoning `Dialect` applies to itself: a third dialect that needs a
     third graft is one more element, and a dialect that needs none is a shorter
     tuple — neither one is a field the other dialects carry as `None`.
+
+    `source` is the absolute path of the clone `recipe.source` brings, resolved
+    by the caller (`overpower.planning`) from (root, recipe.name) — no I/O, and
+    no filesystem, the same discipline this whole module keeps: the path is
+    computed, never read off a disk this function never touches. `None` for a
+    recipe that declares no `[source]`, which is every recipe read_recipe would
+    let `{source}` appear nowhere in.
     """
     match document.dialect:
         case Dialect.CLAUDE:
-            value = _server(recipe, document)
+            value = _server(recipe, document, source)
             return (Fragment(root_key=document.root_key, name=recipe.name, value=value),)
         case Dialect.VSCODE:
-            value = _server(recipe, document)
+            value = _server(recipe, document, source)
             server = Fragment(root_key=document.root_key, name=recipe.name, value=value)
             prompts = _vscode_inputs(recipe.slots)
             return (server,) if prompts is None else (server, prompts)
         case Dialect.DEVIN:
-            value = _devin(recipe)
+            value = _devin(recipe, source)
             return (Fragment(root_key=document.root_key, name=recipe.name, value=value),)
         case _ as unreachable:
             assert_never(unreachable)
 
 
-def _server(recipe: Recipe, document: McpDocument) -> Mapping[str, JsonValue]:
+def _resolved(value: str, source: Path | None) -> str:
+    """`value`, with `{source}` replaced by the clone's absolute path.
+
+    The one substitution this product performs, and the reason it can — the
+    reader already refused every recipe that uses the token with no `[source]`
+    to resolve it against (`overpower.recipes.SourcelessSubstitutionError`), so
+    a `source` of `None` reaching here with the token still in `value` is a
+    contract this module trusts rather than re-checks.
+    """
+    return value if source is None else value.replace(SOURCE_TOKEN, str(source))
+
+
+def _server(recipe: Recipe, document: McpDocument, source: Path | None) -> Mapping[str, JsonValue]:
     """The server table, in the fields both dialects admit and one spells apart.
 
     `type` is written even though both loaders default to stdio without it, and
@@ -326,16 +347,16 @@ def _server(recipe: Recipe, document: McpDocument) -> Mapping[str, JsonValue]:
     reference = _reference(document.dialect)
     match recipe.server:
         case HttpServer(url):
-            rendered: dict[str, JsonValue] = {"type": "http", "url": url}
+            rendered: dict[str, JsonValue] = {"type": "http", "url": _resolved(url, source)}
             headers = _headers(recipe.slots, reference)
             if headers:
                 rendered["headers"] = headers
             return rendered
         case StdioServer(command, args, environment):
-            rendered = {"type": "stdio", "command": command}
+            rendered = {"type": "stdio", "command": _resolved(command, source)}
             if args:
-                rendered["args"] = list(args)
-            variables = _environment(environment, recipe.slots, reference)
+                rendered["args"] = [_resolved(arg, source) for arg in args]
+            variables = _environment(environment, recipe.slots, reference, source)
             if variables:
                 rendered["env"] = variables
             return rendered
@@ -368,7 +389,7 @@ def _reference(dialect: Dialect) -> Reference:
             assert_never(unreachable)
 
 
-def _devin(recipe: Recipe) -> Mapping[str, JsonValue]:
+def _devin(recipe: Recipe, source: Path | None) -> Mapping[str, JsonValue]:
     """The Devin-style spelling: `transport` on HTTP, and nothing at all on stdio.
 
     The asymmetry is the vendor's, not a shortcut taken here: `transport` is
@@ -385,16 +406,16 @@ def _devin(recipe: Recipe) -> Mapping[str, JsonValue]:
     """
     match recipe.server:
         case HttpServer(url):
-            rendered: dict[str, JsonValue] = {"transport": "http", "url": url}
+            rendered: dict[str, JsonValue] = {"transport": "http", "url": _resolved(url, source)}
             headers = _headers(recipe.slots, _devin_reference)
             if headers:
                 rendered["headers"] = headers
             return rendered
         case StdioServer(command, args, environment):
-            rendered = {"command": command}
+            rendered = {"command": _resolved(command, source)}
             if args:
-                rendered["args"] = list(args)
-            variables = _environment(environment, recipe.slots, _devin_reference)
+                rendered["args"] = [_resolved(arg, source) for arg in args]
+            variables = _environment(environment, recipe.slots, _devin_reference, source)
             if variables:
                 rendered["env"] = variables
             return rendered
@@ -403,7 +424,7 @@ def _devin(recipe: Recipe) -> Mapping[str, JsonValue]:
 
 
 def _environment(
-    literals: Mapping[str, str], slots: Sequence[Slot], reference: Reference
+    literals: Mapping[str, str], slots: Sequence[Slot], reference: Reference, source: Path | None
 ) -> Mapping[str, JsonValue]:
     """The `env` table: what is written because it can be, then what never is.
 
@@ -421,7 +442,7 @@ def _environment(
     from being stated once per target and drifting once.
     """
     return {
-        **literals,
+        **{name: _resolved(value, source) for name, value in literals.items()},
         **{slot.name: reference(slot.name) for slot in slots if isinstance(slot, EnvSlot)},
     }
 

@@ -23,6 +23,13 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.18.0] - 2026-08-14
+
+### Added
+
+- **Receita com `[source]` clona o próprio código para a máquina.** `[source]` numa receita de MCP declara um repositório GitHub a clonar — o clone é uma escrita do plano, com caminho e contagem de arquivos, e aparece tanto no `--dry-run` quanto no relatório do que aterrissou. `{source}` em `command`, `args`, `url` ou `[server.env]` resolve para o caminho absoluto do clone em `~/.overpower/mcp/<slug>/`. Uma receita com `[source]` só aterrissa em escopo de máquina — pedir escopo de projeto recusa com **exit 3**, nomeando o conserto (`--global`). Reinstalar re-clona incondicionalmente, sem cache; uma receita sem `[source]` continua indo para os dois escopos. ([#84](https://github.com/panlabs-tech/overpower/issues/84))
+
+
 ## [0.17.0] - 2026-08-14
 
 ### Added

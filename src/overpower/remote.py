@@ -80,9 +80,10 @@ from urllib.request import urlopen
 from overpower.discovery import SKILL_FILE, ArtifactType, Catalog, artifact_at
 from overpower.errors import BadInvocationError, OverpowerError, RefusedError
 from overpower.recipes import RECIPE_SUFFIX, read_recipe
+from overpower.runtimes import Scope
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Sequence
+    from collections.abc import Generator, Mapping, Sequence
 
     from overpower.discovery import Artifact
     from overpower.recipes import Recipe
@@ -339,13 +340,56 @@ def catalog_from(
     source = parse(url)
     scratch = Path(tempfile.mkdtemp(prefix=SCRATCH_PREFIX))
     try:
-        root = _search_root(obtain(source, scratch), source)
+        root = search_root(obtain(source, scratch), source)
         yield Catalog(
             frameworks=(),
             pool=tuple(_skill_called(name, root, source) for name in dict.fromkeys(skills)),
             bundles=(),
             mcps=tuple(_mcp_called(name, root, source) for name in dict.fromkeys(mcps)),
         )
+    finally:
+        discard(scratch)
+
+
+@contextmanager
+def sources_for(
+    catalog: Catalog, names: Sequence[str], scope: Scope
+) -> Generator[Mapping[str, Path]]:
+    """The clone each `[source]`-bearing recipe among `names` brings, keyed by its name.
+
+    Obtained here and not inside `overpower.planning.plan_for`, for the same reason
+    `catalog_from` obtains its catalog outside it: planning stays a value-in,
+    value-out function, and a plan that fetched for itself could not be built
+    from a scratch tree that survives past the call that built it — the writer
+    needs that tree still on disk at `execute()` time.
+
+    **Nothing is obtained outside `Scope.GLOBAL`.** `overpower.planning` refuses
+    a `[source]` recipe in any other scope before the plan names a single write
+    (ADR 0015) — the answer is already known from `scope` alone, with no catalog
+    lookup needed to reach it, so obtaining first would cost a real `git fetch`
+    for a line already certain to be refused.
+
+    In `Scope.GLOBAL`, every named recipe with `[source]` is obtained
+    **unconditionally**, dry run or not — the same promise `overpower.cli._perform`'s
+    docstring makes for `--from`: a `--dry-run` that skipped this would report on
+    a clone different from the one the real run brings. What dry run skips is the
+    second half — landing the clone at its destination — which is
+    `overpower.writing`'s, run only when `execute()` is.
+
+    The scratch is removed in the `finally`, so it goes whether the plan built
+    on top of it was written, printed as a dry run, or never reached at all.
+    """
+    scratch = Path(tempfile.mkdtemp(prefix=SCRATCH_PREFIX))
+    try:
+        trees: dict[str, Path] = {}
+        if scope is Scope.GLOBAL:
+            for name in dict.fromkeys(names):
+                recipe = catalog.mcp(name)
+                if recipe.source is None:
+                    continue
+                found = parse(recipe.source)
+                trees[name] = search_root(obtain(found, scratch / name), found)
+        yield trees
     finally:
         discard(scratch)
 
@@ -548,7 +592,7 @@ def _unwrapped(into: Path) -> Path:
     return children[0] if len(children) == 1 else into
 
 
-def _search_root(tree: Path, source: Source) -> Path:
+def search_root(tree: Path, source: Source) -> Path:
     """Where the walk starts: the tree, or the folder the URL pointed inside it.
 
     A URL that names a *file* — the `blob` address of a `SKILL.md` — searches

@@ -13,13 +13,12 @@ total function over what this returns rather than a second validator that could
 disagree with the first.
 
 The vocabulary of this version is **`description`, `transport`, `[server]`,
-`[[slots]]`, `[[preconditions]]` and `instructions`**
-(https://github.com/panlabs-tech/overpower/issues/76, /78 and /82). `[source]`
-is the slice after it, and until it arrives a recipe that declares one is
-refused **by name** rather than read half-way: silent partial acceptance is
-exactly the class of defect the graft exists not to commit, and it is the
-reason the unknown-field check is a closed allowlist rather than a `get` per
-known key.
+`[[slots]]`, `[[preconditions]]`, `instructions` and `[source]`**
+(https://github.com/panlabs-tech/overpower/issues/76, /78, /82 and /84). A
+recipe that declares a field outside this set is refused **by name** rather
+than read half-way: silent partial acceptance is exactly the class of defect
+the graft exists not to commit, and it is the reason the unknown-field check
+is a closed allowlist rather than a `get` per known key.
 
 **A recipe carries a secret and a configuration, and the difference is the whole
 point**: a slot is what the overpower **refuses to write**, `[server.env]` is
@@ -63,9 +62,11 @@ is not runtime interpolation — measured, each target spells interpolation
 differently and one of them has none at all
 (`docs/research/mcp-config-formats.md`).
 
-`[source]` itself belongs to https://github.com/panlabs-tech/overpower/issues/84,
-so in this version every use of the token is a use without it, which the spec
-calls a malformed recipe.
+**This module only refuses or admits the token — it never resolves it.** `path`
+is only known once (type, runtime, scope) are, which this reader never sees;
+resolving it into the absolute path of a real clone is
+`overpower.rendering.render`'s job, at plan-build time
+(https://github.com/panlabs-tech/overpower/issues/84).
 """
 
 DESCRIPTION_KEY = "description"
@@ -74,9 +75,18 @@ SERVER_KEY = "server"
 SLOTS_KEY = "slots"
 PRECONDITIONS_KEY = "preconditions"
 INSTRUCTIONS_KEY = "instructions"
+SOURCE_KEY = "source"
 
 _RECIPE_KEYS = frozenset(
-    {DESCRIPTION_KEY, TRANSPORT_KEY, SERVER_KEY, SLOTS_KEY, PRECONDITIONS_KEY, INSTRUCTIONS_KEY}
+    {
+        DESCRIPTION_KEY,
+        TRANSPORT_KEY,
+        SERVER_KEY,
+        SLOTS_KEY,
+        PRECONDITIONS_KEY,
+        INSTRUCTIONS_KEY,
+        SOURCE_KEY,
+    }
 )
 """The closed set of top-level keys this version implements."""
 
@@ -92,6 +102,18 @@ _VALUE_FIELD = "value"
 
 _PRECONDITION_KEYS = frozenset({_CHECK_FIELD, _VALUE_FIELD})
 """What a precondition is made of: which check, and what it checks for."""
+
+_URL_FIELD = "url"
+
+_SOURCE_KEYS = frozenset({_URL_FIELD})
+"""What `[source]` is made of: the one field, a GitHub repository URL.
+
+The same shape `--from` parses (`overpower.remote.parse`) — owner, repository,
+and optionally `tree/<ref>/<path>` to pin a ref or narrow the clone to a
+folder inside a monorepo. Read here as an opaque string and parsed there,
+because the two modules cannot import from each other: `overpower.remote`
+already imports `read_recipe` from this one.
+"""
 
 NO_ENVIRONMENT: Mapping[str, str] = MappingProxyType({})
 """The default `[server.env]`: empty, and immutable so it can be one value.
@@ -319,6 +341,16 @@ class Recipe:
     """Prose the author left for what the overpower cannot automate — asking a
     credential, naming who on the team holds it. `None` when the recipe has none."""
 
+    source: str | None = None
+    """The GitHub URL of the code this server's process is cloned from, or `None`.
+
+    Its presence is what lets `{source}` appear elsewhere in the recipe and what
+    restricts the scopes this recipe can land in to the machine — the URL is not
+    resolved here, both because resolving it means fetching it (this reader does
+    no I/O) and because *where* the clone lands is a fact of scope, which this
+    reader never sees (ADR 0015, https://github.com/panlabs-tech/overpower/issues/84).
+    """
+
     @property
     def transport(self) -> Transport:
         """The transport this recipe's server speaks, recovered from its shape.
@@ -500,16 +532,30 @@ def read_recipe(path: Path) -> Recipe:
     document = _table(path, "the file", _loads(path, path.read_text(encoding="utf-8")), "a table")
     _known(path, "", document, _RECIPE_KEYS)
     transport = _transport(path, document.get(TRANSPORT_KEY))
-    server = _server(path, transport, document.get(SERVER_KEY))
+    source = _source(path, document.get(SOURCE_KEY))
+    has_source = source is not None
+    server = _server(path, transport, document.get(SERVER_KEY), has_source=has_source)
     return Recipe(
         name=path.stem,
         path=path,
         description=_text(path, DESCRIPTION_KEY, document.get(DESCRIPTION_KEY)),
         server=server,
-        slots=_slots(path, transport, server, document.get(SLOTS_KEY, [])),
-        preconditions=_preconditions(path, document.get(PRECONDITIONS_KEY, [])),
+        slots=_slots(path, transport, server, document.get(SLOTS_KEY, []), has_source=has_source),
+        preconditions=_preconditions(
+            path, document.get(PRECONDITIONS_KEY, []), has_source=has_source
+        ),
         instructions=_instructions(path, document.get(INSTRUCTIONS_KEY)),
+        source=source,
     )
+
+
+def _source(path: Path, value: object) -> str | None:
+    """`[source]`, or `None` when the recipe brings no code of its own to clone."""
+    if value is None:
+        return None
+    table = _table(path, SOURCE_KEY, value, "a table")
+    _known(path, f"{SOURCE_KEY}.", table, _SOURCE_KEYS)
+    return _text(path, f"{SOURCE_KEY}.{_URL_FIELD}", table.get(_URL_FIELD))
 
 
 def _transport(path: Path, value: object) -> Transport:
@@ -521,7 +567,7 @@ def _transport(path: Path, value: object) -> Transport:
     return Transport(value)
 
 
-def _server(path: Path, transport: Transport, value: object) -> Server:
+def _server(path: Path, transport: Transport, value: object, *, has_source: bool) -> Server:
     """The `[server]` table, read in the shape its transport admits.
 
     The transport decides which fields exist, so a `url` under `stdio` is an
@@ -534,18 +580,27 @@ def _server(path: Path, transport: Transport, value: object) -> Server:
             _known(path, f"{SERVER_KEY}.", table, _STDIO_KEYS)
             args = _strings(path, f"{SERVER_KEY}.args", table.get("args", []))
             return StdioServer(
-                command=_field(path, f"{SERVER_KEY}.command", table.get("command")),
-                args=tuple(_sourceless(path, f"{SERVER_KEY}.args", item) for item in args),
-                env=_environment(path, table.get("env", {})),
+                command=_field(
+                    path, f"{SERVER_KEY}.command", table.get("command"), has_source=has_source
+                ),
+                args=tuple(
+                    _sourceless(path, f"{SERVER_KEY}.args", item, has_source=has_source)
+                    for item in args
+                ),
+                env=_environment(path, table.get("env", {}), has_source=has_source),
             )
         case Transport.HTTP:
             _known(path, f"{SERVER_KEY}.", table, _HTTP_KEYS)
-            return HttpServer(url=_field(path, f"{SERVER_KEY}.url", table.get("url")))
+            return HttpServer(
+                url=_field(path, f"{SERVER_KEY}.url", table.get("url"), has_source=has_source)
+            )
         case _ as unreachable:
             assert_never(unreachable)
 
 
-def _slots(path: Path, transport: Transport, server: Server, value: object) -> tuple[Slot, ...]:
+def _slots(
+    path: Path, transport: Transport, server: Server, value: object, *, has_source: bool
+) -> tuple[Slot, ...]:
     """`[[slots]]`, each one read whole, and no two of them filling one place.
 
     **Uniqueness is of the place a slot fills, never of the name it carries**,
@@ -564,7 +619,7 @@ def _slots(path: Path, transport: Transport, server: Server, value: object) -> t
     slots: list[Slot] = []
     for index, entry in enumerate(cast("list[object]", value)):
         key = f"{SLOTS_KEY}[{index}]"
-        slot = _slot(path, key, transport, entry)
+        slot = _slot(path, key, transport, entry, has_source=has_source)
         place = _filled(slot)
         held = taken.get(place)
         if held is not None:
@@ -598,11 +653,11 @@ def _filled(slot: Slot) -> str:
             assert_never(unreachable)
 
 
-def _slot(path: Path, key: str, transport: Transport, value: object) -> Slot:
+def _slot(path: Path, key: str, transport: Transport, value: object, *, has_source: bool) -> Slot:
     """One slot: the variable that holds the secret, and what that secret is for."""
     table = _table(path, key, value, "a table")
     _known(path, f"{key}.", table, _SLOT_KEYS)
-    name = _field(path, f"{key}.{_NAME_FIELD}", table.get(_NAME_FIELD))
+    name = _field(path, f"{key}.{_NAME_FIELD}", table.get(_NAME_FIELD), has_source=has_source)
     role = _role(path, f"{key}.{_ROLE_FIELD}", transport, table.get(_ROLE_FIELD))
     header = table.get(_HEADER_FIELD)
     if role is not Role.HEADER and header is not None:
@@ -615,7 +670,10 @@ def _slot(path: Path, key: str, transport: Transport, value: object) -> Slot:
         case Role.BEARER:
             return BearerSlot(name=name)
         case Role.HEADER:
-            return HeaderSlot(name=name, header=_field(path, f"{key}.{_HEADER_FIELD}", header))
+            return HeaderSlot(
+                name=name,
+                header=_field(path, f"{key}.{_HEADER_FIELD}", header, has_source=has_source),
+            )
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -636,17 +694,17 @@ def _role(path: Path, key: str, transport: Transport, value: object) -> Role:
     return role
 
 
-def _preconditions(path: Path, value: object) -> tuple[Precondition, ...]:
+def _preconditions(path: Path, value: object, *, has_source: bool) -> tuple[Precondition, ...]:
     """`[[preconditions]]`, each one read whole, in declaration order."""
     if not isinstance(value, list):
         raise MalformedRecipeError(path, PRECONDITIONS_KEY, "a list of tables")
     return tuple(
-        _precondition(path, f"{PRECONDITIONS_KEY}[{index}]", entry)
+        _precondition(path, f"{PRECONDITIONS_KEY}[{index}]", entry, has_source=has_source)
         for index, entry in enumerate(cast("list[object]", value))
     )
 
 
-def _precondition(path: Path, key: str, value: object) -> Precondition:
+def _precondition(path: Path, key: str, value: object, *, has_source: bool) -> Precondition:
     """One precondition: the check, out of the closed set, and what it checks for."""
     table = _table(path, key, value, "a table")
     _known(path, f"{key}.", table, _PRECONDITION_KEYS)
@@ -654,7 +712,8 @@ def _precondition(path: Path, key: str, value: object) -> Precondition:
     if declared not in {member.value for member in Check}:
         raise UnknownPreconditionCheckError(path, f"{key}.{_CHECK_FIELD}", declared)
     return Precondition(
-        check=Check(declared), value=_field(path, f"{key}.{_VALUE_FIELD}", table.get(_VALUE_FIELD))
+        check=Check(declared),
+        value=_field(path, f"{key}.{_VALUE_FIELD}", table.get(_VALUE_FIELD), has_source=has_source),
     )
 
 
@@ -665,21 +724,24 @@ def _instructions(path: Path, value: object) -> str | None:
     return _text(path, INSTRUCTIONS_KEY, value)
 
 
-def _environment(path: Path, value: object) -> Mapping[str, str]:
+def _environment(path: Path, value: object, *, has_source: bool) -> Mapping[str, str]:
     """`[server.env]`: literal values only, and every one of them a string."""
     key = f"{SERVER_KEY}.env"
     table = _table(path, key, value, "a table of strings")
-    return {name: _field(path, f"{key}.{name}", entry) for name, entry in table.items()}
+    return {
+        name: _field(path, f"{key}.{name}", entry, has_source=has_source)
+        for name, entry in table.items()
+    }
 
 
-def _field(path: Path, key: str, value: object) -> str:
+def _field(path: Path, key: str, value: object, *, has_source: bool) -> str:
     """A required string field, narrowed and checked for the one token we resolve."""
-    return _sourceless(path, key, _text(path, key, value))
+    return _sourceless(path, key, _text(path, key, value), has_source=has_source)
 
 
-def _sourceless(path: Path, key: str, value: str) -> str:
-    """`value`, unless it reaches for a clone this version cannot give it."""
-    if SOURCE_TOKEN in value:
+def _sourceless(path: Path, key: str, value: str, *, has_source: bool) -> str:
+    """`value`, unless it reaches for a clone this recipe declares no `[source]` for."""
+    if not has_source and SOURCE_TOKEN in value:
         raise SourcelessSubstitutionError(path, key)
     return value
 

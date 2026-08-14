@@ -90,14 +90,14 @@ def recipe(name: str, server: HttpServer | StdioServer, *slots: Slot) -> Recipe:
     )
 
 
-def server_of(asked: Recipe, document: McpDocument) -> Fragment:
+def server_of(asked: Recipe, document: McpDocument, source: Path | None = None) -> Fragment:
     """The server graft, which is the first one and in one dialect the only one.
 
     A recipe becomes **one or more** grafts in a document — VS Code takes a
     second one, in `inputs[]` — so the tests that are about the server say which
     graft they mean instead of indexing a tuple in fifteen places.
     """
-    first, *_ = render(asked, document)
+    first, *_ = render(asked, document, source)
     assert isinstance(first, Fragment), "the server graft is always the first one"
     return first
 
@@ -143,6 +143,59 @@ def test_a_stdio_server_with_nothing_to_say_writes_no_empty_fields() -> None:
     fragment = server_of(recipe("bare", StdioServer(command="uvx")), CLAUDE_PROJECT)
 
     assert fragment.value == {"type": "stdio", "command": "uvx"}
+
+
+# --------------------------------------------------------------------------- #
+# {source}: resolved here, and only here — never in the reader
+# --------------------------------------------------------------------------- #
+
+
+def test_the_source_token_resolves_wherever_it_appears_in_a_stdio_server() -> None:
+    """`command`, every item of `args`, and every `[server.env]` value all carry it."""
+    server = StdioServer(
+        command="{source}/bin/run",
+        args=("--project", "{source}"),
+        env={"PROJECT_ROOT": "{source}/data"},
+    )
+    clone = Path("/home/dev/.overpower/mcp/homegrown")
+
+    fragment = server_of(recipe("homegrown", server), CLAUDE_PROJECT, clone)
+
+    assert fragment.value == {
+        "type": "stdio",
+        "command": f"{clone}/bin/run",
+        "args": ["--project", str(clone)],
+        "env": {"PROJECT_ROOT": f"{clone}/data"},
+    }
+
+
+def test_the_source_token_resolves_in_an_http_url_too() -> None:
+    clone = Path("/home/dev/.overpower/mcp/homegrown")
+
+    fragment = server_of(recipe("homegrown", HttpServer(url="{source}/mcp")), CLAUDE_PROJECT, clone)
+
+    assert fragment.value["url"] == f"{clone}/mcp"
+
+
+def test_the_source_token_resolves_the_same_way_in_the_devin_dialect() -> None:
+    """The clone is the same path for every target — nothing here varies by dialect."""
+    clone = Path("/home/dev/.overpower/mcp/homegrown")
+
+    fragment = server_of(recipe("homegrown", StdioServer(command="{source}")), DEVIN_PROJECT, clone)
+
+    assert fragment.value["command"] == str(clone)
+
+
+def test_with_no_source_the_token_is_left_exactly_as_written() -> None:
+    """`None` is a recipe with no `[source]` to resolve the token against.
+
+    Reached only through a recipe the reader already refused
+    (`overpower.recipes.SourcelessSubstitutionError`), so this is a property of
+    `render` taken in isolation and not a shape a real recipe can carry.
+    """
+    fragment = server_of(recipe("bare", StdioServer(command="{source}")), CLAUDE_PROJECT)
+
+    assert fragment.value["command"] == "{source}"
 
 
 def test_the_fragment_names_the_root_key_the_document_reads() -> None:

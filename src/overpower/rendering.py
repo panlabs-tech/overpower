@@ -37,14 +37,15 @@ from overpower.recipes import (
     HeaderSlot,
     HttpServer,
     StdioServer,
+    Transport,
 )
-from overpower.runtimes import Dialect
+from overpower.runtimes import MCP_DOCUMENTS, Dialect
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from overpower.recipes import Recipe, Slot
-    from overpower.runtimes import McpDocument
+    from overpower.runtimes import McpDocument, Scope
 
 type JsonValue = str | Sequence[JsonValue] | Mapping[str, JsonValue]
 """What a rendered server is made of, and the set is closed at three.
@@ -89,6 +90,74 @@ a field instead of a string — Codex's `bearer_token_env_var` — is served fro
 the very same declaration, with no new field and no second reading of what the
 recipe meant.
 """
+
+
+@dataclass(frozen=True)
+class Target:
+    """One pair a recipe can be written for: a runtime, and the scope it reads in.
+
+    Two fields and never the runtime alone, because the pair is the unit the
+    table is keyed by: `claude-code` reads `.mcp.json` in a repository and reads
+    nothing at all on the machine
+    (https://github.com/panlabs-tech/overpower/issues/81), so a target that
+    named only the runtime would promise the half that does not exist.
+    """
+
+    runtime: str
+    scope: Scope
+
+
+CLAUDE_TRANSPORTS = frozenset({Transport.STDIO, Transport.HTTP})
+"""What the Claude dialect can spell, which today is everything a recipe can say.
+
+Measured (`docs/research/mcp-config-formats.md`): `.mcp.json` discriminates the
+transport with an explicit `type` field and writes **both** bindings, so the two
+transports coincide *there*. That coincidence is a fact about this one target
+and not about the model — the day a dialect lands that writes one of them, or
+that cannot spell a slot role, the answer moves **here**, with no recipe touched.
+Which is the whole reason it is a table in code and never a field (rule 4).
+
+It is the same set `_claude` matches on, and `_transports` is what keeps the two
+from drifting apart in silence.
+"""
+
+
+def _transports(dialect: Dialect) -> frozenset[Transport]:
+    """Which transports `dialect` can spell — the capability half of rule 4.
+
+    A `match` and never a mapping lookup, for the reason `Dialect` states on
+    itself: the set is closed *and* matched with `assert_never`, so a second
+    dialect lands as a hole the type checker names. A `dict[Dialect, ...]`
+    subscript would type-check clean against a new member and raise `KeyError`
+    from inside `targets_of` — a silent default wearing a table's clothes.
+    """
+    match dialect:
+        case Dialect.CLAUDE:
+            return CLAUDE_TRANSPORTS
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+def targets_of(
+    recipe: Recipe, documents: Mapping[tuple[str, Scope], McpDocument] = MCP_DOCUMENTS
+) -> tuple[Target, ...]:
+    """Every (runtime, scope) pair whose document can express `recipe`, in table order.
+
+    **Derived, never declared** — rule 4. A field on the recipe would answer the
+    same thing today and go stale in silence the day a runtime gained a
+    capability, leaving the recipe lying about itself; read off the table, the
+    answer cannot disagree with the table that decides where the file is.
+
+    `documents` defaults to the product's own table and is a parameter for the
+    property above: *"the same recipe answers differently when the table
+    changes"* is only assertable if the table can be handed in, and a test that
+    monkeypatched the module constant would be asserting the patch.
+    """
+    return tuple(
+        Target(runtime=runtime, scope=scope)
+        for (runtime, scope), document in documents.items()
+        if recipe.transport in _transports(document.dialect)
+    )
 
 
 def render(recipe: Recipe, document: McpDocument) -> Fragment:

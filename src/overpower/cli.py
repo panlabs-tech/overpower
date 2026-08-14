@@ -22,9 +22,10 @@ the axis between **2** and **3** is *whose defect it is*. The `except` order in
 `BadInvocationError` is caught before its base class and answers **2**.
 
 `list` is where the selectors first appear — `--ai-framework` with no short flag
-because `-f` belongs to `--force`, plus `--skill`/`-s` and `--bundle`/`-b`. Here
-each takes **one** name, because `list` answers about one item; the accumulating
-form that `install` needs is a different question and arrives with it.
+because `-f` belongs to `--force`, plus `--skill`/`-s`, `--bundle`/`-b` and
+`--mcp`, which has none because it is already three letters. Here each takes
+**one** name, because `list` answers about one item; the accumulating form that
+`install` needs is a different question and arrives with it.
 """
 
 from __future__ import annotations
@@ -55,6 +56,7 @@ from overpower.planning import (
     unset_slots,
 )
 from overpower.remote import catalog_from
+from overpower.rendering import targets_of
 from overpower.runtimes import Environment, Scope
 from overpower.scope import git_root
 from overpower.screens import (
@@ -74,6 +76,7 @@ from overpower.screens import (
     error_panel,
     framework_screen,
     installed_screen,
+    mcp_screen,
     opened,
     plan_screen,
     railed,
@@ -304,9 +307,25 @@ def list_catalog(
         str | None,
         typer.Option(BUNDLE_FLAG, "-b", metavar="NAME", help="Show what one bundle names."),
     ] = None,
+    mcp: Annotated[
+        str | None,
+        typer.Option(
+            MCP_FLAG,
+            # No short flag, the same call `install` makes: `--mcp` is already
+            # three letters, and `-m` bought against a name that short is a
+            # letter spent for nothing.
+            metavar="NAME",
+            help="Show one MCP server recipe, whole.",
+        ),
+    ] = None,
 ) -> None:
     """Show the catalog, or the content of one item of it."""
-    given = ((AI_FRAMEWORK_FLAG, ai_framework), (SKILL_FLAG, skill), (BUNDLE_FLAG, bundle))
+    given = (
+        (AI_FRAMEWORK_FLAG, ai_framework),
+        (SKILL_FLAG, skill),
+        (BUNDLE_FLAG, bundle),
+        (MCP_FLAG, mcp),
+    )
     selected = [flag for flag, name in given if name is not None]
     if len(selected) > 1:
         # Before the catalog is read at all: the defect is in the *line*, so the
@@ -318,13 +337,18 @@ def list_catalog(
     catalog = load_catalog(content_root(), catalog_file())
     # Resolved before the banner: a name outside the catalog exits 2, and a
     # banner already on screen would be the product answering before it knew.
-    screen = _listed(catalog, ai_framework=ai_framework, skill=skill, bundle=bundle)
+    screen = _listed(catalog, ai_framework=ai_framework, skill=skill, bundle=bundle, mcp=mcp)
     _print_banner()
     _out.print(screen)
 
 
 def _listed(
-    catalog: Catalog, *, ai_framework: str | None, skill: str | None, bundle: str | None
+    catalog: Catalog,
+    *,
+    ai_framework: str | None,
+    skill: str | None,
+    bundle: str | None,
+    mcp: str | None,
 ) -> RenderableType:
     """The screen the flags asked for: the whole catalog, or one item of it."""
     if ai_framework is not None:
@@ -333,6 +357,12 @@ def _listed(
         return artifact_screen(catalog.artifact(skill))
     if bundle is not None:
         return bundle_screen(catalog.bundle(bundle))
+    if mcp is not None:
+        # The one screen that is not read off the item alone: which targets a
+        # recipe serves is derived from the table (rule 4), so it is computed
+        # here — where the product's own table is — and handed to the screen.
+        recipe = catalog.mcp(mcp)
+        return mcp_screen(recipe, targets_of(recipe))
     return catalog_screen(catalog)
 
 

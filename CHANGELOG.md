@@ -23,7 +23,7 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
-## [0.8.0] - 2026-08-13
+## [0.9.0] - 2026-08-13
 
 ### Added
 
@@ -71,6 +71,38 @@ navigable index of the decisions that produced it.
   cinco versões que discordam entre si. Todas **pinam versão exata**: `@latest` numa receita
   embutida faria o servidor mudar de comportamento sem ninguém ter mudado nada, e a versão em
   que ele mudou não ficaria escrita em lugar nenhum. ([#78](https://github.com/panlabs-tech/overpower/issues/78))
+
+
+## [0.8.0] - 2026-08-13
+
+### Added
+
+- **O `list` conhece MCP: um bloco próprio no catálogo, e a receita inteira em `list --mcp
+  <slug>`.** O `overpower list` passa a imprimir **quatro** blocos — os MCPs ao lado de AI
+  Frameworks, skills e bundles —, para que a classe exista na tela sem ninguém precisar ler
+  documentação. A entrada tem o mesmo tratamento visual das outras três: nome, descrição
+  **inteira**, e as linhas que instalam e que abrem. Onde as outras dizem quanto pesam, a do
+  MCP diz o **transporte**: a receita não aterrissa, então bytes e contagem de arquivos não
+  são fatos sobre ela.
+
+  **`overpower list --mcp cloudflare` mostra a receita inteira** — descrição nunca truncada,
+  transporte, `url` ou `command`/`args`/`env`, e a linha de alvos. Todo rótulo menos o último
+  é um **campo da receita**, grafado como o TOML o grafa; `targets` é o único sem campo por
+  trás.
+
+  **A linha de alvos é derivada, nunca declarada** (regra 4 do modelo). Ela é função de
+  (transporte, papéis de slot, alvo), logo tabela em código: mudar a tabela muda a resposta
+  **sem tocar na receita**, e uma receita que declarasse `targets` é recusada pelo leitor,
+  por nome. Um alvo é um **par** — runtime *e* escopo —, porque o `claude-code` lê `.mcp.json`
+  dentro do repositório e ainda não lê nada na máquina
+  ([#81](https://github.com/panlabs-tech/overpower/issues/81)): a tela diz `claude-code ·
+  project` e não promete a metade que não existe. Receita que alvo nenhum atende diz `none`
+  em vez de mostrar uma linha vazia.
+
+  Nome fora do catálogo sai **exit 2** com a lista fechada na mensagem, dois seletores na
+  mesma linha saem 2 nomeando os dois, e sob pipe continua **zero** sequência ANSI. Nada
+  truncado a 80 nem a 60 colunas, e as duas telas novas entram como snapshot nas duas
+  larguras, sem cor. ([#77](https://github.com/panlabs-tech/overpower/issues/77))
 
 
 ## [0.7.0] - 2026-08-13

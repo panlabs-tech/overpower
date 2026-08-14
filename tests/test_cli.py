@@ -162,7 +162,10 @@ def test_the_runtime_help_warns_the_two_classes_disagree() -> None:
     result = piped("install", "--help")
 
     assert result.returncode == 0
-    assert b"not every runtime takes every class" in result.stdout
+    # Whitespace-normalised: the panel wraps this help text at whatever width
+    # the platform's console reports, and the wrap point moves with it.
+    unwrapped = " ".join(result.stdout.decode(errors="replace").split())
+    assert "not every runtime takes every class" in unwrapped
 
 
 @pytest.mark.parametrize(

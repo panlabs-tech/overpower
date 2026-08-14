@@ -128,10 +128,19 @@ def test_a_transport_outside_the_closed_set_is_refused_naming_it(
         pytest.param('[source]\nsubdir = "."\n', id="source"),
         pytest.param('instructions = "ask the team"\n', id="instructions"),
         pytest.param('transports = "http"\n', id="typo"),
+        pytest.param('targets = ["claude-code"]\n', id="targets"),
     ],
 )
 def test_a_field_this_version_cannot_render_is_refused_by_name(tmp_path: Path, field: str) -> None:
-    """Ignoring it would install a server with half its contract, at exit 0."""
+    """Ignoring it would install a server with half its contract, at exit 0.
+
+    `targets` is on the list for a different reason from the rest, and it is the
+    only one that will **never** arrive: which targets a recipe serves is
+    derived from (transport, slot roles, target) and is a table in code — rule 4
+    — so a recipe that declared one would be a recipe allowed to lie about
+    itself the day a runtime gained the capability. The answer lives in
+    `overpower.rendering.targets_of`; here it is refused at the door.
+    """
     path = write_recipe(tmp_path, "ahead", f"{HTTP}\n{field}")
 
     with pytest.raises(UnknownRecipeFieldError) as refused:

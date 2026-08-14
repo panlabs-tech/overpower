@@ -50,10 +50,10 @@ from rich.theme import Theme
 from overpower.discovery import Artifact
 from overpower.inspection import DanglingLink, Divergence, LinkTurnedText
 from overpower.planning import DirectoryTree, DocumentKey, WriteMode
-from overpower.recipes import Recipe
+from overpower.recipes import HttpServer, Recipe, StdioServer
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Iterable, Mapping, Sequence
     from pathlib import Path
 
     from rich.console import Console, ConsoleOptions, RenderableType, RenderResult
@@ -61,6 +61,8 @@ if TYPE_CHECKING:
     from overpower.discovery import Bundle, Catalog, Framework
     from overpower.inspection import Diagnosis, Finding, Terminal
     from overpower.planning import Carried, Destination, Landing, Plan, Selection
+    from overpower.recipes import Server
+    from overpower.rendering import Target
 
 THEME = Theme(
     {
@@ -382,12 +384,26 @@ def _bordered(line: Text, rail: str, inner: int) -> Text:
     return Text.assemble((rail, "op.dim"), "  ", padded, "  ", (rail, "op.dim"))
 
 
-def catalog_screen(catalog: Catalog) -> RenderableType:
-    """The whole catalog: three blocks, with a blank line between them.
+GRAFTS = "grafts into the runtime's config"
+"""What the MCP block says it does, where the other three say how they install.
 
-    Three and not one grid, because the three units are not levels of a
-    hierarchy — a framework, a pool artifact and a bundle are chosen
-    independently, and a single table would rank them.
+A different verb because it is a different operation: the three copy classes
+land a folder that was not there, and this one lands a **key inside a document
+the user also edits** (`docs/agents/domain.md`). Spelled once and drawn on both
+screens, the way the singular and plural headings are.
+"""
+
+
+def catalog_screen(catalog: Catalog) -> RenderableType:
+    """The whole catalog: four blocks, with a blank line between them.
+
+    Four and not one grid, because the four units are not levels of a
+    hierarchy — a framework, a pool artifact, a bundle and an MCP server are
+    chosen independently, and a single table would rank them.
+
+    The MCP block is last and it is not an afterthought: it is the one class
+    that does not copy, so it reads as *"and there is a fourth thing"* rather
+    than as a variant of the three above it.
     """
     blocks = (
         _block(
@@ -396,8 +412,7 @@ def catalog_screen(catalog: Catalog) -> RenderableType:
             [
                 _entry(
                     framework.name,
-                    framework.size,
-                    framework.files,
+                    _weight(framework.size, framework.files),
                     framework.description,
                     commands=(
                         _install(AI_FRAMEWORK_FLAG, framework.name),
@@ -413,8 +428,7 @@ def catalog_screen(catalog: Catalog) -> RenderableType:
             [
                 _entry(
                     artifact.name,
-                    artifact.size,
-                    artifact.files,
+                    _weight(artifact.size, artifact.files),
                     artifact.description,
                     commands=(_install(SKILL_FLAG, artifact.name),),
                 )
@@ -427,8 +441,7 @@ def catalog_screen(catalog: Catalog) -> RenderableType:
             [
                 _entry(
                     bundle.name,
-                    bundle.size,
-                    bundle.files,
+                    _weight(bundle.size, bundle.files),
                     bundle.description,
                     commands=(
                         _install(BUNDLE_FLAG, bundle.name),
@@ -436,6 +449,22 @@ def catalog_screen(catalog: Catalog) -> RenderableType:
                     ),
                 )
                 for bundle in catalog.bundles
+            ],
+        ),
+        _block(
+            "MCP servers",
+            GRAFTS,
+            [
+                _entry(
+                    recipe.name,
+                    str(recipe.transport),
+                    recipe.description,
+                    commands=(
+                        _install(MCP_FLAG, recipe.name),
+                        _inspect(MCP_FLAG, recipe.name),
+                    ),
+                )
+                for recipe in catalog.mcps
             ],
         ),
     )
@@ -459,8 +488,7 @@ def framework_screen(framework: Framework) -> RenderableType:
         [
             _entry(
                 framework.name,
-                framework.size,
-                framework.files,
+                _weight(framework.size, framework.files),
                 framework.description,
                 contents=framework.artifacts,
                 # Only the line that installs. Printing `list --ai-framework
@@ -483,8 +511,7 @@ def bundle_screen(bundle: Bundle) -> RenderableType:
         [
             _entry(
                 bundle.name,
-                bundle.size,
-                bundle.files,
+                _weight(bundle.size, bundle.files),
                 bundle.description,
                 contents=bundle.artifacts,
                 commands=(_install(BUNDLE_FLAG, bundle.name),),
@@ -511,12 +538,114 @@ def artifact_screen(artifact: Artifact) -> RenderableType:
         [
             _entry(
                 artifact.name,
-                artifact.size,
-                artifact.files,
+                _weight(artifact.size, artifact.files),
                 artifact.description,
                 commands=(_install(SKILL_FLAG, artifact.name),),
             )
         ],
+    )
+
+
+def mcp_screen(recipe: Recipe, targets: Sequence[Target]) -> RenderableType:
+    """One MCP server: the recipe whole, and which targets it can be written for.
+
+    The **whole** recipe, and that is the ticket's own word: a description never
+    truncated, the transport, the command or the URL, the literal environment it
+    carries — and the one row that is not a field of the recipe at all.
+
+    `targets` arrives as a value rather than being computed here, and that is
+    the same division the plan screen already runs on: what a screen draws is
+    what the product decided, so the derivation lives in `overpower.rendering`
+    where the table is, and a screen that recomputed it could disagree with the
+    command that is about to write.
+
+    The head line reads the **transport** where the other three screens read a
+    size, because a recipe weighs nothing — it never lands, and what lands is
+    the fragment rendered out of it. So the fact that occupies the place of
+    *"what it costs"* is the one that says how the server is reached.
+    """
+    return _block(
+        "MCP server",
+        GRAFTS,
+        [
+            _entry(
+                recipe.name,
+                str(recipe.transport),
+                recipe.description,
+                commands=(_install(MCP_FLAG, recipe.name),),
+                facts=_recipe_facts(recipe, targets),
+            )
+        ],
+    )
+
+
+def _recipe_facts(
+    recipe: Recipe, targets: Sequence[Target]
+) -> Sequence[tuple[str, RenderableType]]:
+    """What the recipe declares, then the one answer that is derived from it.
+
+    Every label but the last is a **field of the recipe**, spelled the way the
+    TOML spells it — `command`, `args`, `env`, `url`. That is deliberate, and it
+    is what makes the last row read as what it is: `targets` is the only line on
+    the screen with no field behind it, because which targets a recipe serves is
+    derived from (transport, slot roles, target) and never declared (rule 4).
+    """
+    return (*_declared(recipe.server), ("targets", _targets(targets)))
+
+
+def _declared(server: Server) -> tuple[tuple[str, RenderableType], ...]:
+    """The rows the declared transport admits, and no empty ones.
+
+    An `args` row with nothing in it is a row the reader has to interpret — the
+    same call `overpower.rendering` makes when it writes no empty field.
+    """
+    match server:
+        case HttpServer(url):
+            return (("url", Text(url, style="op.key")),)
+        case StdioServer(command, args, environment):
+            return (
+                ("command", Text(command, style="op.key")),
+                *((("args", Text(" ".join(args), style="op.key")),) if args else ()),
+                *((("env", _pairs(environment)),) if environment else ()),
+            )
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+def _pairs(environment: Mapping[str, str]) -> RenderableType:
+    """`[server.env]` as it will be written: a name and the literal beside it.
+
+    Literal on purpose, and it is the distinction the schema exists for: the
+    address of a panel is not a secret, so it lands in the user's file and has
+    to be readable before that happens. What the product refuses to write is a
+    slot, and a slot is never a value on this screen.
+    """
+    return _stacked(
+        [(name, Text(value, style="op.key")) for name, value in sorted(environment.items())]
+    )
+
+
+def _targets(targets: Sequence[Target]) -> RenderableType:
+    """Who can receive this server, one pair per line — or the word that says nobody.
+
+    Runtime **and** scope, because the pair is the unit: the same runtime reads
+    a document in a repository and may read none at all on the machine, so a
+    line that named only the runtime would promise the half that does not exist.
+
+    One `Text` carrying the newlines rather than a grid of its own: it lands in
+    the value column of `_stacked`, which already folds, so a second grid here
+    would be a second place for the truncation rule to be forgotten — the very
+    thing that function exists to prevent.
+
+    Empty is an answer and is drawn as one, in the ink that says *stop reading
+    for your case*. A blank cell would read as a screen that failed to draw,
+    where what happened is that the product looked and found no target that can
+    spell this recipe.
+    """
+    if not targets:
+        return Text("none", style="op.warn")
+    return Text(
+        "\n".join(f"{target.runtime} · {target.scope}" for target in targets), style="op.key"
     )
 
 
@@ -1054,24 +1183,43 @@ def _install(flag: str, name: str) -> str:
 
 
 def _inspect(flag: str, name: str) -> str:
-    """The line that opens one item — only the two units that carry something to open."""
+    """The line that opens one item — only where opening it shows something new.
+
+    An AI Framework and a bundle carry artifacts to list; an MCP server carries
+    a recipe, and the catalog entry shows neither its fields nor the targets it
+    serves. A pool skill is the one unit whose entry is already the whole of it,
+    so printing the line for it would be a dead end.
+    """
     return f"{PROGRAM} list {flag} {name}"
 
 
-def _entry(  # noqa: PLR0913 — the four facts of an item plus the two blocks that hang under it.
-    # The four do travel together, and `Artifact`, `Framework` and `Bundle` each carry them —
-    # but as three types with no declared kinship and with `files`/`size` a field on one and a
-    # property on the others, so unifying them means a `Protocol` invented for this one call.
-    # The clump is real and the cure costs more than it; taken knowingly, not missed.
+def _entry(  # noqa: PLR0913 — the three facts of an item plus the three blocks under it.
+    # The head facts do travel together, and `Artifact`, `Framework` and `Bundle` each carry
+    # them — but as three types with no declared kinship and with `files`/`size` a field on one
+    # and a property on the others, so unifying them means a `Protocol` invented for this one
+    # call. The clump is real and the cure costs more than it; taken knowingly, not missed.
     name: str,
-    size: int,
-    files: int,
+    weight: str,
     description: str,
     *,
-    contents: Sequence[Artifact] = (),
+    contents: Sequence[Carried] = (),
     commands: Sequence[str] = (),
+    facts: Sequence[tuple[str, RenderableType]] = (),
 ) -> RenderableType:
     """Name and weight on the head line, the whole description indented under it.
+
+    `weight` arrives already spelled, and that is what lets one entry draw four
+    classes: the three that copy answer *"how much lands"* in bytes and files,
+    and a recipe — which lands no path at all — answers with its transport. A
+    signature that took `(size, files)` could only have said the first.
+
+    **The count of what it carries is not the caller's to spell**, and that half
+    stays here: it is read off `contents`, the same sequence drawn below, so the
+    head line cannot claim a number the list under it contradicts. It leads on a
+    detail screen and is absent on the catalog screen, which is what the screen
+    is *for* — a framework installs whole, so *how much whole is* has to be
+    readable without counting rows. `artifact` and never `skill`, because a
+    framework may mix skill, command and agent.
 
     `commands` is what closes the journey the catalog opens: the lines to copy,
     a blank line under the description and indented one step past it. **Bare** —
@@ -1081,17 +1229,17 @@ def _entry(  # noqa: PLR0913 — the four facts of an item plus the two blocks t
     panlabs-python-standards` indented already occupies exactly that. The words
     `install` and `list` inside the command are the label.
 
-    `contents` is what turns the same entry into a detail screen: the artifacts
-    the item carries, stacked with a blank line between. An item that carries
-    none — a pool artifact — renders exactly as it does on the catalog screen,
-    which is the point of it being one function.
+    `contents` and `facts` are what turn the same entry into a detail screen:
+    what the item carries, or what it declares. They draw through **one** grid —
+    see `_stacked` — so the truncation rule cannot be forgotten in one of them.
+    An item that carries neither — a pool artifact — renders exactly as it does
+    on the catalog screen, which is the point of it being one function.
     """
     head = Table.grid(padding=(0, 1), expand=True)
     head.add_column(ratio=1)
     head.add_column(justify="right", no_wrap=True)
-    head.add_row(
-        Text(name, style="op.key"), Text(_weight(size, files, len(contents)), style="op.dim")
-    )
+    counted = f"{len(contents)} {_plural('artifact', len(contents))} · " if contents else ""
+    head.add_row(Text(name, style="op.key"), Text(f"{counted}{weight}", style="op.dim"))
     body: list[RenderableType] = [
         head,
         # `Padding`, and never a spaced string: a wrapped line has to keep the
@@ -1103,6 +1251,8 @@ def _entry(  # noqa: PLR0913 — the four facts of an item plus the two blocks t
         body.append(Padding(_commands(commands), (1, 0, 0, 4)))
     if contents:
         body.append(Padding(_contents(contents), (1, 0, 0, 2)))
+    if facts:
+        body.append(Padding(_stacked(facts), (1, 0, 0, 2)))
     return Group(*body)
 
 
@@ -1127,8 +1277,25 @@ def _commands(commands: Sequence[str]) -> RenderableType:
 def _contents(artifacts: Sequence[Carried]) -> RenderableType:
     """The artifacts an item carries, one per line, type first.
 
-    The type column is dim and the name is cyan, so a line reads as *what kind*
-    then *which one* without either rank being carried by colour alone.
+    **One function, two screens.** `list` draws it for the content of an item and
+    the plan draws it for what a selection will write (#58), and they are the
+    same grid because the plan is checked against `list` by whoever reads both —
+    two grids would be two places for the truncation rule to be forgotten, which
+    is the same argument that keeps the `list` screens one `_entry` apart.
+    """
+    return _stacked(
+        [(_kind(artifact), Text(artifact.name, style="op.key")) for artifact in artifacts]
+    )
+
+
+def _stacked(rows: Sequence[tuple[str, RenderableType]]) -> RenderableType:
+    """A label and what it says, one pair per line — the shape both blocks take.
+
+    The label column is dim and the value is cyan, so a line reads as *what kind*
+    then *which one* without either rank being carried by colour alone. It draws
+    the artifacts of a framework, the fields of a recipe and the values of a
+    `[server.env]`, and it is one function because the property below is one
+    property.
 
     **`fold` on both columns, never the default `ellipsis`.** Measured at 40
     columns before it was set: the plan printed `skill improve-codebase-archite…`
@@ -1137,35 +1304,26 @@ def _contents(artifacts: Sequence[Carried]) -> RenderableType:
     trap: it lets rich *try* to wrap, and a name is a single unbreakable word, so
     what it does instead is crop. `fold` is what breaks the word across lines
     rather than cutting it, and it is the same call the plan's own path column
-    already makes for the same reason.
-
-    **One function, two screens.** `list` draws it for the content of an item and
-    the plan draws it for what a selection will write (#58), and they are the
-    same grid because the plan is checked against `list` by whoever reads both —
-    two grids would be two places for the truncation rule to be forgotten, which
-    is the same argument that keeps the four `list` screens one `_entry` apart.
-    The measurement above is what that buys: one word fixed both screens.
+    already makes for the same reason. A URL and a command line are the same
+    class of unbreakable run, which is why the recipe screen inherits it rather
+    than repeating it.
     """
     stacked = Table.grid(padding=(0, 2))
     stacked.add_column(overflow="fold")
     stacked.add_column(overflow="fold")
-    for artifact in artifacts:
-        stacked.add_row(Text(_kind(artifact), style="op.dim"), Text(artifact.name, style="op.key"))
+    for label, value in rows:
+        stacked.add_row(Text(label, style="op.dim"), value)
     return stacked
 
 
-def _weight(size: int, files: int, artifacts: int = 0) -> str:
-    """What an item costs, in the order someone reads it: how many, then how big.
+def _weight(size: int, files: int) -> str:
+    """What a copy costs, in the order someone reads it: how big, in how many files.
 
-    The count of artifacts leads on a detail screen and is absent on the catalog
-    screen, and that is what the screen is *for*: a framework installs whole, so
-    the number that says how much *whole* is has to be readable without counting
-    the rows. It is `artifacts` and not `skills` because a framework may mix
-    skill, command, hook and MCP, and the head line cannot claim a type the
-    stacked list below it may contradict.
+    Only the three classes that land bytes have one. What a recipe answers in
+    the same place is its transport, and that is `mcp_screen`'s call — this
+    function is not asked, rather than asked and answered with a zero.
     """
-    counted = f"{artifacts} {_plural('artifact', artifacts)} · " if artifacts else ""
-    return f"{counted}{human(size)} · {files} {_plural('file', files)}"
+    return f"{human(size)} · {files} {_plural('file', files)}"
 
 
 def _plural(word: str, count: int) -> str:

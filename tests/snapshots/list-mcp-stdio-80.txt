@@ -1,0 +1,14 @@
+╭─ MCP server  grafts into the runtime's config ───────────────────────────────╮
+│                                                                              │
+│  coolify                                                              stdio  │
+│    Drives a Coolify panel from the agent: applications, deployments and      │
+│    logs.                                                                     │
+│                                                                              │
+│      overpower install --mcp coolify                                         │
+│                                                                              │
+│    command  uvx                                                              │
+│    args     mcp-server-coolify --panel                                       │
+│    env      COOLIFY_BASE_URL  https://vps.panlabs.tech                       │
+│    targets  claude-code · project                                            │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

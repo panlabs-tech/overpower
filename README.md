@@ -27,7 +27,7 @@ not README style.
 
 ## `list` — what there is
 
-Bare, it prints the whole embedded catalog in three blocks:
+Bare, it prints the whole embedded catalog in four blocks:
 
 ```bash
 uvx overpower@latest list
@@ -38,6 +38,7 @@ uvx overpower@latest list
 | **AI Frameworks** | a body of equipment from one upstream | whole, never a slice of one |
 | **Pool skills** | artifacts curated to stand alone | alone, by name |
 | **Bundles** | a named set of pool artifacts | expands to exactly what its manifest names |
+| **MCP servers** | a recipe for a server, not a folder | grafts a key into the runtime's own config |
 
 Every item arrives with its size, its file count and its description **whole** —
 never truncated, at 80 columns and at 60, because the description is what the
@@ -65,18 +66,60 @@ command cut at the terminal edge is a command nobody can type back, and it
 command is a datum, so `overpower list | grep <name>` hands back the line to
 copy.
 
+An MCP server weighs nothing — it never lands as a file, so what stands where a
+size stands is the **transport**, which is what says how the server is reached.
+
 One selector opens one item, and each takes one name:
 
 ```bash
 uvx overpower@latest list --ai-framework matt-pocock   # every artifact inside it, typed
 uvx overpower@latest list --skill panlabs-python-standards
 uvx overpower@latest list --bundle api-python
+uvx overpower@latest list --mcp cloudflare
 ```
 
 `--skill` and `--bundle` carry the same short forms here as on `install`, `-s`
-and `-b`. Two selectors on one line is a question with two answers, and exits 2
-naming both flags. A name outside the catalog exits 2 with the closed list in
-the message: the list is closed, so the defect is in what was typed.
+and `-b`; `--mcp` has none, for the reason it has none there. Two selectors on
+one line is a question with two answers, and exits 2 naming both flags. A name
+outside the catalog exits 2 with the closed list in the message: the list is
+closed, so the defect is in what was typed.
+
+### `list --mcp` — the recipe whole
+
+A recipe is the logical declaration of a server, and this is the screen it is
+judged on before it is wired into an agent:
+
+```
+╭─ MCP server  grafts into the runtime's config ───────────╮
+│                                                          │
+│  cloudflare                                        http  │
+│    Cloudflare's remote MCP server, over streamable       │
+│    HTTP. It carries no secret in the file: the           │
+│    connection authorises in the browser the first time   │
+│    an agent uses it, so nothing here has to be filled    │
+│    in before the server works.                           │
+│                                                          │
+│      overpower install --mcp cloudflare                  │
+│                                                          │
+│    url      https://mcp.cloudflare.com/mcp               │
+│    targets  claude-code · project                        │
+│                                                          │
+╰──────────────────────────────────────────────────────────╯
+```
+
+Every label but the last is a **field of the recipe**, spelled the way the TOML
+spells it — `url` for an HTTP server, `command`, `args` and `env` for a stdio
+one. `targets` is the one line with no field behind it: **which targets a recipe
+serves is derived**, never declared. It is a function of the transport, the
+roles of its slots and the target, so it lives in a table in code — a declared
+field would go stale in silence the day a runtime gained the capability, and
+leave the recipe lying about itself.
+
+A target is a **pair**: a runtime *and* the scope it reads in. `claude-code`
+reads `.mcp.json` inside a repository and reads nothing at all on the machine
+yet, so the screen says `claude-code · project` and does not promise the half
+that does not exist. A recipe no target can serve says `none` rather than
+showing an empty line.
 
 ## `install` — write it
 

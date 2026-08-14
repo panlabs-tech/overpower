@@ -1236,18 +1236,21 @@ def test_a_recipe_no_target_can_serve_says_so_rather_than_showing_nothing(width:
 
 
 @pytest.mark.parametrize("width", WIDTH_CASES)
-def test_the_mcp_screen_does_not_promise_a_scope_the_table_has_no_document_for(
+def test_the_mcp_screen_names_every_scope_the_table_has_a_document_for(
     width: int,
 ) -> None:
-    """The machine scope has no MCP document yet, so the screen may not name one.
+    """The screen promises exactly what the table can deliver — no more, no less.
 
-    https://github.com/panlabs-tech/overpower/issues/81 is where it gains one.
-    Until then, offering it here would be the *"the screen says one thing and the
-    result is another"* class — arriving through the screen instead of the write.
+    It used to assert that `global` never appeared, because no machine document
+    existed; https://github.com/panlabs-tech/overpower/issues/81 is where it
+    gained three. The property is the same one either way and it is derived, not
+    typed: the screen is handed `targets_of`, so a scope reaches it only by
+    being on the table.
     """
     rendered = render(mcp_screen(recorded_recipe(), targets_of(recorded_recipe())), width)
 
-    assert "global" not in rendered
+    assert "global" in rendered
+    assert "project" in rendered
 
 
 @pytest.mark.parametrize("width", WIDTH_CASES)

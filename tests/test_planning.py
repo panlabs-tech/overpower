@@ -169,19 +169,22 @@ def test_a_graft_only_runtime_is_refused_in_the_scope_that_has_no_document(
 ) -> None:
     """It is nameable and it still has nowhere to land on the machine — ADR 0009.
 
-    `vscode` reads no skills anywhere and has an MCP document only in a
-    repository, so in global scope both halves of the union say no. Exit 3, the
-    same code the two skills runtimes without a global directory already get, and
-    for the same reason: the value is real and the destination is not.
+    `eve` reads skills in a repository and declares no global directory at all,
+    so in machine scope both halves of the union say no. Exit 3: the value is
+    real and the destination is not.
+
+    This used to be `vscode --global`, which the machine documents of
+    https://github.com/panlabs-tech/overpower/issues/81 turned into a *landing*.
+    The refusal it guards did not move — the pair it is asserted on did.
     """
     # given
-    catalog_of(tmp_path, monkeypatch, mcps={"panel": SLOTTED})
+    catalog_of(tmp_path, monkeypatch, "alpha", mcps={"panel": SLOTTED})
     target(tmp_path, monkeypatch)
 
-    code, output = run(capsys, *("install", "--mcp", "panel", "--runtime", "vscode", "--global"))
+    code, output = run(capsys, *("install", "--skill", "alpha", "--runtime", "eve", "--global"))
 
     assert code == 3
-    assert "vscode" in joined(output)
+    assert "eve" in joined(output)
     assert "no destination in global scope" in joined(output)
 
 
@@ -211,27 +214,30 @@ def test_a_runtime_with_no_mcp_document_refuses_the_whole_line(
     assert not (root / ".mcp.json").exists()
 
 
-def test_the_machine_scope_has_no_mcp_document_yet_and_says_so(
+def test_the_machine_scope_lands_in_the_personal_file_and_not_in_the_repository(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The table is a function of (runtime, **scope**), and it is partial on both axes.
+    """The table is a function of (runtime, **scope**), and the scope moves the file.
 
-    Where a machine-scope MCP document hangs off is
-    https://github.com/panlabs-tech/overpower/issues/81 — until it answers, the
-    pair does not exist, and inventing `~/.claude.json` would be the guess this
-    product exists not to make.
+    `--global` is not the project document under another root: it is
+    `~/.claude.json`, a different file with the same root key
+    (https://github.com/panlabs-tech/overpower/issues/81). The repository is
+    asserted **empty** in the same breath, because a machine install that also
+    touched the tree would be the failure ADR 0008 refuses to inherit.
     """
     # given
     catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": "https://mcp.example.com/mcp"})
-    target(tmp_path, monkeypatch)
+    root = target(tmp_path, monkeypatch)
 
     code, output = run(
         capsys, *("install", "--mcp", "cloudflare", "--runtime", "claude-code", "--global")
     )
 
-    assert code == 3
-    assert "global" in joined(output)
-    assert not (tmp_path / ".mcp.json").exists()
+    assert code == 0
+    assert ".claude.json" in joined(output)
+    assert (tmp_path / ".claude.json").is_file()
+    assert not (root / ".mcp.json").exists()
+    assert list(root.iterdir()) == []
 
 
 def test_comma_and_repetition_both_accumulate(

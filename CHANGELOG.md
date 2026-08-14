@@ -23,6 +23,44 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.12.0] - 2026-08-14
+
+### Added
+
+- **`--global` escreve MCP no arquivo pessoal dos três alvos.** `install --mcp <servidor>
+  --runtime claude-code|vscode|devin --global` aterrissa em `~/.claude.json`, no `mcp.json` do
+  perfil de usuário do VS Code e no `mcp_config.json` de máquina do Devin. Os três de uma vez,
+  porque o custo deste ticket não é dialeto — é **resolução de caminho**, e resolvê-la três vezes
+  daria três meias soluções.
+
+  **Um documento de máquina não é o de projeto sob outra raiz.** A linha da tabela passa a carregar
+  a própria âncora, então quem decide a base é a tabela e não o argumento de escopo: `scope` escolhe
+  a linha, a linha escolhe onde ela pendura. É o que faz um caminho de projeto continuar impossível
+  de resolver contra a home, e vice-versa.
+
+  **As 9 células resolvem, e são afirmáveis num runner só.** O perfil do VS Code é
+  `%APPDATA%\Code\User` no Windows, `~/Library/Application Support/Code/User` no macOS e
+  `$XDG_CONFIG_HOME/Code/User` no Linux; o Devin troca de lugar no Windows; o Claude Code fica na
+  home nos três. `sys.platform` virou valor de `Environment` pelo mesmo motivo que `home` e
+  `variables` já eram — *onde escrever* se decide a partir de fatos que chegam —, e `%APPDATA%`
+  entrou no sandbox da suíte, que agora deriva as âncoras das **duas** tabelas.
+
+  **O que ficou de fora ficou de fora por falta de fonte, não por esquecimento.** O perfil
+  não-default do VS Code e a segunda cópia que uma sessão Remote-WSL/SSH mantém no servidor remoto
+  não entram na tabela: a pesquisa registra que existem e que escrever no errado é **não-op
+  silencioso**, e não registra caminho. Caminho que ninguém leu em fonte primária não vira linha.
+
+  **O aviso de ativação cala em escopo de máquina — pela tabela.** `born_pending` é falso nas três
+  linhas novas, e `pending_activation` pergunta à mesma linha que decidiu o arquivo. O servidor no
+  arquivo pessoal é do próprio usuário; nada espera aprovação, e o CLI não aprendeu regra nova.
+
+  **E o enxerto deixou de ser perguntado sobre sobrescrita.** `~/.claude.json` existe em toda
+  máquina que já rodou o runtime, e ele carrega `userID`, `machineID` e o estado de onboarding —
+  perguntar *"já existe, sobrescrevo?"* teria travado o caso ordinário para pedir permissão de
+  **acrescentar** uma chave. Um enxerto não substitui arquivo: insere a chave e deixa os outros
+  bytes onde estavam, formatação inclusive. ([#81](https://github.com/panlabs-tech/overpower/issues/81))
+
+
 ## [0.11.0] - 2026-08-14
 
 ### Added

@@ -1051,26 +1051,113 @@ def test_one_line_over_two_targets_warns_only_for_the_one_that_is_born_pending(
     assert (root / ".devin" / "mcp_config.json").is_file()
 
 
-def test_the_second_target_has_no_machine_scope_and_the_line_is_refused_whole(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
-) -> None:
-    """The table is partial on both axes, and `--global` is the axis it is partial on here.
+MACHINE_DOCUMENTS = {
+    "claude-code": ".claude.json",
+    "vscode": "mcp.json",
+    "devin": "mcp_config.json",
+}
+"""The file name each target reads on the machine — the directory is per system.
 
-    Devin documents `~/.config/devin/mcp_config.json`, and the row is not on the
-    table yet (https://github.com/panlabs-tech/overpower/issues/81). Until it is,
-    the pair does not exist and ADR 0009 says the whole line is refused rather
-    than a file invented — exit 3, before any byte.
+The name and not the whole path, because the path is what
+`tests/test_runtimes.py` asserts across all nine cells; here the question is
+whether the CLI landed in the machine document at all rather than in the
+project one, and the two never share a name.
+"""
+
+
+@pytest.mark.parametrize(("key", "document"), MACHINE_DOCUMENTS.items())
+def test_a_machine_scope_graft_lands_in_the_personal_file_of_its_target(
+    key: str, document: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """`--global` writes the user's own file for each of the three targets (#81).
+
+    The repository is asserted empty in the same breath: a machine install that
+    also touched the tree would be the divergence between what the screen says
+    and what lands that ADR 0008 exists to refuse.
     """
     # given
     project.catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": MCP_URL})
     root = project.target(tmp_path, monkeypatch)
 
-    code, _ = project.run(
-        capsys, "install", "--mcp", "cloudflare", "--runtime", "devin", "--global"
+    code, output = project.run(
+        capsys, "install", "--mcp", "cloudflare", "--runtime", key, "--global"
     )
 
-    assert code == 3
+    assert code == 0
+    assert document in project.joined(output)
+    written = [path for path in tmp_path.rglob(document) if path.is_file()]
+    assert len(written) == 1
+    assert "cloudflare" in written[0].read_text(encoding="utf-8")
     assert list(root.iterdir()) == []
+
+
+@pytest.mark.parametrize("key", MACHINE_DOCUMENTS)
+def test_a_machine_scope_graft_says_nothing_about_pending_approval(
+    key: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The server in the personal file is the user's own, so nothing waits (#81).
+
+    The exact inverse of the project-scope Claude Code case above, and it falls
+    out of the table rather than out of a branch in the CLI: `born_pending` is a
+    column of the pair (runtime, scope), and `pending_activation` reads the same
+    row that decided the file.
+    """
+    # given
+    project.catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": MCP_URL})
+    project.target(tmp_path, monkeypatch)
+
+    code, output = project.run(
+        capsys, "install", "--mcp", "cloudflare", "--runtime", key, "--global"
+    )
+
+    assert code == 0
+    assert "pending approval" not in project.joined(output)
+
+
+PERSONAL_FILE = """\
+{
+  "userID": "97e2a3c0",
+  "machineID": "b41f",
+  "hasCompletedOnboarding": true,
+  "theme": "dark"
+}
+"""
+"""A `~/.claude.json` shaped like the real one: identity, onboarding, preferences.
+
+Two spaces of indent and a trailing newline, so the assertion covers formatting
+and not only content — the additive diff of ADR 0016 is what has to survive here.
+"""
+
+
+def test_a_machine_graft_touches_nothing_else_in_the_personal_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """#81: `~/.claude.json` carries the user's identity, and a graft is additive.
+
+    Asserted as *"every byte before the closing brace survives verbatim"* rather
+    than as a set of key lookups: what a re-serialising writer destroys first is
+    the shape — indentation, key order, the trailing newline — and a reader that
+    parsed both sides back into dicts would call that a pass. The single
+    permitted change is the comma JSON requires after what used to be the last
+    entry.
+    """
+    # given
+    project.catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": MCP_URL})
+    project.target(tmp_path, monkeypatch)
+    personal = tmp_path / ".claude.json"
+    personal.write_text(PERSONAL_FILE, encoding="utf-8")
+
+    code, _ = project.run(
+        capsys, "install", "--mcp", "cloudflare", "--runtime", "claude-code", "--global"
+    )
+
+    assert code == 0
+    after = personal.read_text(encoding="utf-8")
+    untouched = PERSONAL_FILE[: PERSONAL_FILE.index("\n}")]
+    assert after.startswith(untouched + ",\n")
+    assert '"mcpServers"' in after
+    assert "cloudflare" in after
+    assert after.endswith("}\n")
 
 
 def test_the_dry_run_of_a_graft_names_the_key_and_writes_nothing(

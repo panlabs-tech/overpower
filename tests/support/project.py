@@ -23,14 +23,16 @@ from rich.console import Console
 
 from overpower import cli
 from overpower.inspection import GIT_CONFIG_GLOBAL
-from overpower.runtimes import RUNTIMES, EnvironmentAnchor
+from overpower.runtimes import MCP_DOCUMENTS, RUNTIMES, EnvironmentAnchor, PlatformAnchor
 from overpower.screens import THEME
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Iterator, Mapping, Sequence
     from pathlib import Path
 
     import pytest
+
+    from overpower.runtimes import Anchor
 
 CLAUDE = ".claude/skills"
 """Where Claude Code reads skills in a repository — measured, not transcribed."""
@@ -63,14 +65,32 @@ the product animates. `tests/support/screens.py` takes styles off through
 captures a stream instead of recording a screen.
 """
 
+
+def _variables_of(anchor: Anchor) -> Iterator[str]:
+    """Every environment variable this anchor can read, following platform branches.
+
+    Recursive because `PlatformAnchor` holds anchors: the Windows branch of the
+    VS Code profile reads `APPDATA` and the Linux one reads `XDG_CONFIG_HOME`,
+    and a walk that stopped at the top level would scrub one runner's leak and
+    not the other's.
+    """
+    if isinstance(anchor, EnvironmentAnchor):
+        yield anchor.variable
+    elif isinstance(anchor, PlatformAnchor):
+        for branch in (anchor.windows, anchor.macos, anchor.linux):
+            yield from _variables_of(branch)
+
+
 ANCHORS = (
     GIT_CONFIG_GLOBAL,
     *sorted(
         {
-            runtime.global_dir.anchor.variable
-            for runtime in RUNTIMES
-            if runtime.global_dir is not None
-            and isinstance(runtime.global_dir.anchor, EnvironmentAnchor)
+            variable
+            for anchor in (
+                *(runtime.global_dir.anchor for runtime in RUNTIMES if runtime.global_dir),
+                *(document.anchor for document in MCP_DOCUMENTS.values() if document.anchor),
+            )
+            for variable in _variables_of(anchor)
         }
     ),
 )
@@ -84,9 +104,14 @@ of the table, so an unscrubbed anchor is the suite reading the developer's own
 equipment — and `GIT_CONFIG_GLOBAL` joins them because `overpower.inspection`
 honours it when it looks for `core.symlinks`.
 
-**Derived from the table, never listed by hand.** The runtime table grows and
-never shrinks, so a hand-written list would go quietly stale on the next
-transcription and restore exactly the leak this exists to close.
+**Both tables, not just the skills one.** The machine documents of
+https://github.com/panlabs-tech/overpower/issues/81 brought `APPDATA` in, which
+is *always* set on the Windows cell of the matrix — an unscrubbed one there is a
+suite that writes into the runner's real roaming profile and asserts nothing.
+
+**Derived from the tables, never listed by hand.** They grow and never shrink,
+so a hand-written list would go quietly stale on the next transcription and
+restore exactly the leak this exists to close.
 """
 
 

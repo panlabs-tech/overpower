@@ -177,7 +177,9 @@ def _environment(home: Path) -> Environment:
     def _nothing_exists(_path: Path) -> bool:
         return False
 
-    return Environment(home=home, variables={}, directory_exists=_nothing_exists)
+    return Environment(
+        home=home, variables={}, directory_exists=_nothing_exists, platform=sys.platform
+    )
 
 
 def test_ask_scope_inside_a_repository_offers_both(

@@ -28,7 +28,6 @@ untouched, byte for byte — answers differently when the table changes.
 
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -670,12 +669,22 @@ VSCODE_TARGET = Target(runtime="vscode", scope=Scope.PROJECT)
 DEVIN_TARGET = Target(runtime="devin", scope=Scope.PROJECT)
 """The third pair, read off the table in the order it declares them."""
 
+MACHINE_TARGETS = (
+    Target(runtime="claude-code", scope=Scope.GLOBAL),
+    Target(runtime="vscode", scope=Scope.GLOBAL),
+    Target(runtime="devin", scope=Scope.GLOBAL),
+)
+"""The same three runtimes in machine scope (#81) — six pairs, three dialects."""
+
+EVERY_TARGET = (CLAUDE_TARGET, VSCODE_TARGET, DEVIN_TARGET, *MACHINE_TARGETS)
+"""Every pair on the table, in the order the table declares them."""
+
 
 def test_a_recipe_is_offered_every_pair_whose_document_can_spell_it() -> None:
     """The answer is a walk of the table, in table order, so it is every row on it."""
     served = targets_of(recipe("cloudflare", HttpServer(url="https://x/mcp")))
 
-    assert served == (CLAUDE_TARGET, VSCODE_TARGET, DEVIN_TARGET)
+    assert served == EVERY_TARGET
 
 
 SERVERS_BY_TRANSPORT = {
@@ -711,8 +720,8 @@ def test_both_transports_are_served_by_every_target_that_spells_both() -> None:
     over_http = targets_of(recipe("cloudflare", HttpServer(url="https://x/mcp")))
     over_stdio = targets_of(recipe("git", StdioServer(command="uvx")))
 
-    assert over_http == (CLAUDE_TARGET, VSCODE_TARGET, DEVIN_TARGET)
-    assert over_stdio == (CLAUDE_TARGET, VSCODE_TARGET, DEVIN_TARGET)
+    assert over_http == EVERY_TARGET
+    assert over_stdio == EVERY_TARGET
 
 
 def _type_discriminator(value: Mapping[str, JsonValue]) -> str:
@@ -790,25 +799,23 @@ def test_the_answer_follows_the_table_and_never_the_recipe() -> None:
     asked = recipe("cloudflare", HttpServer(url="https://x/mcp"))
 
     assert targets_of(asked, {}) == ()
-    assert targets_of(asked, MCP_DOCUMENTS) == (CLAUDE_TARGET, VSCODE_TARGET, DEVIN_TARGET)
+    assert targets_of(asked, MCP_DOCUMENTS) == EVERY_TARGET
 
 
 def test_a_second_scope_on_the_table_becomes_another_target() -> None:
-    """The machine scope has no MCP document yet, and the day it has one this grows.
+    """A pair is (runtime, scope), so the machine scope tripled the answer — not the recipe.
 
-    https://github.com/panlabs-tech/overpower/issues/81 is that day. The row is
-    built here out of the row that exists, so the test says *"one more pair"*
-    and not *"one more format"* — the second half is the dialect's, and it is
-    asserted where the dialect is.
+    https://github.com/panlabs-tech/overpower/issues/81 was the day this test
+    was written for. The same recipe is offered six pairs now, and the file that
+    moved is the table: `targets_of` is handed a project-only table and answers
+    three, handed the real one and answers six.
     """
-    machine = replace(CLAUDE_PROJECT, born_pending=False)
-    documents = {**MCP_DOCUMENTS, ("claude-code", Scope.GLOBAL): machine}
+    project_only = {
+        (key, scope): document
+        for (key, scope), document in MCP_DOCUMENTS.items()
+        if scope is Scope.PROJECT
+    }
+    asked = recipe("cloudflare", HttpServer(url="https://x/mcp"))
 
-    served = targets_of(recipe("cloudflare", HttpServer(url="https://x/mcp")), documents)
-
-    assert served == (
-        CLAUDE_TARGET,
-        VSCODE_TARGET,
-        DEVIN_TARGET,
-        Target(runtime="claude-code", scope=Scope.GLOBAL),
-    )
+    assert targets_of(asked, project_only) == (CLAUDE_TARGET, VSCODE_TARGET, DEVIN_TARGET)
+    assert targets_of(asked, MCP_DOCUMENTS) == EVERY_TARGET

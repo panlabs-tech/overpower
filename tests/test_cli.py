@@ -1529,7 +1529,12 @@ def test_a_path_exists_precondition_that_is_unmet_is_refused(
     code, output = project.run(capsys, "install", "--mcp", "toolserver", "--runtime", "claude-code")
 
     assert code == 3
-    assert str(missing) in project.joined(output)
+    # Not the full path: `tmp_path` runs long enough on some CI runners (macOS,
+    # Windows) that the panel folds it mid-character, and `project.joined`
+    # reconstructs a fold as a space — corrupting an unbroken path substring.
+    joined = project.joined(output)
+    assert missing.name in joined
+    assert "path_exists" in joined
     assert list(root.iterdir()) == []
 
 

@@ -707,6 +707,7 @@ def _perform(
         # Before the closing line and not after it: `--dry-run` resolves
         # everything, so what it knows about the environment it knows *now*, and
         # a report ends with what it did rather than with an aside.
+        _warn_about_skipped_classes(plan)
         _warn_about_unset_slots(plan, environment, request.scope)
         _out.print(Text.assemble(("dry run", "op.warn"), " ", ("nothing was written", "op.dim")))
         return
@@ -747,6 +748,7 @@ def _perform(
     if report.degraded:
         listed = ", ".join(str(path) for path in report.degraded)
         _out.print(Text.assemble(("degraded to copy", "op.warn"), " ", (listed, "op.dim")))
+    _warn_about_skipped_classes(plan)
     _warn_about_unset_slots(plan, environment, request.scope)
     _warn_about_activation(plan, request.scope, root)
     _finished()
@@ -806,6 +808,32 @@ def _warn_about_activation(plan: Plan, scope: Scope, root: Path) -> None:
         f"{listed} is written, and the server does not connect until you approve it — "
         "Claude Code asks the next time it starts in this repository",
     )
+
+
+def _warn_about_skipped_classes(plan: Plan) -> None:
+    """Name every runtime a mixed line carried both classes for that received only one.
+
+    Issue #100: `plan_for` refuses a runtime only when it has a row on
+    **neither** table a mixed line carries, so a runtime with a row on one of
+    the two now writes it instead of the whole line dying for the other gap.
+    Exit 0, same reasoning `_warn_about_unset_slots` already uses — the write
+    that happened is correct, and this says what did not happen instead of
+    going silent about it. Grouped by which class is missing, since the fix
+    reads differently for each: no MCP document names a target with no row to
+    take one; no skills destination is `NoSkillsDestinationError`'s fix, one
+    runtime early.
+    """
+    skipped = plan.skipped
+    if not skipped:
+        return
+    missing_document = sorted(entry.runtime for entry in skipped if entry.missing == "MCP")
+    missing_skills = sorted(entry.runtime for entry in skipped if entry.missing == "skills")
+    if missing_document:
+        listed = ", ".join(missing_document)
+        _warn("no MCP destination", f"{listed} — took the skills, skipped the server")
+    if missing_skills:
+        listed = ", ".join(missing_skills)
+        _warn("no skills destination", f"{listed} — took the server, skipped the skills")
 
 
 def _warn(label: str, prose: str) -> None:

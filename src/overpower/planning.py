@@ -247,6 +247,20 @@ class Selection:
 
 
 @dataclass(frozen=True)
+class SkippedClass:
+    """One runtime a mixed line carried both classes for, that had a row on only one.
+
+    Not a refusal — `NoDestinationForEitherClassError` is that, for the
+    runtime with a row on **neither** table. The runtime named here received
+    the class it does have a row for; `missing` is the other one, spelled the
+    way the screen names it: `"MCP"` or `"skills"`.
+    """
+
+    runtime: str
+    missing: str
+
+
+@dataclass(frozen=True)
 class Plan:
     """The ordered sequence of writes a request costs, and the only input the writer has."""
 
@@ -254,6 +268,15 @@ class Plan:
     """What the destinations hang off, and what the screen shows them relative to."""
 
     selections: tuple[Selection, ...]
+
+    skipped: tuple[SkippedClass, ...] = ()
+    """Every runtime a mixed line carried both classes for, that received only one.
+
+    Issue #100: narrows `plan_for`'s refusal from the whole line to the
+    runtime with a row on neither table, so the runtime that has one still
+    needs a way to say so on screen instead of going silent about the class it
+    did not receive.
+    """
 
     @property
     def writes(self) -> tuple[Write, ...]:
@@ -393,10 +416,14 @@ class NoMcpDocumentError(RefusedError):
     ADR 0009's reading, applied to the second axis: destination is a function of
     (type, runtime, scope), the function is **partial**, and where it is not
     defined the pair does not exist. Asking for one is a valid invocation with a
-    negative answer — exit 3 — and the whole line is refused, never half of it:
-    writing the skills of `--skill a --mcp b --runtime cursor` and dropping the
-    server would be the *"success with the wrong content"* class this product
-    exists to avoid.
+    negative answer — exit 3.
+
+    Fires only on a line that carries **no** copy class: `--mcp b --runtime
+    cursor` alone has nothing else for `cursor` to receive, so the whole line
+    is refused. A line that mixes `--skill` in has a second table to check —
+    `plan_for` asks `_refuse_the_runtimes_neither_class_can_receive` instead,
+    and a `cursor` with a skills row there receives it and is merely *named*
+    in a `SkippedClass`, not refused (issue #100).
 
     There is no canonical MCP format to fall back on — measured, the same server
     has three root keys and three file names across three targets, and the MCP
@@ -437,6 +464,12 @@ class NoSkillsDestinationError(RefusedError):
     rows write, and it has no row of its own to name. So what the refusal means
     is *"there is nowhere for `--runtime vscode` to put a skill"*, and the fix it
     names is the true one: name a runtime that writes the folder this one reads.
+
+    Fires only on a line that carries **no** graft class: `--skill y --runtime
+    vscode` alone has nothing else for `vscode` to receive. A line that mixes
+    `--mcp` in checks the other table too, and a `vscode` with a document
+    there receives it and is merely *named* in a `SkippedClass`, not refused
+    — `NoDestinationForEitherClassError` is the twin for that line (issue #100).
     """
 
     def __init__(self, key: str) -> None:
@@ -445,6 +478,35 @@ class NoSkillsDestinationError(RefusedError):
         super().__init__(
             f"`{key}` takes MCP servers and has no skills destination of its own; "
             "name a runtime that writes the folder it reads, or drop the skills from the line"
+        )
+
+
+class NoDestinationForEitherClassError(RefusedError):
+    """A mixed line's runtime has a row on neither table it carries.
+
+    ADR 0017 extended ADR 0009's reading to the class axis with two refusals,
+    `NoMcpDocumentError` and `NoSkillsDestinationError`, each firing the whole
+    line dead for a runtime missing *its* class alone. Issue #100 narrows what
+    fires when a line carries **both** classes at once: a runtime with a row
+    on one of the two tables is a real target for that row, and refusing it
+    over the other table's gap would answer a question about a class it was
+    never going to receive anyway. Only a runtime with a row on **neither**
+    table is a target nothing here can equip — still exit 3, ADR 0009's
+    reading of a table with no destination for the pair.
+
+    Every other selected runtime with a row on at least one table receives
+    it; what it did not receive travels as a `SkippedClass` and is named at
+    exit 0, never in silence.
+    """
+
+    def __init__(self, keys: Sequence[str], scope: Scope) -> None:
+        """Name every runtime this stranded, the scope, and that neither table has it."""
+        self.keys = tuple(keys)
+        self.scope = scope
+        listed = ", ".join(self.keys)
+        super().__init__(
+            f"{listed} — no MCP document and no skills destination in {scope} scope; "
+            "drop them from the line, or name a runtime with one of the two"
         )
 
 
@@ -494,25 +556,48 @@ def plan_for(request: Request, catalog: Catalog, root: Path, environment: Enviro
     mcps = _selected_mcps(request.mcps, catalog)
     runtimes = _selected_runtimes(request.runtimes, request.scope)
     # Before the first `Selection` is built, so a refusal costs no screen and no
-    # byte — and for the whole line, never for the half of it that happens to
-    # have a destination. One refusal per class, fired only for the classes the
-    # line actually carries: a runtime that takes one and not the other is a real
-    # row on both tables, and asking it the question the line never posed would
-    # refuse an install nothing is wrong with.
-    if mcps:
+    # byte. Fired only for the classes the line actually carries: a line
+    # carrying one class alone still refuses the whole line for a runtime with
+    # no row on it — there is nothing else here for that runtime to receive. A
+    # line carrying both asks a different question — issue #100 — a runtime
+    # with a row on one of the two tables is a real target for that row, and
+    # only a runtime with a row on **neither** strands the line.
+    carries_mcp = bool(mcps)
+    carries_skills = bool(frameworks or bundles or skills)
+    skipped: tuple[SkippedClass, ...] = ()
+    if carries_mcp and carries_skills:
+        skipped = _refuse_the_runtimes_neither_class_can_receive(runtimes, request.scope)
+    elif carries_mcp:
         _refuse_a_runtime_with_no_document(runtimes, request.scope)
-    if frameworks or bundles or skills:
+    elif carries_skills:
         _refuse_a_runtime_with_no_skills(runtimes)
     landings = places_of(_that_take_skills(runtimes), request.scope, root, environment)
     documents = mcp_places_of(runtimes, request.scope, root, environment)
+    # A runtime `_refuse_the_runtimes_neither_class_can_receive` let through on
+    # the strength of one table can still be absent from the other's landings
+    # — the whole selected set can lack a row for a class the line carries,
+    # once no single runtime is stranded enough to refuse it. `landings`/
+    # `documents` empty means nothing to receive that class anywhere, so the
+    # class contributes no `Selection` rather than one with nothing in it
+    # (`_grouped_selection` indexes the first landing as the canonical, and an
+    # empty one has none to index).
     return Plan(
         root=root,
         selections=(
-            *(_framework_selection(framework, landings, request.scope) for framework in frameworks),
-            *(_bundle_selection(bundle, landings, request.scope) for bundle in bundles),
-            *(_skill_selection(artifact, landings, request.scope) for artifact in skills),
-            *(_mcp_selection(recipe, documents) for recipe in mcps),
+            *(
+                _framework_selection(framework, landings, request.scope)
+                for framework in frameworks
+                if landings
+            ),
+            *(_bundle_selection(bundle, landings, request.scope) for bundle in bundles if landings),
+            *(
+                _skill_selection(artifact, landings, request.scope)
+                for artifact in skills
+                if landings
+            ),
+            *(_mcp_selection(recipe, documents) for recipe in mcps if documents),
         ),
+        skipped=skipped,
     )
 
 
@@ -663,6 +748,33 @@ def _refuse_a_runtime_with_no_skills(keys: Sequence[str]) -> None:
         runtime = RUNTIMES_BY_KEY.get(key)
         if runtime is None or runtime.project_dir is None:
             raise NoSkillsDestinationError(key)
+
+
+def _refuse_the_runtimes_neither_class_can_receive(
+    keys: Sequence[str], scope: Scope
+) -> tuple[SkippedClass, ...]:
+    """Refuse only the runtimes with a row on neither table a mixed line carries.
+
+    Called only when the line carries both classes (`plan_for`) — a single
+    class still goes through the whole-line refusals above unchanged. A
+    runtime missing one row and not the other is not refused: it is noted, so
+    the screen can say what it did not receive instead of the line dying for
+    a gap this runtime was never asked to close.
+    """
+    stranded: list[str] = []
+    skipped: list[SkippedClass] = []
+    for key in keys:
+        no_document = mcp_document_of(key, scope) is None
+        no_skills = key not in RUNTIMES_BY_KEY
+        if no_document and no_skills:
+            stranded.append(key)
+        elif no_document:
+            skipped.append(SkippedClass(key, "MCP"))
+        elif no_skills:
+            skipped.append(SkippedClass(key, "skills"))
+    if stranded:
+        raise NoDestinationForEitherClassError(stranded, scope)
+    return tuple(skipped)
 
 
 def existing_destinations(plan: Plan, request: Request) -> tuple[Path, ...]:

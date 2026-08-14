@@ -418,7 +418,7 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
             "--runtime",
             metavar="KEY",
             help="Runtimes to equip. Comma-separated, repeated, or both. No default. "
-            "Skill and MCP support are separate tables — not every runtime is in both.",
+            "Skill and MCP support are separate tables, and not every runtime is in both.",
         ),
     ] = None,
     from_: Annotated[

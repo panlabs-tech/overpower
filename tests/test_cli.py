@@ -190,13 +190,20 @@ def test_the_package_installs_exactly_one_executable() -> None:
     assert installed == ["overpower"]
 
 
-def test_the_list_command_shows_the_three_blocks(capsys: pytest.CaptureFixture[str]) -> None:
+def test_the_list_command_shows_the_four_blocks(capsys: pytest.CaptureFixture[str]) -> None:
+    """Four units, four blocks — the MCP server has to exist on screen to be found.
+
+    Whoever has never read the documentation learns the class exists from the
+    catalog itself, which is what the block buys
+    (https://github.com/panlabs-tech/overpower/issues/77).
+    """
     code, output = output_of(capsys, ["list"])
 
     assert code == 0
     assert "AI Frameworks" in output
     assert "Pool skills" in output
     assert "Bundles" in output
+    assert "MCP servers" in output
 
 
 # --------------------------------------------------------------------------- #
@@ -255,12 +262,36 @@ def test_the_skill_screen_shows_one_pool_skill_and_not_the_catalog(
     assert "Bundles" not in output
 
 
+def test_the_mcp_screen_shows_one_recipe_and_not_the_catalog(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The wiring, and the one line of it that is derived rather than read.
+
+    That the description arrives whole and that the rows are laid out at both
+    widths is a screen property, asserted next door in `test_screens.py`. What
+    only this seam can answer is that the targets line the user sees is the one
+    the **product** computes off its own table — a screen drawn with a fixture
+    could agree with itself all the way to a wrong answer.
+    """
+    catalog = load_catalog(content_root(), catalog_file())
+    recipe = catalog.mcps[0]
+
+    code, output = output_of(capsys, ["list", "--mcp", recipe.name])
+
+    assert code == 0
+    assert recipe.name in output
+    assert "claude-code · project" in project.joined(output)
+    assert "AI Frameworks" not in output
+    assert "Bundles" not in output
+
+
 @pytest.mark.parametrize(
     ("argv", "listed"),
     [
         pytest.param(["list", "--ai-framework", "matt-pocok"], "matt-pocock", id="ai-framework"),
         pytest.param(["list", "--skill", "grillin"], "panlabs-python-standards", id="skill"),
         pytest.param(["list", "--bundle", "api-pythn"], "api-python", id="bundle"),
+        pytest.param(["list", "--mcp", "cloudflar"], "cloudflare", id="mcp"),
     ],
 )
 def test_a_name_outside_the_catalog_exits_two_naming_the_closed_list(
@@ -273,13 +304,30 @@ def test_a_name_outside_the_catalog_exits_two_naming_the_closed_list(
     assert listed in output
 
 
-def test_two_selectors_on_one_line_exit_two(capsys: pytest.CaptureFixture[str]) -> None:
+@pytest.mark.parametrize(
+    ("argv", "flags"),
+    [
+        pytest.param(
+            ["list", "--skill", "grilling", "--bundle", "api-python"],
+            ("--skill", "--bundle"),
+            id="skill-and-bundle",
+        ),
+        pytest.param(
+            ["list", "--mcp", "cloudflare", "--skill", "grilling"],
+            ("--skill", "--mcp"),
+            id="mcp-and-skill",
+        ),
+    ],
+)
+def test_two_selectors_on_one_line_exit_two(
+    capsys: pytest.CaptureFixture[str], argv: list[str], flags: tuple[str, ...]
+) -> None:
     """`list` answers about one item, so two selectors have no single answer."""
-    code, output = output_of(capsys, ["list", "--skill", "grilling", "--bundle", "api-python"])
+    code, output = output_of(capsys, argv)
 
     assert code == 2
-    assert "--skill" in output
-    assert "--bundle" in output
+    for flag in flags:
+        assert flag in output
 
 
 def test_two_selectors_are_refused_before_the_catalog_is_read(
@@ -414,6 +462,7 @@ def test_the_exit_codes_are_the_four_the_model_declares() -> None:
         pytest.param(["--help"], id="help"),
         pytest.param(["list"], id="list"),
         pytest.param(["list", "--ai-framework", "matt-pocock"], id="list-framework"),
+        pytest.param(["list", "--mcp", "cloudflare"], id="list-mcp"),
     ],
 )
 def test_piped_output_carries_no_ansi(argv: list[str]) -> None:
@@ -509,6 +558,9 @@ def test_the_lines_to_copy_survive_a_pipe() -> None:
     for framework in catalog.frameworks:
         assert f"overpower install --ai-framework {framework.name}".encode() in result.stdout
         assert f"overpower list --ai-framework {framework.name}".encode() in result.stdout
+    for recipe in catalog.mcps:
+        assert f"overpower install --mcp {recipe.name}".encode() in result.stdout
+        assert f"overpower list --mcp {recipe.name}".encode() in result.stdout
 
 
 # --------------------------------------------------------------------------- #

@@ -53,8 +53,8 @@ from overpower.planning import (
     Write,
     WriteMode,
 )
-from overpower.recipes import HttpServer, Recipe
-from overpower.rendering import Fragment
+from overpower.recipes import HttpServer, Recipe, StdioServer
+from overpower.rendering import Fragment, Target, targets_of
 from overpower.runtimes import Scope
 from overpower.screens import (
     BANNER,
@@ -69,6 +69,7 @@ from overpower.screens import (
     framework_screen,
     human,
     installed_screen,
+    mcp_screen,
     noted,
     opened,
     plan_screen,
@@ -103,6 +104,7 @@ def descriptions_of(catalog: Catalog) -> list[str]:
         *(framework.description for framework in catalog.frameworks),
         *(artifact.description for artifact in catalog.pool),
         *(bundle.description for bundle in catalog.bundles),
+        *(recipe.description for recipe in catalog.mcps),
     ]
 
 
@@ -129,6 +131,14 @@ def commands_of(catalog: Catalog) -> list[str]:
             for line in (
                 f"overpower install --bundle {bundle.name}",
                 f"overpower list --bundle {bundle.name}",
+            )
+        ),
+        *(
+            line
+            for recipe in catalog.mcps
+            for line in (
+                f"overpower install --mcp {recipe.name}",
+                f"overpower list --mcp {recipe.name}",
             )
         ),
     ]
@@ -222,12 +232,69 @@ def ruler() -> Artifact:
     return artifact("panlabs-python-standards", LONG, files=8, size=234_458)
 
 
+MCP_LONG = (
+    "A remote MCP server reached over streamable HTTP, described at the length a "
+    "description reaches when it has to say what the server touches: it carries no "
+    "secret in the file, because the connection authorises in the browser the first "
+    "time an agent uses it, and nothing here has to be filled in before it works."
+)
+"""The wrapping case of the recipe screen. Its shape is the shipped one; its
+bytes are ours, so no curation refresh can move a recorded screen."""
+
+MCP_TARGET = Target(runtime="claude-code", scope=Scope.PROJECT)
+
+RECORDED_TARGETS = (MCP_TARGET,)
+"""What the recorded recipe screens are drawn with: the table's one row today.
+
+Spelled here rather than derived, for the reason every recorded screen is drawn
+from a fixture: a recording that moved when the *table* grew would spend the
+signal that says which screens a change had licence to move. That the screen
+shows what `targets_of` actually answers is the wiring, and it is asserted
+through the command in `test_cli.py`.
+"""
+
+
+def recorded_recipe() -> Recipe:
+    """The HTTP recipe the detail screen is recorded against: fixed, and ours."""
+    return Recipe(
+        name="cloudflare",
+        path=Path("cloudflare.toml"),
+        description=MCP_LONG,
+        server=HttpServer(url="https://mcp.cloudflare.com/mcp"),
+    )
+
+
+def recorded_stdio_recipe() -> Recipe:
+    """The stdio recipe, and it carries the three fields that transport admits.
+
+    A command, its arguments and one value of `[server.env]` — which is the
+    distinction the schema exists for: the address of a panel is **not** a
+    secret, so it is written literally, while a secret would be a slot the
+    product refuses to write (https://github.com/panlabs-tech/overpower/issues/78).
+    Recorded separately from the HTTP one because the two draw different rows,
+    and a screen with rows nobody recorded is a screen free to move unseen.
+    """
+    return Recipe(
+        name="coolify",
+        path=Path("coolify.toml"),
+        description="Drives a Coolify panel from the agent: applications, deployments and logs.",
+        server=StdioServer(
+            command="uvx",
+            args=("mcp-server-coolify", "--panel"),
+            env={"COOLIFY_BASE_URL": "https://vps.panlabs.tech"},
+        ),
+    )
+
+
 def recorded() -> Catalog:
     """The catalog the screens are recorded against: fixed, and ours.
 
     The numbers exercise the three units of `human` and both spellings of the
     file count — `948 B · 1 file`, `229.0 KiB · 8 files`, `2.00 MiB · 3 files` —
     which are exactly the formatting paths an edit could break silently.
+
+    The MCP block carries the recipe that weighs nothing, which is the whole
+    reason its head line reads a transport where the other three read bytes.
     """
     return Catalog(
         frameworks=(
@@ -250,6 +317,7 @@ def recorded() -> Catalog:
                 artifacts=(ruler(),),
             ),
         ),
+        mcps=(recorded_recipe(),),
     )
 
 
@@ -1039,6 +1107,172 @@ def test_the_skill_screen_matches_its_snapshot(request: pytest.FixtureRequest, w
     rendered = render(artifact_screen(ruler()), width)
 
     assert_matches_snapshot(request, f"list-skill-{width}", rendered)
+
+
+# --------------------------------------------------------------------------- #
+# the MCP server: a block of its own, and the recipe whole
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_catalog_screen_gives_the_mcp_servers_a_block_of_their_own(width: int) -> None:
+    """The class has to exist on the screen without anyone reading documentation.
+
+    Run against the catalog that **ships**, like the other properties of the
+    catalog screen: what is asserted is that every recipe the tree carries
+    reaches the block, and the tree is what decides which those are (rule 8).
+    """
+    catalog = shipped()
+
+    joined = unwrapped(render(catalog_screen(catalog), width))
+
+    assert "MCP servers" in joined
+    assert catalog.mcps, "the shipped catalog carries no recipe to show"
+    for recipe in catalog.mcps:
+        assert recipe.name in joined
+        assert " ".join(recipe.description.split()) in joined
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_mcp_screen_shows_the_description_whole(width: int) -> None:
+    """The rule the catalog screen already obeys, on the screen a server is judged on.
+
+    A recipe wires a server into an agent, so *"what am I about to connect"* is
+    read here — and a description read in halves is one somebody has to go and
+    look up elsewhere.
+    """
+    recipe = recorded_recipe()
+
+    rendered = render(mcp_screen(recipe, RECORDED_TARGETS), width)
+
+    assert " ".join(recipe.description.split()) in unwrapped(rendered)
+    assert "…" not in rendered
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_mcp_screen_names_the_transport_and_the_url_of_an_http_recipe(width: int) -> None:
+    """Transport on the head line, where the other three units say what they weigh.
+
+    A recipe weighs nothing — it never lands — so what stands in the place a
+    size occupies is the fact that decides how the server is reached.
+    """
+    rendered = rows(render(mcp_screen(recorded_recipe(), RECORDED_TARGETS), width))
+
+    assert "cloudflare http" in rendered
+    assert "url https://mcp.cloudflare.com/mcp" in rendered
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_mcp_screen_names_the_command_the_arguments_and_the_environment(width: int) -> None:
+    """The stdio half: what will be launched, and what it is launched with.
+
+    `[server.env]` is on the screen because it is written **literally** into the
+    user's file, and a value that lands is a value the reader has to see before
+    accepting it.
+    """
+    rendered = rows(render(mcp_screen(recorded_stdio_recipe(), RECORDED_TARGETS), width))
+
+    assert "coolify stdio" in rendered
+    assert "command uvx" in rendered
+    assert "args mcp-server-coolify --panel" in rendered
+    assert "env COOLIFY_BASE_URL https://vps.panlabs.tech" in rendered
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_mcp_screen_names_which_targets_the_recipe_serves(width: int) -> None:
+    """The question that decides whether a server serves the reader at all.
+
+    Runtime **and** scope, never the runtime alone: `claude-code` reads
+    `.mcp.json` in a repository and reads nothing on the machine, so a line that
+    named only the runtime would promise the half that does not exist.
+    """
+    rendered = rows(render(mcp_screen(recorded_recipe(), RECORDED_TARGETS), width))
+
+    assert "targets claude-code · project" in rendered
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_each_target_of_a_recipe_gets_a_row_of_its_own(width: int) -> None:
+    """Two targets are two rows, because a run picks one scope and one runtime.
+
+    Written out rather than joined into a sentence: the pairs do not compose —
+    a runtime that reads a repository is not the same target as the same runtime
+    reading the machine — so the line that lists them may not read as if they did.
+    """
+    machine = Target(runtime="claude-code", scope=Scope.GLOBAL)
+
+    rendered = rows(render(mcp_screen(recorded_recipe(), (MCP_TARGET, machine)), width))
+
+    assert "targets claude-code · project" in rendered
+    assert "claude-code · global" in rendered
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_a_recipe_no_target_can_serve_says_so_rather_than_showing_nothing(width: int) -> None:
+    """An empty answer is an answer, and it is the one that decides *"not for me"*.
+
+    A blank row would read as a screen that failed to draw; the word is what
+    says the product looked and found no target — which is the state a recipe
+    reaches when no runtime this product writes can spell it.
+    """
+    rendered = rows(render(mcp_screen(recorded_recipe(), ()), width))
+
+    assert "targets none" in rendered
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_mcp_screen_does_not_promise_a_scope_the_table_has_no_document_for(
+    width: int,
+) -> None:
+    """The machine scope has no MCP document yet, so the screen may not name one.
+
+    https://github.com/panlabs-tech/overpower/issues/81 is where it gains one.
+    Until then, offering it here would be the *"the screen says one thing and the
+    result is another"* class — arriving through the screen instead of the write.
+    """
+    rendered = render(mcp_screen(recorded_recipe(), targets_of(recorded_recipe())), width)
+
+    assert "global" not in rendered
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_mcp_screen_prints_the_line_that_installs_it(width: int) -> None:
+    """And not the one that opens it: it is the output of that very command."""
+    joined = unwrapped(render(mcp_screen(recorded_recipe(), RECORDED_TARGETS), width))
+
+    assert "overpower install --mcp cloudflare" in joined
+    assert "overpower list --mcp cloudflare" not in joined
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_no_rendered_line_of_an_mcp_screen_exceeds_the_terminal_width(width: int) -> None:
+    """Both shapes of recipe, because they draw different rows.
+
+    A URL and a command line are both single unbreakable runs of characters, and
+    a narrow terminal is exactly where a grid decides between wrapping and
+    cutting — cutting is what turns a command into one nobody can read back.
+    """
+    for recipe in (recorded_recipe(), recorded_stdio_recipe()):
+        rendered = render(mcp_screen(recipe, RECORDED_TARGETS), width)
+
+        assert [line for line in rendered.splitlines() if len(line) > width] == []
+        assert "…" not in rendered
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_mcp_screen_matches_its_snapshot(request: pytest.FixtureRequest, width: int) -> None:
+    rendered = render(mcp_screen(recorded_recipe(), RECORDED_TARGETS), width)
+
+    assert_matches_snapshot(request, f"list-mcp-{width}", rendered)
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_stdio_mcp_screen_matches_its_snapshot(
+    request: pytest.FixtureRequest, width: int
+) -> None:
+    rendered = render(mcp_screen(recorded_stdio_recipe(), RECORDED_TARGETS), width)
+
+    assert_matches_snapshot(request, f"list-mcp-stdio-{width}", rendered)
 
 
 def test_a_framework_says_what_it_weighs() -> None:

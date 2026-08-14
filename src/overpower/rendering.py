@@ -296,15 +296,16 @@ def render(recipe: Recipe, document: McpDocument) -> tuple[Graft, ...]:
     """
     match document.dialect:
         case Dialect.CLAUDE:
-            server = Fragment(root_key=document.root_key, name=recipe.name, value=_server(recipe, document))
-            return (server,)
+            value = _server(recipe, document)
+            return (Fragment(root_key=document.root_key, name=recipe.name, value=value),)
         case Dialect.VSCODE:
-            server = Fragment(root_key=document.root_key, name=recipe.name, value=_server(recipe, document))
+            value = _server(recipe, document)
+            server = Fragment(root_key=document.root_key, name=recipe.name, value=value)
             prompts = _vscode_inputs(recipe.slots)
             return (server,) if prompts is None else (server, prompts)
         case Dialect.DEVIN:
-            server = Fragment(root_key=document.root_key, name=recipe.name, value=_devin(recipe))
-            return (server,)
+            value = _devin(recipe)
+            return (Fragment(root_key=document.root_key, name=recipe.name, value=value),)
         case _ as unreachable:
             assert_never(unreachable)
 

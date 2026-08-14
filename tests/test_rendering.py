@@ -610,9 +610,7 @@ def test_the_devin_dialect_writes_no_field_that_has_no_reader() -> None:
     """
     server = StdioServer(command="npx", env={"PANEL": "https://panel.example.com"})
 
-    written = str(
-        server_of(recipe("coolify", server, EnvSlot(name="TOKEN")), DEVIN_PROJECT).value
-    )
+    written = str(server_of(recipe("coolify", server, EnvSlot(name="TOKEN")), DEVIN_PROJECT).value)
 
     assert "disabled" not in written
     assert "oauth" not in written
@@ -718,7 +716,7 @@ def test_both_transports_are_served_by_every_target_that_spells_both() -> None:
 
 
 def _type_discriminator(value: Mapping[str, JsonValue]) -> str:
-    """What `.mcp.json` and `.vscode/mcp.json` will be read as: the explicit field, always present."""
+    """What `.mcp.json` and `.vscode/mcp.json` are read as: the explicit field, always present."""
     return str(value["type"])
 
 

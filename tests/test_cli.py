@@ -992,6 +992,7 @@ def test_a_graft_only_runtime_refuses_a_line_that_also_asks_for_a_skill(
 
     assert code == 3
     assert "no skills destination of its own" in project.joined(output)
+    assert list(root.iterdir()) == []
 
 
 def test_a_target_with_no_documented_gate_gets_no_warning_invented_for_it(

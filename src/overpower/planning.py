@@ -45,14 +45,16 @@ composition.
 
 from __future__ import annotations
 
+import shutil
 import sys
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, assert_never
 
 from overpower.errors import BadInvocationError, RefusedError
 from overpower.grafting import read_document, refuse_if_broken
-from overpower.recipes import Recipe
+from overpower.recipes import Check, Precondition, Recipe
 from overpower.rendering import Fragment, Inputs, expands_from_environment, render
 from overpower.runtimes import (
     RUNTIMES_BY_KEY,
@@ -67,7 +69,6 @@ from overpower.runtimes import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
-    from pathlib import Path
 
     from overpower.discovery import Artifact, Bundle, Catalog, Framework
     from overpower.rendering import Graft
@@ -617,6 +618,67 @@ def refuse_broken_documents(plan: Plan) -> None:
             and destination.path.is_file()
         ):
             refuse_if_broken(destination.path, read_document(destination.path), source)
+
+
+class PreconditionFailedError(RefusedError):
+    """A precondition the recipe declared, that this machine does not meet.
+
+    ADR 0009's axis, applied here: the invocation is correct — the recipe read,
+    the precondition understood — and the answer this machine gives is no.
+    Fired by `refuse_unmet_preconditions`, before the first byte, for the same
+    `--dry-run` reason `refuse_broken_documents` is: a report that skipped this
+    check would be a report about a different machine.
+    """
+
+    def __init__(self, recipe: str, precondition: Precondition, reason: str) -> None:
+        """Name the recipe, the precondition, and why it does not hold."""
+        self.recipe = recipe
+        self.precondition = precondition
+        super().__init__(f"`{recipe}`: precondition `{precondition.check}` failed — {reason}")
+
+
+def refuse_unmet_preconditions(plan: Plan, variables: Mapping[str, str]) -> None:
+    """Refuse before the first byte if any recipe's preconditions are not met here.
+
+    Alongside `refuse_broken_documents` and for the same two reasons: a
+    precondition is a fact of the **machine**, checked once per recipe rather
+    than once per write, so this walks `selection.artifacts` the way
+    `unset_slots` already does rather than `plan.writes` — and it narrows to
+    `variables` for the same reason `unset_slots` does: the only machine fact
+    any check reads is the environment, so that is the whole of what this
+    needs from `Environment`.
+
+    Every check **reads** a fact and never **runs** one — `command_exists`
+    walks `PATH` the way `shutil.which` does, and never invokes the command it
+    finds. A precondition check that executed anything would be the hole axiom
+    1 closes, reopened under the name of a feature.
+    """
+    for selection in plan.selections:
+        for carried in selection.artifacts:
+            if not isinstance(carried, Recipe):
+                continue
+            for precondition in carried.preconditions:
+                reason = _unmet_reason(precondition, variables)
+                if reason is not None:
+                    raise PreconditionFailedError(carried.name, precondition, reason)
+
+
+def _unmet_reason(precondition: Precondition, variables: Mapping[str, str]) -> str | None:
+    """Why `precondition` fails on this machine, or `None` if it holds."""
+    match precondition.check:
+        case Check.COMMAND_EXISTS:
+            found = shutil.which(precondition.value, path=variables.get("PATH"))
+            return None if found is not None else f"no `{precondition.value}` on PATH"
+        case Check.ENV_SET:
+            if precondition.value in variables:
+                return None
+            return f"`{precondition.value}` is not set in the environment"
+        case Check.PATH_EXISTS:
+            if Path(precondition.value).exists():
+                return None
+            return f"`{precondition.value}` does not exist"
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
 def pending_activation(plan: Plan, scope: Scope) -> tuple[Path, ...]:

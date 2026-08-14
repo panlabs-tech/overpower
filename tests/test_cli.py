@@ -23,6 +23,7 @@ import subprocess
 import sys
 from dataclasses import replace
 from importlib import metadata
+from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 import pytest
@@ -39,7 +40,6 @@ from tests.support import git_remote, project
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from pathlib import Path
 
     from overpower.discovery import Catalog
     from overpower.runtimes import Environment
@@ -1446,6 +1446,222 @@ def test_a_run_with_no_slot_to_fill_says_nothing_about_a_variable(
 
     assert code == 0
     assert "not set" not in project.joined(output)
+
+
+# --------------------------------------------------------------------------- #
+# #82: preconditions — a closed vocabulary, checked, never run
+# --------------------------------------------------------------------------- #
+
+PRECONDITION_VARIABLE = "OP_PRECONDITION_VAR"
+
+
+def _precondition_recipe(check: str, value: str, *, instructions: str | None = None) -> str:
+    """A minimal stdio recipe carrying one `[[preconditions]]` entry.
+
+    `value` is a TOML **literal** string (single-quoted): a Windows path
+    carries backslashes, and a basic string would read those as escapes.
+    """
+    lines: list[str] = []
+    if instructions is not None:
+        lines.append(f'instructions = "{instructions}"')
+    lines += [
+        'description = "A server with a precondition."',
+        'transport = "stdio"',
+        "",
+        "[server]",
+        'command = "uvx"',
+        "",
+        "[[preconditions]]",
+        f'check = "{check}"',
+        f"value = '{value}'",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def test_a_failed_precondition_refuses_before_the_first_byte_naming_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """Exit **3**: the invocation was correct, and this machine does not meet it."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch)
+    root = project.target(tmp_path, monkeypatch)
+    project.custom_recipe(
+        tmp_path, "toolserver", _precondition_recipe("env_set", PRECONDITION_VARIABLE)
+    )
+    monkeypatch.delenv(PRECONDITION_VARIABLE, raising=False)
+
+    code, output = project.run(capsys, "install", "--mcp", "toolserver", "--runtime", "claude-code")
+
+    assert code == 3
+    joined = project.joined(output)
+    assert PRECONDITION_VARIABLE in joined
+    assert "toolserver" in joined
+    assert list(root.iterdir()) == []
+
+
+def test_an_env_set_precondition_that_is_met_installs_normally(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    # given
+    project.catalog_of(tmp_path, monkeypatch)
+    root = project.target(tmp_path, monkeypatch)
+    project.custom_recipe(
+        tmp_path, "toolserver", _precondition_recipe("env_set", PRECONDITION_VARIABLE)
+    )
+    monkeypatch.setenv(PRECONDITION_VARIABLE, "1")
+
+    code, _ = project.run(capsys, "install", "--mcp", "toolserver", "--runtime", "claude-code")
+
+    assert code == 0
+    assert (root / ".mcp.json").is_file()
+
+
+def test_a_path_exists_precondition_that_is_unmet_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    # given
+    project.catalog_of(tmp_path, monkeypatch)
+    root = project.target(tmp_path, monkeypatch)
+    missing = tmp_path / "does-not-exist"
+    project.custom_recipe(tmp_path, "toolserver", _precondition_recipe("path_exists", str(missing)))
+
+    code, output = project.run(capsys, "install", "--mcp", "toolserver", "--runtime", "claude-code")
+
+    assert code == 3
+    # Not the full path: `tmp_path` runs long enough on some CI runners (macOS,
+    # Windows) that the panel folds it mid-character, and `project.joined`
+    # reconstructs a fold as a space — corrupting an unbroken path substring.
+    joined = project.joined(output)
+    assert missing.name in joined
+    assert "path_exists" in joined
+    assert list(root.iterdir()) == []
+
+
+def test_a_path_exists_precondition_that_is_met_installs_normally(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    # given
+    project.catalog_of(tmp_path, monkeypatch)
+    root = project.target(tmp_path, monkeypatch)
+    present = tmp_path / "socket"
+    present.write_text("", encoding="utf-8")
+    project.custom_recipe(tmp_path, "toolserver", _precondition_recipe("path_exists", str(present)))
+
+    code, _ = project.run(capsys, "install", "--mcp", "toolserver", "--runtime", "claude-code")
+
+    assert code == 0
+    assert (root / ".mcp.json").is_file()
+
+
+def test_a_command_exists_precondition_that_is_met_installs_normally(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """`sys.executable` is the one binary every test run is guaranteed to have."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch)
+    root = project.target(tmp_path, monkeypatch)
+    executable = Path(sys.executable)
+    monkeypatch.setenv("PATH", f"{executable.parent}{os.pathsep}{os.environ.get('PATH', '')}")
+    project.custom_recipe(
+        tmp_path, "toolserver", _precondition_recipe("command_exists", executable.name)
+    )
+
+    code, _ = project.run(capsys, "install", "--mcp", "toolserver", "--runtime", "claude-code")
+
+    assert code == 0
+    assert (root / ".mcp.json").is_file()
+
+
+def test_the_dry_run_of_a_failed_precondition_mirrors_the_exit_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """`--dry-run` checks preconditions too, or it is a report about a different run."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch)
+    root = project.target(tmp_path, monkeypatch)
+    project.custom_recipe(
+        tmp_path, "toolserver", _precondition_recipe("env_set", PRECONDITION_VARIABLE)
+    )
+    monkeypatch.delenv(PRECONDITION_VARIABLE, raising=False)
+    selectors = ("install", "--mcp", "toolserver", "--runtime", "claude-code")
+
+    dry_code, _ = project.run(capsys, *selectors, "--dry-run")
+    real_code, _ = project.run(capsys, *selectors)
+
+    assert dry_code == real_code == 3
+    assert list(root.iterdir()) == []
+
+
+def test_the_plan_prints_the_recipes_prose_instructions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """What the overpower cannot automate — printed where the human still reads."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch)
+    project.target(tmp_path, monkeypatch)
+    project.custom_recipe(
+        tmp_path,
+        "toolserver",
+        _precondition_recipe(
+            "env_set", PRECONDITION_VARIABLE, instructions="ask the platform team for the token"
+        ),
+    )
+    monkeypatch.setenv(PRECONDITION_VARIABLE, "1")
+
+    code, output = project.run(
+        capsys, "install", "--mcp", "toolserver", "--runtime", "claude-code", "--dry-run"
+    )
+
+    assert code == 0
+    assert "ask the platform team for the token" in project.joined(output)
+
+
+def test_the_real_run_prints_instructions_too_before_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """Not only the report — the same line reads them before the write happens."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch)
+    project.target(tmp_path, monkeypatch)
+    project.custom_recipe(
+        tmp_path,
+        "toolserver",
+        _precondition_recipe(
+            "env_set", PRECONDITION_VARIABLE, instructions="ask the platform team for the token"
+        ),
+    )
+    monkeypatch.setenv(PRECONDITION_VARIABLE, "1")
+
+    code, output = project.run(capsys, "install", "--mcp", "toolserver", "--runtime", "claude-code")
+
+    assert code == 0
+    assert "ask the platform team for the token" in project.joined(output)
+
+
+def test_a_malicious_precondition_value_is_never_executed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """Asserted, not promised: `command_exists` walks `PATH`, it never runs a shell.
+
+    A `;` and a second command in the value are what a script-injection attempt
+    through this field would look like. `shutil.which` treats the whole string
+    as one literal filename, so refusal happens for the ordinary reason — no
+    file has that name — and nothing beside it ever runs.
+    """
+    # given
+    project.catalog_of(tmp_path, monkeypatch)
+    root = project.target(tmp_path, monkeypatch)
+    marker = tmp_path / "pwned"
+    project.custom_recipe(
+        tmp_path, "toolserver", _precondition_recipe("command_exists", f"true; touch {marker}")
+    )
+
+    code, _ = project.run(capsys, "install", "--mcp", "toolserver", "--runtime", "claude-code")
+
+    assert code == 3
+    assert not marker.exists()
+    assert list(root.iterdir()) == []
 
 
 # --------------------------------------------------------------------------- #

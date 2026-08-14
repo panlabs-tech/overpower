@@ -54,8 +54,10 @@ from overpower.planning import (
     pending_activation,
     plan_for,
     refuse_broken_documents,
+    refuse_unmet_preconditions,
     unset_slots,
 )
+from overpower.recipes import Recipe
 from overpower.remote import catalog_from
 from overpower.rendering import targets_of
 from overpower.runtimes import Environment, Scope
@@ -694,6 +696,10 @@ def _perform(
     # would be a report about a different installation
     # (https://github.com/panlabs-tech/overpower/issues/76).
     refuse_broken_documents(plan)
+    # Same reasoning, a fact of the machine rather than of a document: a
+    # `--dry-run` that skipped this would report on a different machine than
+    # the one that runs `install` for real (https://github.com/panlabs-tech/overpower/issues/82).
+    refuse_unmet_preconditions(plan, environment.variables)
     conflicts = existing_destinations(plan, request)
     if conflicts and (request.dry_run or not _asking(request)):
         raise DestinationExistsError(conflicts)
@@ -705,6 +711,7 @@ def _perform(
         if banner:
             _print_banner()
         _out.print(plan_screen(plan))
+        _print_instructions(plan)
         # Before the closing line and not after it: `--dry-run` resolves
         # everything, so what it knows about the environment it knows *now*, and
         # a report ends with what it did rather than with an aside.
@@ -726,6 +733,7 @@ def _perform(
     # `plan_screen` are the same function one flag apart, so whichever is drawn
     # they cannot disagree about a path or a truncation.
     _out.print(summary_screen(plan) if _out.is_terminal else plan_screen(plan))
+    _print_instructions(plan)
 
     if _asking(request):
         _print_railed()
@@ -753,6 +761,21 @@ def _perform(
     _warn_about_unset_slots(plan, environment, request.scope)
     _warn_about_activation(plan, request.scope, root)
     _finished()
+
+
+def _print_instructions(plan: Plan) -> None:
+    """Print an MCP recipe's prose instructions beside the plan, once per recipe.
+
+    A precondition is what the overpower checks; instructions are what it
+    cannot — asking a credential, naming who on the team holds it. The plan is
+    the last screen before the write, so this is where a human reads them,
+    not folded into a warning after the fact.
+    """
+    for selection in plan.selections:
+        for carried in selection.artifacts:
+            if isinstance(carried, Recipe) and carried.instructions is not None:
+                _out.print(Text.assemble((f"{carried.name} instructions", "op.section")))
+                _out.print(Text(carried.instructions, style="op.dim"))
 
 
 def _warn_about_unset_slots(plan: Plan, environment: Environment, scope: Scope) -> None:

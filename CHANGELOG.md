@@ -23,6 +23,19 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.16.0] - 2026-08-14
+
+### Added
+
+- **Precondições de MCP: vocabulário fechado, e nenhum script de terceiro executa.** Uma receita
+  pode declarar `[[preconditions]]` — `command_exists`, `env_set` ou `path_exists` — e o overpower
+  checa antes de escrever, nunca invocando o que encontra. Uma precondição que falta recusa a
+  linha inteira com **exit 3**, nomeando qual precondição e por quê, zero byte escrito; `--dry-run`
+  roda a mesma checagem, para que o relatório não fale de uma máquina diferente da que instala de
+  verdade. `instructions` chegou junto: a prosa que a receita carrega para o que não dá para
+  automatizar sai impressa ao lado do plano, antes da confirmação. ([#82](https://github.com/panlabs-tech/overpower/issues/82))
+
+
 ## [0.15.0] - 2026-08-14
 
 ### Changed

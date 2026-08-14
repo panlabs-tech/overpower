@@ -23,6 +23,13 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.15.0] - 2026-08-14
+
+### Changed
+
+- Numa linha que mistura `--skill`/`--ai-framework`/`--bundle` com `--mcp`, a recusa deixa de ser por linha inteira e passa a ser por runtime: só é recusado quem não tem destino em nenhuma das duas classes; quem tem destino numa e não na outra recebe o que pode e a tela nomeia o que ficou de fora. ([#100](https://github.com/panlabs-tech/overpower/issues/100))
+
+
 ## [0.14.0] - 2026-08-14
 
 ### Changed

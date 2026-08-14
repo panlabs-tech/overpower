@@ -48,6 +48,7 @@ from overpower.inspection import Terminal, diagnose
 from overpower.packaged import catalog_file, content_root
 from overpower.planning import (
     DestinationExistsError,
+    MissingClass,
     Request,
     existing_destinations,
     pending_activation,
@@ -707,6 +708,7 @@ def _perform(
         # Before the closing line and not after it: `--dry-run` resolves
         # everything, so what it knows about the environment it knows *now*, and
         # a report ends with what it did rather than with an aside.
+        _warn_about_skipped_classes(plan)
         _warn_about_unset_slots(plan, environment, request.scope)
         _out.print(Text.assemble(("dry run", "op.warn"), " ", ("nothing was written", "op.dim")))
         return
@@ -747,6 +749,7 @@ def _perform(
     if report.degraded:
         listed = ", ".join(str(path) for path in report.degraded)
         _out.print(Text.assemble(("degraded to copy", "op.warn"), " ", (listed, "op.dim")))
+    _warn_about_skipped_classes(plan)
     _warn_about_unset_slots(plan, environment, request.scope)
     _warn_about_activation(plan, request.scope, root)
     _finished()
@@ -806,6 +809,28 @@ def _warn_about_activation(plan: Plan, scope: Scope, root: Path) -> None:
         f"{listed} is written, and the server does not connect until you approve it — "
         "Claude Code asks the next time it starts in this repository",
     )
+
+
+def _warn_about_skipped_classes(plan: Plan) -> None:
+    """Name every runtime a mixed line carried both classes for that received only one.
+
+    Issue #100: a mixed line no longer dies whole for a runtime with a row on
+    just one of the two tables it carries — it writes what it has a row for,
+    and this names what it does not. Exit 0, same reasoning
+    `_warn_about_unset_slots` already uses — the write that happened is
+    correct, and this says what did not happen instead of going silent about
+    it. Grouped by which class is missing, since the fix reads differently for
+    each: no MCP document names a target with no row to take one; no skills
+    destination is `NoSkillsDestinationError`'s fix, one runtime early.
+    """
+    labels = (
+        (MissingClass.MCP, "no MCP destination", "took the skills, skipped the server"),
+        (MissingClass.SKILLS, "no skills destination", "took the server, skipped the skills"),
+    )
+    for missing, label, phrase in labels:
+        listed = sorted(entry.runtime for entry in plan.skipped if entry.missing is missing)
+        if listed:
+            _warn(label, f"{', '.join(listed)} — {phrase}")
 
 
 def _warn(label: str, prose: str) -> None:

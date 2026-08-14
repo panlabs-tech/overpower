@@ -985,16 +985,15 @@ def test_a_line_that_lands_in_both_kinds_of_document_still_names_the_variable(
     assert project.SLOT_VARIABLE in project.joined(output)
 
 
-def test_a_graft_only_runtime_refuses_a_line_that_also_asks_for_a_skill(
+def test_a_graft_only_runtime_receives_the_server_and_skips_the_skill(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:
-    """`vscode` renders MCP and reads no skills, and half a line is never written.
+    """Issue #100: `vscode` renders MCP and reads no skills, and keeps the half it can serve.
 
-    The mirror of the refusal a skills-only runtime already gets for `--mcp`, and
-    the same reading: the whole line is refused rather than the half of it that
-    has a destination, because *"success with the wrong content"* is the class
-    this product exists to avoid. Exit **3** — the target is real, the flag is
-    real, and what does not exist is the destination for that class.
+    A runtime with a row on one of the two tables a mixed line carries is not
+    stranded by the other lacking a row for it — `vscode` gets the server, the
+    skill is skipped, and the screen names it instead of the whole line dying
+    for `vscode`'s gap on the other axis.
     """
     # given
     project.catalog_of(tmp_path, monkeypatch, "alpha", mcps={"panel": project.SLOTTED})
@@ -1004,9 +1003,10 @@ def test_a_graft_only_runtime_refuses_a_line_that_also_asks_for_a_skill(
         capsys, "install", "--skill", "alpha", "--mcp", "panel", "--runtime", "vscode"
     )
 
-    assert code == 3
-    assert "no skills destination of its own" in project.joined(output)
-    assert list(root.iterdir()) == []
+    assert code == 0
+    assert (root / ".vscode" / "mcp.json").is_file()
+    assert list(root.iterdir()) == [root / ".vscode"]
+    assert "no skills destination" in project.joined(output)
 
 
 def test_a_target_with_no_documented_gate_gets_no_warning_invented_for_it(

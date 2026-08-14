@@ -19,6 +19,7 @@ from overpower.planning import DirectoryTree, DocumentKey, Request, WriteMode, p
 from overpower.rendering import Fragment, Inputs
 from overpower.runtimes import MCP_DOCUMENTS, Environment, Scope, known_runtimes
 from tests.support.project import (
+    AGENTS,
     CLAUDE,
     SLOT_VARIABLE,
     SLOTTED,
@@ -188,14 +189,15 @@ def test_a_graft_only_runtime_is_refused_in_the_scope_that_has_no_document(
     assert "no destination in global scope" in joined(output)
 
 
-def test_a_runtime_with_no_mcp_document_refuses_the_whole_line(
+def test_a_runtime_with_no_mcp_document_still_receives_the_skill(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """ADR 0009 on the second axis, and the refusal covers the copy half too.
+    """Issue #100: the refusal narrows to the runtime with a row on neither table.
 
-    Writing the skill and dropping the server would be the *"success with the
-    wrong content"* class — so the line is refused whole, before the first byte,
-    with exit 3 and the runtimes that *can* take a server named.
+    `cursor` has a skills destination and no MCP document; `claude-code` has
+    both. `cursor` still has a real row on one of the two tables the line
+    carries, so the line is not refused for its sake — it receives the skill,
+    the server is skipped for it, and the screen names what it did not get.
     """
     # given
     catalog_of(tmp_path, monkeypatch, "alpha", mcps={"cloudflare": "https://mcp.example.com/mcp"})
@@ -207,11 +209,12 @@ def test_a_runtime_with_no_mcp_document_refuses_the_whole_line(
         *("--runtime", "claude-code,cursor"),
     )
 
-    assert code == 3
+    assert code == 0
+    assert (root / CLAUDE / "alpha").exists()
+    assert (root / AGENTS / "alpha").exists()
+    assert (root / ".mcp.json").exists()
     assert "cursor" in joined(output)
-    assert "claude-code" in joined(output)
-    assert not (root / CLAUDE).exists()
-    assert not (root / ".mcp.json").exists()
+    assert "no MCP destination" in joined(output)
 
 
 def test_the_machine_scope_lands_in_the_personal_file_and_not_in_the_repository(

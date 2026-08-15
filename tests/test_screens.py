@@ -1450,6 +1450,7 @@ def recorded_diagnosis() -> Diagnosis:
                 ),
             ),
         ),
+        notices=(),
     )
 
 
@@ -1466,6 +1467,7 @@ def recorded_healthy_diagnosis() -> Diagnosis:
         home=DOCTOR_HOME,
         landed=(landed(CLAUDE_SKILLS, "grilling"), landed(AGENTS_SKILLS, "grilling")),
         findings=(),
+        notices=(),
     )
 
 
@@ -1535,9 +1537,9 @@ def test_the_doctor_screen_counts_artifacts_and_places_separately(width: int) ->
 def test_the_doctor_screen_spells_a_destination_the_way_the_plan_spells_it() -> None:
     """One spelling of *a key inside a document*, and both screens use it.
 
-    The `doctor` inspects nothing about MCP yet
-    (https://github.com/panlabs-tech/overpower/issues/86), so this is built by
-    hand — but the punctuation is not the `doctor`'s to choose: the plan prints
+    Built by hand with a `DanglingLink` rather than through an MCP install,
+    because the punctuation is not the `doctor`'s to choose regardless of which
+    finding carries the destination: the plan prints
     `.mcp.json › mcpServers.cloudflare` before a write, and a report that spelled
     the same thing differently afterwards would make a reader compare two
     notations to answer one question.
@@ -1552,6 +1554,7 @@ def test_the_doctor_screen_spells_a_destination_the_way_the_plan_spells_it() -> 
             Landed(name="context7", scope=Scope.PROJECT, destination=grafted, fingerprint=None),
         ),
         findings=(DanglingLink(destination=grafted, points_at=None),),
+        notices=(),
     )
 
     joined = unwrapped(render(doctor_screen(diagnosis), 80))

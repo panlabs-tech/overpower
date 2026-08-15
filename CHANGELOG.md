@@ -23,6 +23,13 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.20.0] - 2026-08-14
+
+### Added
+
+- **`doctor` conhece enxerto.** Quatro checagens novas sobre servidor MCP, lidas de volta do documento — `doctor` não tem `Plan`. **Exit 3:** um servidor escrito em `.mcp.json` que o Claude Code ainda não aprovou, contra o registro que ele mesmo grava em `.claude/settings.local.json`/`.claude/settings.json` (ADR 0014); e uma configuração ainda apontando para um clone `[source]` que sumiu da máquina. **Exit 0, informativo:** um slot cujo nome não está no ambiente de quem roda o `doctor`, e um clone órfão em `~/.overpower/mcp/` que configuração nenhuma referencia mais — nomeado, nunca apagado. ([#86](https://github.com/panlabs-tech/overpower/issues/86))
+
+
 ## [0.19.1] - 2026-08-14
 
 ### Fixed

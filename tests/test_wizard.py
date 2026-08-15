@@ -88,7 +88,7 @@ def _real_choices(
 # --------------------------------------------------------------------------- #
 
 
-def test_artifact_choices_group_the_three_units_with_one_separator_each(
+def test_artifact_choices_group_the_four_units_with_one_separator_each(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     content = catalog_of(
@@ -98,15 +98,22 @@ def test_artifact_choices_group_the_three_units_with_one_separator_each(
         "beta",
         frameworks={"fw": ["fa"]},
         bundles={"bun": ["alpha"]},
+        mcps={"cloudflare": "https://mcp.example.com/mcp"},
     )
     catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
 
     choices = wizard.artifact_choices(catalog)
 
     separators = [c for c in choices if isinstance(c, questionary.Separator)]
-    assert len(separators) == 3
+    assert len(separators) == 4
     values = {choice.value for choice in _real_choices(choices)}
-    assert values == {("framework", "fw"), ("bundle", "bun"), ("skill", "alpha"), ("skill", "beta")}
+    assert values == {
+        ("framework", "fw"),
+        ("bundle", "bun"),
+        ("skill", "alpha"),
+        ("skill", "beta"),
+        ("mcp", "cloudflare"),
+    }
 
 
 def test_artifact_choices_prints_no_heading_for_an_empty_unit(
@@ -126,15 +133,20 @@ def test_ask_artifacts_partitions_the_pick_by_kind(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     content = catalog_of(
-        tmp_path, monkeypatch, "alpha", frameworks={"fw": ["fa"]}, bundles={"bun": ["alpha"]}
+        tmp_path,
+        monkeypatch,
+        "alpha",
+        frameworks={"fw": ["fa"]},
+        bundles={"bun": ["alpha"]},
+        mcps={"cloudflare": "https://mcp.example.com/mcp"},
     )
     catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
-    picked = [("framework", "fw"), ("skill", "alpha")]
+    picked = [("framework", "fw"), ("skill", "alpha"), ("mcp", "cloudflare")]
     monkeypatch.setattr(wizard.questionary, "checkbox", _answering(picked))
 
     result = wizard.ask_artifacts(catalog)
 
-    assert result == (("fw",), (), ("alpha",))
+    assert result == (("fw",), (), ("alpha",), ("cloudflare",))
 
 
 def test_ask_artifacts_empty_pick_is_a_legal_answer(
@@ -145,7 +157,21 @@ def test_ask_artifacts_empty_pick_is_a_legal_answer(
     catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
     monkeypatch.setattr(wizard.questionary, "checkbox", _answering([]))
 
-    assert wizard.ask_artifacts(catalog) == ((), (), ())
+    assert wizard.ask_artifacts(catalog) == ((), (), (), ())
+
+
+def test_counted_counts_all_four_classes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    content = catalog_of(
+        tmp_path,
+        monkeypatch,
+        "alpha",
+        frameworks={"fw": ["fa"]},
+        bundles={"bun": ["alpha"]},
+        mcps={"cloudflare": "https://mcp.example.com/mcp"},
+    )
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+
+    assert wizard._counted(catalog) == "4 artifacts available"  # pyright: ignore[reportPrivateUsage]
 
 
 def test_ask_artifacts_returns_none_on_interruption(
@@ -753,8 +779,8 @@ def test_run_wizard_builds_the_same_request_the_equivalent_flag_line_would(
 
     def picked_framework(
         _catalog: Catalog,
-    ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
-        return (("fw",), (), ())
+    ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+        return (("fw",), (), (), ())
 
     # given
     content = catalog_of(tmp_path, monkeypatch, "alpha", frameworks={"fw": ["fa"]})
@@ -829,9 +855,9 @@ def test_run_wizard_opens_only_the_steps_the_request_left_open(
 
     def picked_skill(
         _catalog: Catalog,
-    ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
         steps.append("artifacts")
-        return ((), (), ("alpha",))
+        return ((), (), ("alpha",), ())
 
     def scope_step(
         cwd: Path, environment: Environment, console: Console, *, sourced: bool = False
@@ -896,6 +922,39 @@ def test_run_wizard_opens_the_mcp_runtime_step_for_a_line_that_carries_mcps(
     assert request.mcps == ("cloudflare",)
 
 
+def test_run_wizard_opens_the_mcp_runtime_step_for_an_mcp_the_artifacts_step_just_picked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#85: a line with nothing on it can still end up carrying `mcps` — picked inside the wizard.
+
+    The gate that chooses `ask_mcp_runtimes` over `ask_runtimes` has to read
+    off what the artifacts step just answered, not off `asked.mcps` — which is
+    still empty at this point, since the line never named one on its own.
+    """
+    # given
+    content = catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": "https://mcp.example.com/mcp"})
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+
+    def picked_mcp(
+        _catalog: Catalog,
+    ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+        return ((), (), (), ("cloudflare",))
+
+    monkeypatch.setattr(wizard, "ask_artifacts", picked_mcp)
+    monkeypatch.setattr(wizard, "ask_scope", _project_scope)
+    monkeypatch.setattr(wizard, "ask_runtimes", _never_ask_runtimes)
+    monkeypatch.setattr(wizard, "ask_mcp_runtimes", _fixed_mcp_runtimes)
+
+    outcome = wizard.run_wizard(
+        Request(), catalog, Environment.from_process(), tmp_path, None, console=_console()
+    )
+
+    assert outcome is not None
+    request, _ = outcome
+    assert request.mcps == ("cloudflare",)
+    assert request.runtimes == ("claude-code",)
+
+
 def test_run_wizard_asks_scope_naming_a_selected_recipe_that_brings_its_own_source(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -928,6 +987,51 @@ def test_run_wizard_asks_scope_naming_a_selected_recipe_that_brings_its_own_sour
 
     assert outcome is not None
     assert seen == [True]
+
+
+def test_run_wizard_asks_scope_naming_a_source_the_artifacts_step_just_picked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The same ADR 0015 restriction, for a `[source]` recipe picked *inside* the wizard.
+
+    `sourced` has to be computed off what the artifacts step just answered,
+    not off `asked.mcps` — which is still empty at this point on a line that
+    never named one on its own.
+    """
+    # given
+    content = catalog_of(tmp_path, monkeypatch)
+    custom_recipe(
+        tmp_path,
+        "homegrown",
+        'description = "x"\ntransport = "stdio"\n\n[source]\nurl = "https://github.com/x/y"\n\n'
+        '[server]\ncommand = "uv"\n',
+    )
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    seen: list[bool] = []
+
+    def picked_mcp(
+        _catalog: Catalog,
+    ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+        return ((), (), (), ("homegrown",))
+
+    def scope_step(
+        _cwd: Path, _environment: Environment, _console: Console, *, sourced: bool = False
+    ) -> tuple[Scope, Path]:
+        seen.append(sourced)
+        return Scope.GLOBAL, tmp_path
+
+    monkeypatch.setattr(wizard, "ask_artifacts", picked_mcp)
+    monkeypatch.setattr(wizard, "ask_scope", scope_step)
+    monkeypatch.setattr(wizard, "ask_mcp_runtimes", _fixed_mcp_runtimes)
+
+    outcome = wizard.run_wizard(
+        Request(), catalog, Environment.from_process(), tmp_path, None, console=_console()
+    )
+
+    assert outcome is not None
+    assert seen == [True]
+    request, _ = outcome
+    assert request.mcps == ("homegrown",)
 
 
 def test_run_wizard_asks_scope_naming_no_source_for_an_ordinary_recipe(
@@ -973,8 +1077,8 @@ def test_run_wizard_returns_none_when_any_step_is_abandoned(
 
     def picked_skill(
         _catalog: Catalog,
-    ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
-        return ((), (), ("alpha",))
+    ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+        return ((), (), ("alpha",), ())
 
     def abandoned(*_args: object, **_kwargs: object) -> None:
         return None
@@ -1009,6 +1113,7 @@ def capture(request, catalog, root, environment, sources=None):
         fh.write("ai_frameworks=" + ",".join(request.ai_frameworks) + "\\n")
         fh.write("bundles=" + ",".join(request.bundles) + "\\n")
         fh.write("skills=" + ",".join(request.skills) + "\\n")
+        fh.write("mcps=" + ",".join(request.mcps) + "\\n")
         fh.write("runtimes=" + ",".join(request.runtimes) + "\\n")
         fh.write("scope=" + str(request.scope) + "\\n")
     return planning.Plan(root=root, selections=())
@@ -1108,6 +1213,44 @@ def test_the_real_wizard_under_a_pty_produces_the_expected_request(tmp_path: Pat
     assert data["skills"] == ""
     assert data["scope"] == "project"
     assert data["runtimes"] == ",".join(_locked_plus_the_first_additional(Scope.PROJECT))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="pty is POSIX only, docs/agents/testing.md §7")
+def test_the_real_wizard_under_a_pty_can_pick_an_mcp_server_in_the_artifacts_step(
+    tmp_path: Path,
+) -> None:
+    """#85: the fourth group reaches the real `questionary`, and the pick lands in `request.mcps`.
+
+    The shipped catalog's other three classes hold one entry each — the same
+    fact the sibling test above reads off it — so `j` pressed that many times
+    walks the pointer past all of them and lands on the first MCP row without
+    pinning a curated name a refresh could rename. `ask_artifacts` opens no
+    search filter, so `j`/`k` still navigate there — unlike the runtime steps,
+    which disable them because a search is running.
+    """
+    # given
+    cwd = tmp_path / "project"
+    cwd.mkdir()
+    (cwd / ".git").mkdir()
+    home = tmp_path / "home"
+    home.mkdir()
+    captured = tmp_path / "captured.txt"
+    catalog = load_catalog(content_root(), catalog_file())
+    other_classes = len(catalog.frameworks) + len(catalog.bundles) + len(catalog.pool)
+    first_mcp = catalog.mcps[0].name
+    keys = "j" * other_classes + " \r" + "\r" + " \r"
+    # artifacts: walk to mcp, toggle, submit — scope: default — mcp runtimes: toggle, submit
+
+    _drive(cwd, home, captured, keys)
+
+    assert captured.exists(), "the child never reached plan_for within the deadline"
+    data = _parsed(captured.read_text(encoding="utf-8"))
+    assert data["ai_frameworks"] == ""
+    assert data["bundles"] == ""
+    assert data["skills"] == ""
+    assert data["mcps"] == first_mcp
+    assert data["scope"] == "project"
+    assert len(data["runtimes"].split(",")) == 1
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="pty is POSIX only, docs/agents/testing.md §7")

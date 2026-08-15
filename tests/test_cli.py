@@ -757,8 +757,8 @@ def test_the_plan_names_its_artifacts_on_all_three_ways_in(
 
     def picked_framework(
         _catalog: Catalog,
-    ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
-        return (("fw",), (), ())
+    ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+        return (("fw",), (), (), ())
 
     def project_scope(
         cwd: Path, _environment: Environment, _console: Console, *, sourced: bool = False
@@ -1953,9 +1953,9 @@ def _wizard_steps(
 
     def ask_artifacts(
         _catalog: Catalog,
-    ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
         opened.append("artifacts")
-        return ((), (), ("alpha",))
+        return ((), (), ("alpha",), ())
 
     def ask_scope(
         cwd: Path, environment: Environment, _console: Console, *, sourced: bool = False

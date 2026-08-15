@@ -6,7 +6,7 @@ Sibling of `overpower.discovery` with the roots swapped. Discovery walks the
 and whether it still works.
 
 `doctor` answers two questions in one output — *how is the terminal*, and *how is
-what was installed* — and the second half is why it exists at all: three named
+what was installed* — and the second half is why it exists at all: seven named
 holes that nothing else in the product closes.
 
 **`core.symlinks=false` breaking links.** The exact point where axiom 2 does not
@@ -26,6 +26,30 @@ nothing is there.
 in every selected path (https://github.com/panlabs-tech/overpower/issues/9), and
 that decision accepted losing the single point of truth **naming the `doctor` as
 its mitigation**. This check is the payment of that debt.
+
+**A server Claude Code has not approved.** ADR 0014 decided the overpower writes
+an MCP server and never turns it on, and made the install-time warning about it a
+requirement. `doctor` is the same fact asked again after the session that wrote
+it is gone: it reads the registry Claude Code itself writes to
+`.claude/settings.local.json` once a human passes the trust dialog, and answers
+**exit 3** where the write-time warning could only answer exit 0.
+
+Two neighbours of that same graft axis are **informative, and never fail the
+gate**: a `[source]` clone the machine no longer has (`overpower.remote`,
+ADR 0015) still named by a config, and a slot the recipe reads out of the
+process environment that this one does not carry. Both are read back off the
+document exactly as the approval check is — `doctor` has no `Plan` to ask —
+and both are exit **0** for the reason `overpower.cli._warn_about_unset_slots`
+already is: the file is correct, and what is missing is the user's to fix on
+their own clock. They travel on `Diagnosis.notices` and never on `.findings`,
+which is the line this module drew the day the first one that could not fail
+the gate arrived.
+
+**A clone nothing points at any more.** The mirror of the missing-clone check:
+a directory under `~/.overpower/mcp/` that drifted out of every config this
+target carries. Also a notice, and also never acted on — **nothing here is ever
+removed**, because a directory named once by a config and orphaned by an edit a
+human made on purpose is not this product's mistake to correct.
 
 **There is no manifest to read.** Axiom 2 forbids state in the target, so the
 question *"where could equipment be"* has exactly one answer: the closed runtime
@@ -66,19 +90,30 @@ is false is `overpower.cli`, where every other code of the table also lives.
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, assert_never, cast
 
-from overpower.planning import DirectoryTree
-from overpower.runtimes import Scope, places_of, runtimes_in
+from json5 import loads as _loads
+
+from overpower.planning import DirectoryTree, DocumentKey
+from overpower.rendering import expands_from_environment
+from overpower.runtimes import (
+    Dialect,
+    Scope,
+    mcp_places_of,
+    mcp_runtimes_in,
+    places_of,
+    runtimes_in,
+)
 from overpower.writing import points_elsewhere
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Iterable, Iterator, Mapping
 
     from overpower.planning import Destination
-    from overpower.runtimes import Environment
+    from overpower.runtimes import Environment, McpPlace
 
 GIT_DIR = ".git"
 """What `overpower.scope` walked up to find, and what carries the config below."""
@@ -185,8 +220,46 @@ class Divergence:
     destinations: tuple[Destination, ...]
 
 
-Finding = DanglingLink | LinkTurnedText | Divergence
+@dataclass(frozen=True)
+class PendingApproval:
+    """A server written into a graft Claude Code gates, that it has not approved."""
+
+    destination: DocumentKey
+    name: str
+
+
+@dataclass(frozen=True)
+class MissingClone:
+    """A graft still naming a `[source]` clone that is no longer on the machine."""
+
+    destination: DocumentKey
+    name: str
+    clone: Path
+
+
+Finding = DanglingLink | LinkTurnedText | Divergence | PendingApproval | MissingClone
 """Everything the `doctor` can say is wrong. Empty means exit 0."""
+
+
+@dataclass(frozen=True)
+class UnsetSlot:
+    """A slot a graft reads out of the environment, that this environment lacks."""
+
+    destination: DocumentKey
+    name: str
+    variable: str
+
+
+@dataclass(frozen=True)
+class OrphanClone:
+    """A clone under the machine's `.overpower/mcp/` that no graft refers to any more."""
+
+    path: Path
+
+
+Notice = UnsetSlot | OrphanClone
+"""Everything the `doctor` can say without failing the gate over it. Never emptied
+into `.findings` — see the module docstring for why the two are kept apart."""
 
 
 @dataclass(frozen=True)
@@ -205,6 +278,8 @@ class Diagnosis:
     home: Path
     landed: tuple[Landed, ...]
     findings: tuple[Finding, ...]
+    notices: tuple[Notice, ...]
+    """What is worth saying and never worth exit 3 over. See the module docstring."""
 
     @property
     def healthy(self) -> bool:
@@ -236,10 +311,17 @@ def diagnose(terminal: Terminal, root: Path | None, environment: Environment) ->
         # its own input is a harder one to call correctly.
         *_landed_in(Scope.GLOBAL, environment.home, environment),
     )
+    places = _mcp_documents(root, environment)
     findings: tuple[Finding, ...] = (
         *_dangling(landed),
         *(() if root is None else _links_turned_text(root, landed, environment)),
         *_divergences(landed),
+        *(() if root is None else _pending_approvals(places, root)),
+        *_missing_clones(places, environment),
+    )
+    notices: tuple[Notice, ...] = (
+        *_unset_slots(places, environment),
+        *_orphan_clones(places, environment),
     )
     return Diagnosis(
         terminal=terminal,
@@ -247,6 +329,7 @@ def diagnose(terminal: Terminal, root: Path | None, environment: Environment) ->
         home=environment.home,
         landed=landed,
         findings=findings,
+        notices=notices,
     )
 
 
@@ -559,3 +642,303 @@ def _divergences(landed: Iterable[Landed]) -> Iterator[Divergence]:
             yield Divergence(
                 name=name, scope=scope, destinations=tuple(copy.destination for copy in readable)
             )
+
+
+# --------------------------------------------------------------------------- #
+# the graft class: MCP servers, read back off the document — no `Plan` here
+# --------------------------------------------------------------------------- #
+
+
+def _mcp_documents(
+    root: Path | None, environment: Environment
+) -> tuple[tuple[Scope, McpPlace], ...]:
+    """Every place an MCP graft can be, in both scopes — candidates, not writes.
+
+    Unlike `_landed_in`, every row of `mcp_runtimes_in` is walked whether or not
+    anything landed there: the checks below need the whole closed table to tell
+    *"never installed"* apart from *"installed, and now broken"*, and only a
+    document actually on disk answers either question — `_parsed_servers` is
+    where that filter happens.
+    """
+    project = (
+        ()
+        if root is None
+        else (
+            (Scope.PROJECT, place)
+            for place in mcp_places_of(
+                mcp_runtimes_in(Scope.PROJECT), Scope.PROJECT, root, environment
+            )
+        )
+    )
+    global_ = (
+        (Scope.GLOBAL, place)
+        for place in mcp_places_of(
+            mcp_runtimes_in(Scope.GLOBAL), Scope.GLOBAL, environment.home, environment
+        )
+    )
+    return (*project, *global_)
+
+
+def _parsed_object(path: Path) -> dict[str, object] | None:
+    """`path` as a JSON object, tolerantly — or `None` when it is not there or not one.
+
+    The same loader `overpower.grafting` and the test doctrine already read a
+    graft document with, for the reason `tests/support/project.parsed` gives:
+    `.mcp.json` is strict JSON and `.vscode/mcp.json` is JSONC, and a reader
+    built for only one of them fails on whichever it was not built for.
+    """
+    if not path.is_file():
+        return None
+    try:
+        parsed = cast("object", _loads(path.read_text(encoding="utf-8")))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+    return cast("dict[str, object]", parsed) if isinstance(parsed, dict) else None
+
+
+def _parsed_servers(place: McpPlace) -> Mapping[str, object] | None:
+    """The server table `place` holds on disk, or `None` when there is none to read.
+
+    `None` covers three cases none of the four checks below tell apart: the
+    document was never written, it no longer parses, or its root key is not an
+    object. Every one means *nothing here to check against* — a document that
+    is broken is `overpower.grafting`'s refusal to raise, not this module's to
+    invent a second time.
+    """
+    document = _parsed_object(place.path)
+    if document is None:
+        return None
+    servers = document.get(place.document.root_key)
+    return cast("dict[str, object]", servers) if isinstance(servers, dict) else None
+
+
+def _strings_in(value: object) -> Iterator[str]:
+    """Every string leaf under `value`, depth-first — where a rendered path can hide.
+
+    A server's config is not flat: the clone this product renders sits inside
+    `args`, and the slot it renders sits inside `env` or `headers` — a check
+    that only read top-level values would miss both.
+    """
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, list):
+        for item in cast("list[object]", value):
+            yield from _strings_in(item)
+    elif isinstance(value, dict):
+        for item in cast("dict[str, object]", value).values():
+            yield from _strings_in(item)
+
+
+def _servers_of(
+    places: Iterable[tuple[Scope, McpPlace]],
+) -> Iterator[tuple[Scope, McpPlace, str, object]]:
+    """Every server the four checks below can each ask their own question about.
+
+    The one walk all of them share: a place with nothing to read contributes
+    nothing, and every other place hands over each of its servers by name and
+    config. Pulled out once so a fourth check does not have to write the walk a
+    fourth time.
+    """
+    for scope, place in places:
+        servers = _parsed_servers(place)
+        if servers is None:
+            continue
+        for name, config in servers.items():
+            yield scope, place, name, config
+
+
+def _document_key(place: McpPlace, name: str) -> DocumentKey:
+    """Where one server's graft sits: the document, and the key inside it."""
+    return DocumentKey(place.path, f"{place.document.root_key}.{name}")
+
+
+_APPROVAL_FILES = ("settings.local.json", "settings.json")
+"""Both files `docs/research/mcp-config-formats.md` measured, in no precedence
+between them — either one naming a server is enough to call it approved."""
+
+
+def _approved_servers(root: Path) -> tuple[set[str], bool]:
+    """Every server name Claude Code approved for `root`, and whether it approved all of them.
+
+    Read from `.claude/settings.local.json` and `.claude/settings.json`, and
+    **only** where `hasTrustDialogAccepted` is true in that same file — measured,
+    the two keys that grant approval do nothing until a human has passed the
+    trust dialog once, so a file that carries the keys and not the flag has
+    approved nothing yet (`docs/adr/0014-o-enxerto-nasce-desligado-e-o-produto-diz-isso.md`).
+
+    **The third file the research names is deliberately not read here.** Claude
+    Code's *user*-level settings carry the same two keys and approve **without**
+    the trust-dialog gate — ADR 0014 measured exactly that, which is why it
+    refused to ever *write* there (one file approving every project blind is a
+    supply-chain hole). Reading it back would not reopen that hole, but the
+    research this module answers to has no measured **path** for that file, only
+    the fact that it exists — and this codebase's own bar is a primary source,
+    read directly, never a path guessed from memory. A server actually approved
+    that way still reads as pending here; closing that gap is a re-measurement,
+    not a rewrite of this function.
+    """
+    named: set[str] = set()
+    approve_all = False
+    for filename in _APPROVAL_FILES:
+        settings = _parsed_object(root / ".claude" / filename)
+        if settings is None or not settings.get("hasTrustDialogAccepted"):
+            continue
+        if settings.get("enableAllProjectMcpServers"):
+            approve_all = True
+        enabled = settings.get("enabledMcpjsonServers")
+        if isinstance(enabled, list):
+            named |= {name for name in cast("list[object]", enabled) if isinstance(name, str)}
+    return named, approve_all
+
+
+def _pending_approvals(
+    places: Iterable[tuple[Scope, McpPlace]], root: Path
+) -> Iterator[PendingApproval]:
+    """Every server a graft Claude Code gates was handed, that it has not approved.
+
+    ADR 0014 made the write-time warning a requirement; this is the same fact,
+    read back after the session that wrote it is gone — the one case
+    `overpower.planning.pending_activation` cannot answer here, because there is
+    no `Plan` for `doctor` to ask, only the document and the registry Claude
+    Code itself writes.
+    """
+    approved, approve_all = _approved_servers(root)
+    for scope, place, name, _config in _servers_of(places):
+        if scope is not Scope.PROJECT or not place.document.born_pending:
+            continue
+        if approve_all or name in approved:
+            continue
+        yield PendingApproval(destination=_document_key(place, name), name=name)
+
+
+_CLONE_DIR = (".overpower", "mcp")
+"""Where a `[source]` recipe's clone lands under the machine root.
+
+The same two segments `overpower.planning._SOURCE_DIR` and
+`overpower.remote._FEDERATED_MCP_DIR` each already name for their own question
+— a third copy here rather than a shared import, for the reason those two are
+already two and not one: this module asks *"is the clone still there"*, which
+is a question neither of the others answers.
+"""
+
+
+def _clone_root(environment: Environment) -> Path:
+    """`~/.overpower/mcp`, where every `[source]` clone lands."""
+    return environment.home.joinpath(*_CLONE_DIR)
+
+
+def _clone_slug(text: str, clone_root: Path) -> str | None:
+    """The clone directory name `text` names under `clone_root`, or `None`.
+
+    `text` is a whole rendered value — a command, an argument, a URL — never a
+    fragment to search inside: `overpower.rendering._resolved` only ever
+    substitutes `{source}` as the **entire** value of the field that carries it,
+    so a value that names a clone at all names it whole.
+    """
+    try:
+        candidate = Path(text)
+    except ValueError:  # pragma: no cover — a string no platform accepts as a path
+        return None
+    if not candidate.is_absolute() or not candidate.is_relative_to(clone_root):
+        return None
+    parts = candidate.relative_to(clone_root).parts
+    return parts[0] if parts else None
+
+
+def _clone_slugs_in(config: object, clone_root: Path) -> Iterator[str]:
+    """Every clone directory name `config` names, read out of its string leaves."""
+    for text in _strings_in(config):
+        slug = _clone_slug(text, clone_root)
+        if slug is not None:
+            yield slug
+
+
+def _missing_clones(
+    places: Iterable[tuple[Scope, McpPlace]], environment: Environment
+) -> Iterator[MissingClone]:
+    """Every graft still naming a `[source]` clone that is no longer on the machine.
+
+    A clone only ever lands in machine scope (ADR 0015), but every place is
+    read regardless: what proves the finding is the clone's own path being
+    gone, never the scope the document happens to sit in.
+    """
+    clone_root = _clone_root(environment)
+    for _scope, place, name, config in _servers_of(places):
+        for slug in sorted(set(_clone_slugs_in(config, clone_root))):
+            clone = clone_root / slug
+            if not clone.exists():
+                yield MissingClone(destination=_document_key(place, name), name=name, clone=clone)
+
+
+_CLAUDE_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+"""`${VAR}` — `overpower.rendering._claude_reference`'s own spelling, read back."""
+
+_DEVIN_REFERENCE = re.compile(r"\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}")
+"""`${env:VAR}` — `overpower.rendering._devin_reference`'s own spelling, read back."""
+
+
+def _slot_pattern(dialect: Dialect) -> re.Pattern[str] | None:
+    """How `dialect` spells a reference read out of the environment, or `None`.
+
+    Gated on `expands_from_environment` and then matched on the closed set for
+    the reason every other one in this product is: a new dialect must land as a
+    hole the type checker names, not silently skip this check the way a mapping
+    with no entry for it would.
+    """
+    if not expands_from_environment(dialect):
+        return None
+    match dialect:
+        case Dialect.CLAUDE:
+            return _CLAUDE_REFERENCE
+        case Dialect.DEVIN:
+            return _DEVIN_REFERENCE
+        case Dialect.VSCODE:  # pragma: no cover — expands_from_environment already excludes it
+            return None
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+def _unset_slots(
+    places: Iterable[tuple[Scope, McpPlace]], environment: Environment
+) -> Iterator[UnsetSlot]:
+    """Every slot a graft reads from the environment that this environment does not carry.
+
+    Mirrors `overpower.planning.unset_slots`, off the document instead of off a
+    `Plan` — `doctor` has none. Exit 0 for the same reason the install-time
+    warning is: the file is correct either way, and the variable has to exist
+    when the runtime starts, not when `doctor` runs.
+    """
+    for _scope, place, name, config in _servers_of(places):
+        pattern = _slot_pattern(place.document.dialect)
+        if pattern is None:
+            continue
+        variables = {
+            match.group(1) for text in _strings_in(config) for match in pattern.finditer(text)
+        }
+        for variable in sorted(variables):
+            if variable not in environment.variables:
+                yield UnsetSlot(
+                    destination=_document_key(place, name), name=name, variable=variable
+                )
+
+
+def _orphan_clones(
+    places: Iterable[tuple[Scope, McpPlace]], environment: Environment
+) -> Iterator[OrphanClone]:
+    """Every clone under the machine root that no graft refers to any more.
+
+    Never removed — the issue this check answers is explicit about it, and so
+    is the shape here: this only reads `~/.overpower/mcp/` and the documents,
+    and writes nothing.
+    """
+    clone_root = _clone_root(environment)
+    if not clone_root.is_dir():
+        return
+    referenced = {
+        slug
+        for _scope, _place, _name, config in _servers_of(places)
+        for slug in _clone_slugs_in(config, clone_root)
+    }
+    for child in sorted(clone_root.iterdir(), key=lambda path: path.name):
+        if child.is_dir() and child.name not in referenced:
+            yield OrphanClone(path=child)

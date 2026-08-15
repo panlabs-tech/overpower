@@ -48,7 +48,15 @@ from rich.text import Text
 from rich.theme import Theme
 
 from overpower.discovery import Artifact
-from overpower.inspection import DanglingLink, Divergence, LinkTurnedText
+from overpower.inspection import (
+    DanglingLink,
+    Divergence,
+    LinkTurnedText,
+    MissingClone,
+    OrphanClone,
+    PendingApproval,
+    UnsetSlot,
+)
 from overpower.planning import DirectoryTree, DocumentKey, WriteMode
 from overpower.recipes import HttpServer, Recipe, StdioServer
 
@@ -59,7 +67,7 @@ if TYPE_CHECKING:
     from rich.console import Console, ConsoleOptions, RenderableType, RenderResult
 
     from overpower.discovery import Bundle, Catalog, Framework
-    from overpower.inspection import Diagnosis, Finding, Terminal
+    from overpower.inspection import Diagnosis, Finding, Notice, Terminal
     from overpower.planning import Carried, Destination, Landing, Plan, Selection
     from overpower.recipes import Server
     from overpower.rendering import Target
@@ -797,7 +805,8 @@ def _integrity_block(diagnosis: Diagnosis, glyphs: _Glyphs) -> Panel:
     ]
     if not found:
         found = [Text("no findings", style="op.ok")]
-    return _block("integrity", "what is installed", [counted, *found])
+    noted = [_notice(notice, roots, glyphs) for notice in diagnosis.notices]
+    return _block("integrity", "what is installed", [counted, *found, *noted])
 
 
 def _finding(finding: Finding, roots: _Roots, glyphs: _Glyphs) -> RenderableType:
@@ -815,12 +824,32 @@ def _finding(finding: Finding, roots: _Roots, glyphs: _Glyphs) -> RenderableType
         case Divergence(name, _, destinations):
             places = [_located(destination, roots, glyphs) for destination in destinations]
             return _flagged(f"copies of `{name}` differ", places)
+        case PendingApproval(destination, name):
+            place = _located(destination, roots, glyphs)
+            return _flagged("pending approval", [f"{place}  (`{name}`)"])
+        case MissingClone(destination, name, clone):
+            place = _located(destination, roots, glyphs)
+            shown = roots.shorten(clone)
+            return _flagged("clone is gone", [f"{place}  (`{name}`)  {arrow} {shown}"])
         case _ as unreachable:
             assert_never(unreachable)
 
 
-def _flagged(headline: str, places: Sequence[str]) -> RenderableType:
-    """A finding: the class in warning ink, the paths indented under it.
+def _notice(notice: Notice, roots: _Roots, glyphs: _Glyphs) -> RenderableType:
+    """One thing worth saying that never fails the gate — see `Diagnosis.notices`."""
+    match notice:
+        case UnsetSlot(destination, name, variable):
+            place = _located(destination, roots, glyphs)
+            return _flagged(f"`{variable}` not set here", [f"{place}  (`{name}`)"], style="op.dim")
+        case OrphanClone(path):
+            headline = "clone not referenced by any config"
+            return _flagged(headline, [f"{roots.shorten(path)}/"], style="op.dim")
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+def _flagged(headline: str, places: Sequence[str], *, style: str = "op.warn") -> RenderableType:
+    """One thing worth saying: the headline in `style`, the paths indented under it.
 
     Indented with `Padding` and never with spaces in the string, for the reason
     `_entry` uses it: a path long enough to wrap has to keep its indent, and a
@@ -832,7 +861,7 @@ def _flagged(headline: str, places: Sequence[str]) -> RenderableType:
     stacked.add_column(overflow="fold")
     for place in places:
         stacked.add_row(Text(place, style="op.dim"))
-    return Group(Text(headline, style="op.warn"), Padding(stacked, (0, 0, 0, 2)))
+    return Group(Text(headline, style=style), Padding(stacked, (0, 0, 0, 2)))
 
 
 def _located(destination: Destination, roots: _Roots, glyphs: _Glyphs) -> str:

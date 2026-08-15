@@ -26,9 +26,20 @@ from __future__ import annotations
 import shutil
 from typing import TYPE_CHECKING
 
+from overpower import remote
 from overpower.writing import points_elsewhere
-from tests.support.git_remote import git
-from tests.support.project import AGENTS, CLAUDE, catalog_of, joined, run, workspace
+from tests.support.git_remote import build, git, instead_of_github
+from tests.support.project import (
+    AGENTS,
+    CLAUDE,
+    SLOT_VARIABLE,
+    SLOTTED,
+    catalog_of,
+    custom_recipe,
+    joined,
+    run,
+    workspace,
+)
 
 if TYPE_CHECKING:
     import subprocess
@@ -526,3 +537,130 @@ def test_both_scopes_are_read_in_one_output(
 
     assert code == 0
     assert "2 artifacts · 2 places" in joined(output)
+
+
+# --------------------------------------------------------------------------- #
+# MCP grafts: unapproved, a vanished clone, an unset slot, an orphan clone
+# --------------------------------------------------------------------------- #
+
+MCP_URL = "https://mcp.cloudflare.com/mcp"
+
+SOURCED = """\
+description = "A server with code of its own."
+transport = "stdio"
+
+[source]
+url = "https://github.com/example/homegrown-mcp"
+
+[server]
+command = "uv"
+args = ["run", "--project", "{source}", "server.py"]
+"""
+
+
+def test_a_written_mcp_server_claude_code_has_not_approved_exits_three(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """ADR 0014's own case, read back: the file is there and nobody approved it.
+
+    The install-time warning fires once, at exit 0, and is gone the moment the
+    process exits — `doctor` is what still knows the fact a session later.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": MCP_URL})
+    root, _ = workspace(tmp_path, monkeypatch)
+    run(capsys, "install", "--mcp", "cloudflare", "--runtime", "claude-code")
+    assert (root / ".mcp.json").is_file()
+
+    code, output = run(capsys, "doctor")
+
+    said = joined(output)
+    assert code == 3
+    assert "pending approval" in said
+    assert ".mcp.json" in said
+    assert "cloudflare" in said
+
+
+def test_an_mcp_server_claude_code_has_approved_is_healthy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The registry Claude Code itself writes once a human passes the trust dialog."""
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": MCP_URL})
+    root, _ = workspace(tmp_path, monkeypatch)
+    run(capsys, "install", "--mcp", "cloudflare", "--runtime", "claude-code")
+    settings = root / ".claude" / "settings.local.json"
+    settings.parent.mkdir(parents=True, exist_ok=True)
+    settings.write_text(
+        '{"hasTrustDialogAccepted": true, "enabledMcpjsonServers": ["cloudflare"]}\n',
+        encoding="utf-8",
+    )
+
+    code, output = run(capsys, "doctor")
+
+    assert code == 0
+    assert "pending approval" not in joined(output)
+
+
+def test_a_config_pointing_at_a_missing_clone_exits_three(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """#84 clones to the machine; when the clone is gone, the config still names it."""
+    # given
+    catalog_of(tmp_path, monkeypatch)
+    custom_recipe(tmp_path, "homegrown", SOURCED)
+    _, home = workspace(tmp_path, monkeypatch)
+    local = build(tmp_path / "origin", {"server.py": "print('hi')\n"})
+    monkeypatch.setattr(remote, "fetch_with_git", instead_of_github(local))
+    run(capsys, "install", "--mcp", "homegrown", "--runtime", "claude-code", "--global")
+    destination = home / ".overpower" / "mcp" / "homegrown"
+    assert destination.is_dir()
+    shutil.rmtree(destination)
+
+    code, output = run(capsys, "doctor")
+
+    said = joined(output)
+    assert code == 3
+    assert "homegrown" in said
+    assert ".claude.json" in said
+
+
+def test_a_slot_not_set_in_this_environment_is_a_notice_not_a_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The variable has to exist when the runtime starts, not when `doctor` runs.
+
+    Global scope, so the approval check ADR 0014 gates in project scope stays
+    out of this test's way — `born_pending` is false for `("claude-code",
+    Scope.GLOBAL)`, and this is a test of the slot check alone.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"panel": SLOTTED})
+    workspace(tmp_path, monkeypatch)
+    monkeypatch.delenv(SLOT_VARIABLE, raising=False)
+    run(capsys, "install", "--mcp", "panel", "--runtime", "claude-code", "--global")
+
+    code, output = run(capsys, "doctor")
+
+    said = joined(output)
+    assert code == 0
+    assert SLOT_VARIABLE in said
+    assert "not set" in said
+
+
+def test_a_clone_directory_no_config_references_is_named_and_not_removed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """`doctor` never deletes: an orphan clone is named, and left exactly where it was."""
+    # given
+    _, home = workspace(tmp_path, monkeypatch)
+    orphan = home / ".overpower" / "mcp" / "leftover"
+    orphan.mkdir(parents=True)
+    (orphan / "server.py").write_text("print('hi')\n", encoding="utf-8")
+
+    code, output = run(capsys, "doctor")
+
+    said = joined(output)
+    assert code == 0
+    assert "leftover" in said
+    assert (orphan / "server.py").is_file()

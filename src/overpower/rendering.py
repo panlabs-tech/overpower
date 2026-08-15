@@ -395,9 +395,12 @@ def _devin(recipe: Recipe, source: Path | None) -> Mapping[str, JsonValue]:
     The asymmetry is the vendor's, not a shortcut taken here: `transport` is
     documented with the values `"http"` and `"sse"`, and stdio is inferred from
     the presence of `command`. Writing `"transport": "stdio"` would put an
-    undocumented value in a file whose behaviour on undocumented values is one of
-    the three open questions of this row — and the measured neighbours answer
-    that class of question by swallowing the field at exit 0.
+    undocumented value in a file whose behaviour on undocumented values is
+    **measured, not just inferred by analogy**
+    (`docs/research/mcp-config-formats.md` § Medição 2026-08-14): Devin swallows
+    an unrecognized field at exit 0, same class as the other silent neighbours —
+    and does it one step further, normalizing even malformed JSON into "no
+    servers configured" rather than surfacing a parse error.
 
     The three fields stdio admits and the three HTTP admits are the same shape
     the Claude dialect writes, which is why the leaves are shared: what differs
@@ -591,13 +594,16 @@ def _devin_reference(name: str) -> str:
     be right in one file and reach the server process **literally** in the other
     two. The name and the role are the recipe's; the spelling is the target's.
 
-    **Documented for `oauthClientSecret` and `oauthResource`, and its reach into
-    `env` is one of the three open questions of this row**
-    (`docs/research/mcp-config-formats.md` § Adendo 2026-08-13). If it does not
-    reach, the reference arrives raw at the server and the failure lands on the
-    first call — loudly, at the far end. The alternative is resolving the slot
-    and writing the secret into a committed file, which is the defect this class
-    exists not to have, so the reference is written either way.
+    **Documented for `oauthClientSecret` and `oauthResource`; its reach into
+    `env`/`command`/`args` stayed unmeasured**
+    (`docs/research/mcp-config-formats.md` § Medição 2026-08-14) — the server
+    process this reference would resolve into only spawns inside an
+    authenticated agent session, and no account was reachable from a sandbox.
+    If it does not reach, the reference arrives raw at the server and the
+    failure lands on the first call — loudly, at the far end. The alternative is
+    resolving the slot and writing the secret into a committed file, which is
+    the defect this class exists not to have, so the reference is written
+    either way.
 
     **Never `${file:/path}`**, which this target has and no other measured one
     does: it would put the location of a secret in a versioned file on the

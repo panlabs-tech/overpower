@@ -1017,8 +1017,14 @@ def test_a_target_with_no_documented_gate_gets_no_warning_invented_for_it(
 
     The vendor documents no approval step for `.devin/mcp_config.json`, and the
     research says in as many words that *absence in the documentation is not an
-    assertion of absence* — Codex did not document `trust_level` either. So the
-    honest move is neither warning nor reassurance: the product says what it
+    assertion of absence* — Codex did not document `trust_level` either. Since
+    written, that slice moved from doc-grade to measured: `devin mcp
+    list`/`get`/`add` read and write the project file with no login and no
+    trust prompt, in a directory the binary had never seen before
+    (`docs/research/mcp-config-formats.md` § Medição 2026-08-14). Whether a gate
+    exists further downstream, at the point a live session spawns the server
+    process, stayed unmeasured — that path requires an account. So the honest
+    move is still neither warning nor reassurance: the product says what it
     knows, and about this target it knows only that it wrote the file.
 
     A warning printed here anyway would be a fact asserted about a runtime nobody

@@ -582,7 +582,9 @@ Durante a medição foi lido um exemplo real nesta máquina — `panlabs-tech/et
 
 ## Adendo 2026-08-13 — Devin CLI, e nada aqui é medido
 
-O ticket original não cobria o Devin, e a spec de MCP o escolheu como alvo. Este adendo levanta o que a doc oficial diz, e **não** o promove ao mesmo grau de confiança do resto do documento: o binário `devin` **não está nesta máquina** (`claude 2.1.231`, `code 1.132.1`, `copilot 1.0.78` e `codex 0.144.6` estão; `devin` e `cursor` não), e a CLI exige conta. **Evidência: doc do fornecedor, lida direto** — [`docs.devin.ai/cli/extensibility/mcp/configuration`](https://docs.devin.ai/cli/extensibility/mcp/configuration) e [`.../mcp/overview`](https://docs.devin.ai/cli/extensibility/mcp/overview). É a mesma classe de evidência do Cursor, que este documento já lista entre as fraquezas.
+O ticket original não cobria o Devin, e a spec de MCP o escolheu como alvo. Este adendo levanta o que a doc oficial diz, e **não** o promove ao mesmo grau de confiança do resto do documento: o binário `devin` **não estava nesta máquina** quando este adendo foi escrito (`claude 2.1.231`, `code 1.132.1`, `copilot 1.0.78` e `codex 0.144.6` estavam; `devin` e `cursor` não), e a CLI exige conta para sessão de agente. **Evidência: doc do fornecedor, lida direto** — [`docs.devin.ai/cli/extensibility/mcp/configuration`](https://docs.devin.ai/cli/extensibility/mcp/configuration) e [`.../mcp/overview`](https://docs.devin.ai/cli/extensibility/mcp/overview). É a mesma classe de evidência do Cursor, que este documento já lista entre as fraquezas.
+
+*(Ver § "Medição 2026-08-14" logo abaixo: o binário foi instalado depois, e duas das linhas da tabela ganharam grau **medido**. O resto fica como estava, com a lacuna marcada onde a conta bloqueou.)*
 
 | Campo | Devin CLI |
 | --- | --- |
@@ -598,15 +600,39 @@ O ticket original não cobria o Devin, e a spec de MCP o escolheu como alvo. Est
 | **Default** | nenhum documentado |
 | **Precedência** | local → projeto → usuário |
 | **OAuth** | `devin mcp login <server>`, fluxo de browser |
-| **Gate para o arquivo de projeto valer** | **nenhum documentado** |
+| **Gate para o arquivo de projeto valer** | **medido: nenhum, para leitura/listagem** — ver § "Medição 2026-08-14" |
+| **Chave raiz errada ou campo desconhecido** | **medido: falha calada, exit 0** — ver § "Medição 2026-08-14" |
 
 Duas notas que mudam o desenho e que só a medição fecha:
 
 - **A grafia é a do Cursor e do VS Code**, `${env:VAR}`, e não a do Claude Code. Terceira grafia num trio de três alvos — a regra 4 sai daqui mais firme, não menos.
 - **`${file:/path}`** é mecanismo que não existe em nenhum outro alvo medido: o segredo mora num arquivo do disco e a config carrega só o caminho.
 
-**As três dúvidas que a doc não fecha**, e que a spec registra como abertas:
+**As três dúvidas que a doc não fecha** — registradas abertas nesta data, e fechadas na medida do possível no dia seguinte (§ abaixo):
 
-1. **Se `${env:}` vale em `command`/`args`.** A doc cita a expansão *"para campos sensíveis como `oauthClientSecret` e `oauthResource`"*. Se o alcance for só esse, um `env` com slot chega **cru** ao processo — que é exatamente o modo de falha medido no Copilot CLI.
-2. **Se existe portão de confiança para `.devin/mcp_config.json`.** Ausência na doc **não é** afirmação de ausência: o Codex também não documentava `trust_level`, e sem ele o `codex doctor` reporta `✓ no MCP servers configured` — falso positivo. Esta é a dúvida mais cara das três.
-3. **O que ele faz com chave raiz errada ou campo desconhecido.** É onde Codex e Copilot CLI falham **calados, com exit 0**, e onde o Claude Code falha alto. Sem medir, não se sabe de que lado o Devin está.
+1. **Se `${env:}` vale em `command`/`args`.** A doc cita a expansão *"para campos sensíveis como `oauthClientSecret` e `oauthResource`"*. Se o alcance for só esse, um `env` com slot chega **cru** ao processo — que é exatamente o modo de falha medido no Copilot CLI. **Segue aberta** — o processo do servidor MCP só nasce dentro de uma sessão de agente, e a sessão exige login.
+2. **Se existe portão de confiança para `.devin/mcp_config.json`.** Ausência na doc **não é** afirmação de ausência: o Codex também não documentava `trust_level`, e sem ele o `codex doctor` reporta `✓ no MCP servers configured` — falso positivo. **Parcialmente fechada** — ler e listar o arquivo não passa por portão nenhum; se o portão existir para o *uso* do servidor (spawn do processo), fica sem verificação pela mesma razão da dúvida 1.
+3. **O que ele faz com chave raiz errada ou campo desconhecido.** É onde Codex e Copilot CLI falham **calados, com exit 0**, e onde o Claude Code falha alto. **Fechada** — o Devin fica do lado calado, e do jeito mais extremo do grupo: até JSON malformado sai como `"No MCP servers configured"`, exit 0, indistinguível de "nunca houve arquivo".
+
+---
+
+## Medição 2026-08-14 — as três dúvidas do Devin, na medida do possível
+
+O binário instala sem conta: `curl -fsSL https://cli.devin.ai/install.sh | bash` baixa um bundle assinado (checksum sha256 contra manifesto), verificado, e o resultado é `devin 3000.4.25` funcional para os subcomandos que não tocam LLM. **Método**: instalado numa sandbox com `HOME`/`XDG_DATA_HOME` redirecionados para um diretório descartável — nunca contra a configuração real desta máquina, mesmo padrão usado para Codex e Copilot CLI em outras seções deste documento. Nenhuma conta foi criada.
+
+`devin mcp list`, `devin mcp get <nome>` e `devin mcp add` leem e escrevem `.devin/mcp_config.json`/`mcp_config.local.json` diretamente, sem exigir login e sem qualquer prompt de confiança — isso é o que a dúvida 2 mede. Já **iniciar uma sessão de agente** (`devin -p "..."`, com ou sem `--respect-workspace-trust false`) falha primeiro em `Error: Login canceled`, antes de qualquer coisa relacionada a MCP ou a confiança de workspace — é o portão que fecha a dúvida 1 e a metade não medida da dúvida 2: o processo do servidor stdio só nasce depois desse login, então se `${env:}` expande em `command`/`args` no processo filho é observação que exige conta real, não disponível aqui.
+
+**Achado adjacente, não uma das três dúvidas mas relevante para elas**: `devin --help`/`man devin` documentam uma flag `--respect-workspace-trust` (default `true`) — um mecanismo de confiança de workspace **existe no binário e não está em nenhuma página da doc pública consultada**. Se ele se estende à leitura ou ao spawn do MCP não foi possível confirmar: `mcp list`/`get`/`add` não o disparam (testado numa pasta nunca antes vista pelo Devin), e a sessão completa — o único caminho que poderia disparar o spawn do servidor — está atrás do login.
+
+**Dúvida 3, medida com quatro variações do arquivo de projeto**, todas com `devin mcp list` depois:
+
+| Variação | Resultado |
+| --- | --- |
+| Campo desconhecido dentro da entrada do servidor (`"totallyUnknownField": "surprise"`) | Servidor lista normal, campo ignorado, exit 0 |
+| Chave desconhecida na raiz, ao lado de `mcpServers` válido | `mcpServers` lista normal, chave extra ignorada, exit 0 |
+| Chave raiz errada (`"servers"` em vez de `"mcpServers"`) | `"No MCP servers configured. Use 'devin mcp add' to add servers."`, exit 0 |
+| JSON malformado (`{ this is not json`) | **Mesma mensagem** de "nenhum servidor configurado", exit 0 |
+
+A última linha é o caso mais caro: um arquivo quebrado por erro de sintaxe e um arquivo genuinamente vazio produzem a mesma tela. O Devin não só falha calado — ele **normaliza erro de sintaxe em ausência**, o que nem Codex nem Copilot CLI fazem (ambos ao menos preservam a distinção entre "não configurado" e "configurado errado", mesmo quando não avisam alto). Confirma e reforça, não apenas confirma, a hipótese que a dúvida 3 registrava.
+
+`devin mcp get` também revelou um comportamento de exibição sem relação direta com as três dúvidas mas que interessa à regra 4: valores do mapa `env` saem redigidos (`<redacted>`) por padrão, `command`/`args` não — e nenhum dos dois resolve `${env:VAR}` na exibição, o valor sai literal. Não decide a dúvida 1 (isso é comportamento de *display*, não de *spawn*), mas mostra que, se a expansão *não* alcançar `command`/`args` no processo filho, ela ao menos não vaza pela listagem.

@@ -23,6 +23,13 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.19.1] - 2026-08-14
+
+### Fixed
+
+- **As docstrings do renderizador do Devin trocam citação especulativa por medida.** `_devin` e `_devin_reference` justificavam a grafia emitida citando "os vizinhos medidos" por analogia — o binário não estava nesta máquina quando foram escritas. Medido depois, em sandbox: chave raiz errada, campo desconhecido e até JSON malformado no `.devin/mcp_config.json` saem calados, exit 0, confirmando a suposição que a docstring só inferia. O comportamento emitido não muda; a citação que o justifica passa a apontar para medição, não para doc do fornecedor. ([#87](https://github.com/panlabs-tech/overpower/issues/87))
+
+
 ## [0.19.0] - 2026-08-14
 
 ### Added

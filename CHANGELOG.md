@@ -30,6 +30,13 @@ navigable index of the decisions that produced it.
 - **`doctor` conhece enxerto.** Quatro checagens novas sobre servidor MCP, lidas de volta do documento — `doctor` não tem `Plan`. **Exit 3:** um servidor escrito em `.mcp.json` que o Claude Code ainda não aprovou, contra o registro que ele mesmo grava em `.claude/settings.local.json`/`.claude/settings.json` (ADR 0014); e uma configuração ainda apontando para um clone `[source]` que sumiu da máquina. **Exit 0, informativo:** um slot cujo nome não está no ambiente de quem roda o `doctor`, e um clone órfão em `~/.overpower/mcp/` que configuração nenhuma referencia mais — nomeado, nunca apagado. ([#86](https://github.com/panlabs-tech/overpower/issues/86))
 
 
+## [0.19.1] - 2026-08-14
+
+### Fixed
+
+- **As docstrings do renderizador do Devin trocam citação especulativa por medida.** `_devin` e `_devin_reference` justificavam a grafia emitida citando "os vizinhos medidos" por analogia — o binário não estava nesta máquina quando foram escritas. Medido depois, em sandbox: chave raiz errada, campo desconhecido e até JSON malformado no `.devin/mcp_config.json` saem calados, exit 0, confirmando a suposição que a docstring só inferia. O comportamento emitido não muda; a citação que o justifica passa a apontar para medição, não para doc do fornecedor. ([#87](https://github.com/panlabs-tech/overpower/issues/87))
+
+
 ## [0.19.0] - 2026-08-14
 
 ### Added

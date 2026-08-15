@@ -527,13 +527,14 @@ def test_the_devin_dialect_lands_under_the_root_key_its_document_names() -> None
 def test_a_devin_http_server_names_the_transport_in_a_field_of_its_own() -> None:
     """`transport`, not `type` — the same fact spelled with a different key.
 
-    Vendor documentation, not measurement (`docs/research/mcp-config-formats.md`
-    § Adendo 2026-08-13): the `devin` binary is not on the machine this was
-    written on, so this row carries the weaker grade of evidence the research
-    already lists among its own weaknesses — the grade Cursor has *there*, which
-    has no row here at all. `transport` defaults to `"http"` when absent, and it
-    is written anyway for the reason `type` is: the field that ends the guessing
-    costs nothing.
+    Vendor documentation, not measurement, for this specific field
+    (`docs/research/mcp-config-formats.md` § Adendo 2026-08-13): the `transport`
+    values themselves come from the doc, not from running the binary against an
+    account — that slice stayed the weaker grade of evidence even after the
+    binary was installed and measured for a sibling question (§ Medição
+    2026-08-14). `transport` defaults to `"http"` when absent, and it is written
+    anyway for the reason `type` is: the field that ends the guessing costs
+    nothing.
     """
     fragment = server_of(
         recipe("cloudflare", HttpServer(url="https://mcp.example.com/mcp")), DEVIN_PROJECT
@@ -547,9 +548,12 @@ def test_a_devin_stdio_server_carries_no_discriminator_because_none_is_documente
 
     Documented transports are `"http"` and `"sse"`; stdio has no spelling. Making
     one up — `"transport": "stdio"` — would be an unknown value in a target whose
-    behaviour on unknown values is the third of the three open doubts, and the
-    measured neighbours fail that case **silently, at exit 0**. So the field is
-    absent, which is the documented shape.
+    behaviour on unknown values is **measured, not just inferred from the
+    silent neighbours** (`docs/research/mcp-config-formats.md` § Medição
+    2026-08-14): Devin swallows unrecognized fields at exit 0, same as they do —
+    and goes one step further, reporting malformed JSON as "no servers
+    configured" rather than surfacing a parse error. So the field is absent,
+    which is the documented shape.
     """
     server = StdioServer(
         command="uvx", args=("mcp-server-git", "."), env={"PANEL": "https://panel.example.com"}
@@ -581,10 +585,13 @@ def test_a_devin_env_slot_renders_the_third_spelling_of_the_trio() -> None:
 
     **Open doubt, stated rather than papered over.** The vendor documents the
     expansion *"for sensitive fields such as `oauthClientSecret`"*; whether it
-    reaches `env` is not documented and could not be measured here. If it does
-    not, this string arrives raw at the server. The alternative — writing the
-    secret's value — is the defect this class exists not to have, so the
-    reference is written either way.
+    reaches `env` stayed unmeasured even after the binary was installed
+    (`docs/research/mcp-config-formats.md` § Medição 2026-08-14) — the MCP
+    server process this reference resolves into only spawns inside an
+    authenticated session, and no account was reachable from a sandbox. If it
+    does not reach, this string arrives raw at the server. The alternative —
+    writing the secret's value — is the defect this class exists not to have,
+    so the reference is written either way.
     """
     fragment = server_of(
         recipe("hostinger-vps", StdioServer(command="npx"), EnvSlot(name="HOSTINGER_API_TOKEN")),

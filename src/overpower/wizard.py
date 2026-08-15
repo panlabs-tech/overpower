@@ -175,15 +175,19 @@ def run_wizard(  # noqa: PLR0913 — the five the steps need, plus the console t
     through (`T20` forbids `print`), and a second one here would be a second
     place for the theme and the width to be decided.
     """
-    ai_frameworks, bundles, skills = asked.ai_frameworks, asked.bundles, asked.skills
-    # `asked.mcps` is a selection like the other three, so a line that names one
-    # has already answered this step — the wizard opens the gaps and not the
-    # steps. What it does *not* yet do is offer MCP servers to pick from inside
-    # it, which is https://github.com/panlabs-tech/overpower/issues/85. The
-    # runtime step below already knows which class the line carries (#97): a
-    # mixed line never reaches here — `overpower.cli` refuses it before the
-    # wizard opens — so `asked.mcps` truthy here means the whole line is graft.
-    if not (ai_frameworks or bundles or skills or asked.mcps):
+    ai_frameworks, bundles, skills, mcps = (
+        asked.ai_frameworks,
+        asked.bundles,
+        asked.skills,
+        asked.mcps,
+    )
+    # `mcps` is a selection like the other three, so a line that names one on
+    # the flags has already answered this step — the wizard opens the gaps and
+    # not the steps. From here on `mcps` (the local name) is what has to be
+    # read, never `asked.mcps`: once the artifacts step below hands back a
+    # pick of its own (#85), `asked.mcps` stays the flags' answer, empty on a
+    # bare line, while `mcps` also carries what was just picked.
+    if not (ai_frameworks or bundles or skills or mcps):
         if catalog is None:  # pragma: no cover — `overpower.cli` decides the two together
             message = "the artifacts step opened with no catalog to read"
             raise AssertionError(message)
@@ -191,16 +195,15 @@ def run_wizard(  # noqa: PLR0913 — the five the steps need, plus the console t
         picked = ask_artifacts(catalog)
         if picked is None:
             return None
-        ai_frameworks, bundles, skills = picked
+        ai_frameworks, bundles, skills, mcps = picked
 
     if scoped is None:
-        # `catalog` is `None` on a `--from` line the artifacts step never
-        # opened (issue #85 has not arrived) — the safety net is still
-        # `overpower.planning`'s refusal, this is only the wizard's own
+        # `catalog` is `None` on a `--from` line — the artifacts step never
+        # opens there, since `--from` already requires a selection (`--skill`
+        # or `--mcp`) before `run_wizard` is even reached. The safety net is
+        # still `overpower.planning`'s refusal; this is only the wizard's own
         # question not getting ahead of an answer it cannot yet see.
-        sourced = catalog is not None and any(
-            catalog.mcp(name).source is not None for name in asked.mcps
-        )
+        sourced = catalog is not None and any(catalog.mcp(name).source is not None for name in mcps)
         answered = ask_scope(cwd, environment, console, sourced=sourced)
         if answered is None:
             return None
@@ -210,7 +213,7 @@ def run_wizard(  # noqa: PLR0913 — the five the steps need, plus the console t
 
     runtimes = asked.runtimes
     if not runtimes:
-        if asked.mcps:
+        if mcps:
             console.print(
                 noted(f"{len(mcp_runtimes_in(scope))} runtimes take an MCP server in this scope")
             )
@@ -228,6 +231,7 @@ def run_wizard(  # noqa: PLR0913 — the five the steps need, plus the console t
             ai_frameworks=ai_frameworks,
             bundles=bundles,
             skills=skills,
+            mcps=mcps,
             runtimes=runtimes,
             scope=scope,
         ),
@@ -237,8 +241,8 @@ def run_wizard(  # noqa: PLR0913 — the five the steps need, plus the console t
 
 def ask_artifacts(
     catalog: Catalog,
-) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]] | None:
-    """What to install — the three independent units, one flat multi-select.
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[str, ...]] | None:
+    """What to install — the four independent units, one flat multi-select.
 
     Empty is a legal answer here: an empty pick lands on the same
     `NothingSelectedError` the flag path already raises, once `plan_for` sees
@@ -260,11 +264,12 @@ def ask_artifacts(
         tuple(name for kind, name in picked if kind == "framework"),
         tuple(name for kind, name in picked if kind == "bundle"),
         tuple(name for kind, name in picked if kind == "skill"),
+        tuple(name for kind, name in picked if kind == "mcp"),
     )
 
 
 def artifact_choices(catalog: Catalog) -> list[questionary.Separator | questionary.Choice]:
-    """One flat list, grouped the way the catalog screen already groups the same three units.
+    """One flat list, grouped the way the catalog screen already groups the same four units.
 
     A group with nothing in it prints no heading: an empty bundle list is a
     real catalog shape, not a defect this screen exists to name.
@@ -273,6 +278,7 @@ def artifact_choices(catalog: Catalog) -> list[questionary.Separator | questiona
         ("AI Frameworks", tuple(("framework", framework.name) for framework in catalog.frameworks)),
         ("Bundles", tuple(("bundle", bundle.name) for bundle in catalog.bundles)),
         ("Pool skills", tuple(("skill", artifact.name) for artifact in catalog.pool)),
+        ("MCP servers", tuple(("mcp", recipe.name) for recipe in catalog.mcps)),
     )
     choices: list[questionary.Separator | questionary.Choice] = []
     for title, entries in groups:
@@ -653,7 +659,7 @@ def _railed(
 
 def _counted(catalog: Catalog) -> str:
     """`31 artifacts available` — what the catalog step is about to offer."""
-    total = len(catalog.frameworks) + len(catalog.bundles) + len(catalog.pool)
+    total = len(catalog.frameworks) + len(catalog.bundles) + len(catalog.pool) + len(catalog.mcps)
     plural = "artifact" if total == 1 else "artifacts"
     return f"{total} {plural} available"
 

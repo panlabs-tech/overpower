@@ -23,6 +23,13 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.19.0] - 2026-08-14
+
+### Added
+
+- **MCP aparece no passo de artefatos do wizard.** `overpower install` pelado num terminal passa a oferecer MCP como a quarta classe no mesmo passo que já mostrava AI Frameworks, bundles e pool skills — a seleção produz exatamente o `Request` que `--mcp` produziria, e o contador da sessão passa a contar as quatro classes do catálogo, não três. Uma receita com `[source]` escolhida ali dentro também restringe o passo de escopo seguinte, a mesma leitura que ADR 0009 e ADR 0015 já aplicavam a uma receita nomeada por `--mcp`: o wizard não oferece "This project" quando a resposta já está decidida. ([#85](https://github.com/panlabs-tech/overpower/issues/85))
+
+
 ## [0.18.0] - 2026-08-14
 
 ### Added

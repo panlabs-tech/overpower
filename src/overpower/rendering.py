@@ -39,6 +39,7 @@ from overpower.recipes import (
     HttpServer,
     StdioServer,
     Transport,
+    input_id,
 )
 from overpower.runtimes import MCP_DOCUMENTS, Dialect, Scope
 
@@ -564,20 +565,10 @@ def _prompt(name: str) -> Mapping[str, JsonValue]:
     """
     return {
         "type": PROMPT_STRING,
-        INPUT_IDENTITY: _input_id(name),
+        INPUT_IDENTITY: input_id(name),
         "description": name,
         "password": True,
     }
-
-
-def _input_id(name: str) -> str:
-    """`GIT_TOKEN` → `git-token`, the identifier shape the measured files use.
-
-    Derived from the slot name and never stored beside it, so the recipe carries
-    one name for one secret: two recipes that need `GITHUB_TOKEN` derive the same
-    id, land on the same entry, and the person is asked once.
-    """
-    return name.lower().replace("_", "-")
 
 
 def _vscode_reference(name: str) -> str:
@@ -593,7 +584,7 @@ def _vscode_reference(name: str) -> str:
     The prompt reference cannot fail that way: what is missing, the editor asks
     for, and what is answered goes to the keychain (`_prompt`).
     """
-    return f"${{input:{_input_id(name)}}}"
+    return f"${{input:{input_id(name)}}}"
 
 
 def _devin_reference(name: str) -> str:

@@ -527,6 +527,73 @@ def test_two_slots_that_fill_one_place_are_refused_naming_the_place(
     assert refused.value.place == place
 
 
+@pytest.mark.parametrize(
+    ("slots", "place"),
+    [
+        pytest.param(
+            '[[slots]]\nname = "API_KEY"\nrole = "header"\nheader = "X-One"\n\n'
+            '[[slots]]\nname = "API-KEY"\nrole = "header"\nheader = "X-Two"\n',
+            "api-key",
+            id="underscore-against-dash",
+        ),
+        pytest.param(
+            '[[slots]]\nname = "API_KEY"\nrole = "header"\nheader = "X-One"\n\n'
+            '[[slots]]\nname = "api_key"\nrole = "header"\nheader = "X-Two"\n',
+            "api-key",
+            id="two-cases-of-one-name",
+        ),
+    ],
+)
+def test_two_slots_whose_names_reach_one_prompt_are_refused_naming_the_prompt(
+    tmp_path: Path, slots: str, place: str
+) -> None:
+    """The same lost secret as above, arriving through the **name** instead of the place.
+
+    One measured target declares its prompts in a list beside the servers and
+    refers to them by an identifier derived from the slot name — and that
+    derivation is not injective: it lowercases and folds `_` to `-`, so
+    `API_KEY` and `API-KEY` reach one identifier. The entries are replaced by
+    that identifier, so the second declaration overwrites the first: one prompt
+    is asked for, and **both** headers are filled with the answer, at exit 0.
+
+    The places differ, so `_filled` cannot see it: `X-One` and `X-Two` are two
+    real headers, and the two variables are two real variables for the other
+    targets. What collides is the prompt, which is the third thing a slot
+    occupies — and the same recipe therefore *diverges between targets*, asking
+    for one secret in one and two in the others, where one of the two is not
+    even settable by `export` in a POSIX shell.
+
+    Refused for the reason the neighbours are: every other resolution keeps one
+    declaration and drops the other, on the author's behalf, in a file they will
+    not read again.
+    """
+    path = write_recipe(tmp_path, "colliding", f"{HTTP}\n{slots}")
+
+    with pytest.raises(CollidingSlotError) as refused:
+        read_recipe(path)
+
+    assert refused.value.key == "slots[1]"
+    assert refused.value.place == place
+
+
+def test_two_slots_whose_names_reach_two_prompts_are_both_kept(tmp_path: Path) -> None:
+    """The other half, or the refusal above would read as *"two slots is too many"*.
+
+    `API_KEY` and `API_SECRET` are two identifiers, two prompts and two secrets,
+    and nothing overwrites anything — so there is nothing to protect the author
+    from, and refusing it would be a rule with no defect behind it.
+    """
+    slots = (
+        '[[slots]]\nname = "API_KEY"\nrole = "header"\nheader = "X-One"\n\n'
+        '[[slots]]\nname = "API_SECRET"\nrole = "header"\nheader = "X-Two"\n'
+    )
+    path = write_recipe(tmp_path, "distinct", f"{HTTP}\n{slots}")
+
+    read = read_recipe(path)
+
+    assert [slot.name for slot in read.slots] == ["API_KEY", "API_SECRET"]
+
+
 def test_one_variable_may_fill_two_different_places(tmp_path: Path) -> None:
     """The refusal is of a lost secret, not of a repeated name.
 

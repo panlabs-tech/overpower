@@ -646,6 +646,105 @@ def test_a_comment_at_the_end_of_the_object_is_not_swallowed_by_the_comma(
     assert lost_lines(text, after) == []
 
 
+@pytest.mark.parametrize("newline", [pytest.param("\n", id="lf"), pytest.param("\r\n", id="crlf")])
+def test_a_comment_at_the_end_of_a_line_stays_on_the_entry_it_annotates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    newline: str,
+) -> None:
+    """The other place a comment can sit, and the one where moving it is wrong.
+
+    The test above puts the note on a **line of its own**, where it annotates the
+    object rather than any one entry — so carrying it down onto the new last pair
+    keeps it saying what it said. On the **same line** as an entry it annotates
+    that entry, and moving it re-anchors the sentence onto a server the user
+    never wrote:
+
+        "antigo": {"command": "node"} // meu comentario sobre o antigo
+
+    becomes `"antigo"`, then the grafted server, then the comment — which now
+    reads as being about the graft. Story 14 asks for *"the rest of the document
+    byte for byte"* and ADR 0016 for a diff that shows only what was written;
+    `lost_lines` is that promise as something a machine checks, and it answered
+    with this line.
+
+    The comma hazard the sibling exists for is unchanged, and it is what fixes
+    where the comma may go: **before** the comment and never after it, because
+    `} // note,` puts the comma inside the comment and drops it.
+
+    That is also why `lost_lines` still names this one line. Its allowance is a
+    comma **at the end**, which is where the format puts one when nothing
+    follows the value; here something does, so the same single forced comma
+    lands mid-line. The line is byte-identical either side of it, and the exact
+    assertion below is what says so — the helper is right about every other
+    line, and narrow about this one.
+
+    Both line endings, because a break is one thing and `\\r\\n` is two
+    characters: a split between them would strand the carriage return on the
+    line above, which is a byte moved by the one function whose whole purpose is
+    to move none.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": CLOUDFLARE})
+    root = target(tmp_path, monkeypatch)
+    note = "// meu comentario sobre o antigo"
+    annotated = f'    "antigo": {{ "command": "node" }} {note}'
+    text = f'{{{newline}  "mcpServers": {{{newline}{annotated}{newline}  }}{newline}}}{newline}'
+    document = occupied(root, text)
+
+    code, output = run(capsys, "install", "--mcp", "cloudflare", "--runtime", "claude-code")
+
+    assert code == 0
+    after = document.read_text(encoding="utf-8")
+    raw = document.read_bytes()
+    assert f'    "antigo": {{ "command": "node" }}, {note}{newline}'.encode() in raw
+    # Every break is the one the document arrived with, and no other: strip the
+    # document's own ending and no line ending may be left standing.
+    assert raw.replace(newline.encode(), b"") == raw.replace(newline.encode(), b"").replace(
+        b"\n", b""
+    )
+    assert lost_lines(text, after) == [annotated]
+    assert keys_in(output) <= document_keys(document)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a mode of 0 is not how Windows refuses")
+def test_a_document_that_cannot_be_read_is_named_and_not_blamed_on_the_product(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The third state of the user's file, and the only one that accused the product.
+
+    The same document, in the same command, already has two modelled answers:
+    **malformed** is a named refusal, and **not writable** is a named failure
+    naming where it stopped. **Not readable** fell past both into the handler
+    for an unexpected exception — so the product printed a traceback and said
+    *"This is a bug in the overpower, not in what you typed"* over a permission
+    somebody else set.
+
+    The exit code was never the defect and does not move: a file that cannot be
+    read is *could not run*, the stop is before the first byte, and nothing is
+    lost. What moves is the sentence, because the flag that prints it exists to
+    say whose fault it is, and it was answering wrong.
+
+    `chmod 000` is the cheapest way to reach the state; a config written by root
+    in a container, a mounted volume and a corporate ACL reach the same one.
+    Presumes an ordinary user, which every cell of the matrix is.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": CLOUDFLARE})
+    root = target(tmp_path, monkeypatch)
+    document = occupied(root)
+    document.chmod(0o000)
+
+    code, output = run(capsys, "install", "--mcp", "cloudflare", "--runtime", "claude-code")
+
+    document.chmod(0o600)
+    joined = " ".join(" ".join(line.split()) for line in output.splitlines())
+    assert code == 1
+    assert "bug in the overpower" not in joined
+    assert MCP_JSON in joined
+
+
 def test_a_stdio_server_lands_with_its_array_inline_and_its_table_expanded(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

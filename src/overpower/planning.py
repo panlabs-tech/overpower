@@ -54,7 +54,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, assert_never
 
 from overpower.errors import BadInvocationError, RefusedError
-from overpower.grafting import read_document, refuse_if_broken
+from overpower.grafting import UnreadableDocumentError, read_document, refuse_if_broken
 from overpower.recipes import Check, Precondition, Recipe
 from overpower.rendering import Fragment, Inputs, expands_from_environment, render
 from overpower.runtimes import (
@@ -687,7 +687,22 @@ def refuse_broken_documents(plan: Plan) -> None:
             and isinstance(source, Fragment | Inputs)
             and destination.path.is_file()
         ):
-            refuse_if_broken(destination.path, read_document(destination.path), source)
+            refuse_if_broken(destination.path, _readable(destination.path), source)
+
+
+def _readable(path: Path) -> str:
+    """`path` read, with a denied read named instead of raised as a surprise.
+
+    The write-time twin of this read is already covered — `overpower.writing`
+    catches `OSError` and answers *"wrote N of M, stopped here"* — and this is
+    the pre-flight one, which had nothing around it. Unguarded, a config the
+    process may not read reached the top handler and was reported as a bug in
+    the product.
+    """
+    try:
+        return read_document(path)
+    except OSError as denied:
+        raise UnreadableDocumentError(path, denied) from denied
 
 
 class PreconditionFailedError(RefusedError):

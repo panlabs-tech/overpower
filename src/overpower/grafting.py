@@ -72,7 +72,7 @@ from json5.model import (
     Value,
 )
 
-from overpower.errors import RefusedError
+from overpower.errors import OverpowerError, RefusedError
 from overpower.rendering import Fragment, Inputs
 
 if TYPE_CHECKING:
@@ -141,6 +141,32 @@ class MalformedDocumentError(RefusedError):
         self.path = path
         self.why = why
         super().__init__(f"{path} is not ours to repair, and it is broken: {why}")
+
+
+class UnreadableDocumentError(OverpowerError):
+    """The document exists and this process may not read it.
+
+    Exit **1**, *could not run*, and that is the honest half rather than a
+    consolation: the file is there, the answer is unknowable, and nothing has
+    been written. It is **not** a refusal — exit 3 means the product ran and
+    the answer is no, and here it never got to ask.
+
+    It exists because the same document in the same command already had two
+    modelled answers and this was the third: malformed refuses by name, not
+    writable fails by name, and not readable used to escape to the top handler
+    — which prints a traceback and says *"This is a bug in the overpower, not in
+    what you typed"* about a permission somebody else set. That sentence is the
+    defect; the exit code was always right.
+
+    `chmod 000` is the cheap way to reach it, and not the realistic one: a
+    `.claude.json` written by root in a container, a mounted volume and a
+    corporate ACL all deny the read the same way.
+    """
+
+    def __init__(self, path: Path, cause: OSError) -> None:
+        """Name the file and what the operating system said about it."""
+        self.path = path
+        super().__init__(f"{path} exists and cannot be read: {cause}")
 
 
 def read_document(path: Path) -> str:
@@ -415,6 +441,20 @@ def _appended(obj: JSONObject, name: str, value: Value, layout: _Layout) -> None
     object: the comma this insertion has to add goes **before** that whitespace,
     so a `// note` never ends up with a comma glued to it — which would put the
     comma inside the comment and drop it from the document.
+
+    **The tail is split at its first newline, and the halves go to two different
+    places**, because they annotate two different things. What sits before that
+    newline is on the **line of the entry that already existed** — a `// note`
+    there is about *that server* — so it stays on that line, and only the comma
+    slides in front of it. What comes after the newline is on lines of its own,
+    belonging to the object rather than to any one pair, so it keeps its place
+    at the end and rides down onto the new last entry.
+
+    Carrying the first half onto the new pair's **key** rather than leaving it
+    on the old value is what puts the comma between the two: the dumper writes a
+    value, then its `wsc_after`, then the comma. Left where it was, the comma
+    would land after the comment — the trap above, arrived at from the other
+    side.
     """
     key = _key(name)
     value.wsc_before = _wsc(" ")
@@ -422,9 +462,9 @@ def _appended(obj: JSONObject, name: str, value: Value, layout: _Layout) -> None
         key.wsc_before = _wsc(layout.newline + layout.entry)
         obj.trailing_comma.wsc_after = _ending(obj.trailing_comma.wsc_after, layout)
     elif obj.keys:
-        tail = obj.values[-1].wsc_after
+        inline, tail = _split_at_newline(obj.values[-1].wsc_after)
         obj.values[-1].wsc_after = []
-        key.wsc_before = _wsc(layout.newline + layout.entry)
+        key.wsc_before = [*inline, *_wsc(layout.newline + layout.entry)]
         value.wsc_after = _ending(tail, layout)
     else:
         tail = obj.leading_wsc
@@ -514,6 +554,66 @@ def _ending(tail: Sequence[str | Comment], layout: _Layout) -> list[str | Commen
     if any(isinstance(part, str) and "\n" in part for part in tail):
         return list(tail)
     return [*tail, layout.newline + layout.closing]
+
+
+def _split_at_newline(
+    wsc: Sequence[str | Comment],
+) -> tuple[list[str | Comment], list[str | Comment]]:
+    r"""`wsc` cut in two at its first line break: what is still on this line, and the rest.
+
+    The line break is the whole of the boundary, because it is what the reader
+    sees: a `// note` before it sits beside the entry and is about that entry; a
+    `// note` after it sits on a line of its own and is about the object. An
+    insertion that treats the two the same has to be wrong about one of them.
+
+    The break is kept **whole and with the second half**, so the first is
+    exactly the bytes that share the existing entry's line and the second is
+    exactly the bytes that close the node — neither is rebuilt, and a
+    tab-indented or CRLF document comes back the way it went in. `\r\n` is
+    two characters and one break: cutting between them would leave the carriage
+    return stranded on the line above, which is a byte moved by the one function
+    whose whole purpose is to move none.
+    """
+    for index, part in enumerate(wsc):
+        if not isinstance(part, str) or "\n" not in part:
+            continue
+        cut = part.index("\n")
+        if cut and part[cut - 1] == "\r":
+            cut -= 1
+        head, rest = part[:cut], part[cut:]
+        inline = [*wsc[:index], head] if head else list(wsc[:index])
+        return _break_kept_whole(inline, [rest, *wsc[index + 1 :]])
+    return list(wsc), []
+
+
+def _break_kept_whole(
+    inline: list[str | Comment], rest: list[str | Comment]
+) -> tuple[list[str | Comment], list[str | Comment]]:
+    r"""Hand back the `\r` the parser left inside a line comment, to the break it opens.
+
+    Measured on `json-five` 1.1.2: a `// note` ending a CRLF line is tokenised
+    with the carriage return **inside the comment's own value**, and the
+    whitespace that follows begins at the `\\n`. The two characters are one line
+    break, so a split that leaves them on opposite sides writes `\r\r\n` on
+    one line and a bare `\n` on the next — every byte still present, and two
+    line endings changed, which is the diff this module exists not to produce.
+
+    Nothing is invented and nothing is dropped: the `\r` moves from the end of
+    the comment to the front of the break, which is where it was all along.
+
+    Rebuilt through `type(last)` and never as a bare `Comment`: the dumper
+    dispatches on the **concrete** class — `LineComment` and `BlockComment` are
+    registered and their shared base is not — so the abstract one reaches the
+    fallback and the whole write dies with `NotImplementedError`.
+    """
+    if not inline or not rest:
+        return inline, rest
+    last = inline[-1]
+    if not isinstance(last, Comment) or not last.value.endswith("\r"):
+        return inline, rest
+    opened, *following = rest
+    trimmed = type(last)(last.value[:-1])
+    return [*inline[:-1], trimmed], [f"\r{opened}", *following]
 
 
 def _indent_of(wsc: Sequence[str | Comment]) -> str | None:

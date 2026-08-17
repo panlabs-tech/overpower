@@ -23,6 +23,14 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.21.2] - 2026-08-16
+
+### Fixed
+
+- Os dois contadores do sumario reconciliam com o documento. Um MCP no VS Code contava `2 writes` pelo par servidor + `inputs[]` que a spec define como uma escrita so, "porque aterrissam no mesmo lugar"; e varios MCPs no mesmo documento contavam um arquivo cada, onde o `git status` mostra um. O caso federado — clone mais enxerto, dois lugares — continua contando duas escritas, como sempre contou. ([#119](https://github.com/panlabs-tech/overpower/issues/119))
+- A linha de fecho que sai por um pipe passa a pluralizar como o painel do terminal ja pluralizava: `1 write · 1 file` nos dois, onde a versao pipada dizia `1 writes · 1 files`. Eram duas grafias da mesma frase, que e como as duas deixam de ser a mesma frase. ([#120](https://github.com/panlabs-tech/overpower/issues/120))
+
+
 ## [0.21.1] - 2026-08-16
 
 ### Fixed

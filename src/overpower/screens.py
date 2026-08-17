@@ -1090,12 +1090,8 @@ class _InstalledScreen:
                 )
             )
         del arrow
-        counted = Text(
-            f"{self.writes} {_plural('write', self.writes)}"
-            f" · {self.files} {_plural('file', self.files)}",
-            style="op.dim",
-        )
-        yield _RailPanel("installed", Group(*_spaced([*blocks, counted])))
+        totals = Text(counted(self.writes, self.files), style="op.dim")
+        yield _RailPanel("installed", Group(*_spaced([*blocks, totals])))
 
 
 def _plan_panel(plan: Plan, glyphs: _Glyphs) -> Panel:
@@ -1468,6 +1464,19 @@ def _weight(size: int, files: int) -> str:
 
 def _plural(word: str, count: int) -> str:
     return word if count == 1 else f"{word}s"
+
+
+def counted(writes: int, files: int) -> str:
+    """`1 write · 1 file` — the two totals, spelled once for both surfaces.
+
+    The closing panel and the line a pipe gets are the same sentence at two
+    widths, and they used to be two literals: the panel counted through
+    `_plural` and the piped line hard-coded the `s`, so a run that wrote one of
+    each said `1 write · 1 file` in a terminal and `1 writes · 1 files` through
+    `grep`. Two spellings of one sentence is how the two stop being the same
+    sentence, which is the reason `PROGRAM` and the selector flags live here too.
+    """
+    return f"{writes} {_plural('write', writes)} · {files} {_plural('file', files)}"
 
 
 def _spaced(renderables: Iterable[RenderableType]) -> list[RenderableType]:

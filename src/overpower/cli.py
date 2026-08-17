@@ -77,6 +77,7 @@ from overpower.screens import (
     bundle_screen,
     catalog_screen,
     closed,
+    counted,
     doctor_screen,
     error_panel,
     framework_screen,
@@ -861,7 +862,7 @@ def _perform(  # noqa: PLR0913 — one argument per thing `plan_for` itself take
             Text.assemble(
                 ("installed", "op.ok"),
                 " ",
-                (f"{report.writes} writes · {report.files} files", "op.dim"),
+                (counted(report.writes, report.files), "op.dim"),
             )
         )
     else:

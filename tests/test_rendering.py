@@ -747,6 +747,43 @@ def test_a_recipe_is_offered_every_pair_whose_document_can_spell_it() -> None:
     assert served == EVERY_TARGET
 
 
+def sourced_recipe() -> Recipe:
+    """A recipe that brings its own source code, which is what restricts its scope."""
+    return Recipe(
+        name="acme",
+        path=Path("acme.toml"),
+        description="A server this repository builds from source.",
+        server=StdioServer(command="node", args=("{source}/server.js",)),
+        source="https://github.com/acme/servers",
+    )
+
+
+def test_a_recipe_that_brings_its_own_source_is_offered_no_project_pair() -> None:
+    """ADR 0015, on the screen that offers before the step that refuses.
+
+    *"The set of scopes is a function of the recipe"*, and project is not in it
+    for one that clones: the clone lands on this machine by an absolute path,
+    which cannot go into the team's repository. `overpower.planning` already
+    refuses it with exit 3 and the wizard already declines to offer it — so a
+    `list` that says `scopes project, global` is the one surface still promising
+    what the next step is certain to reject.
+
+    Asserted over the scope of every pair rather than against a literal tuple,
+    so the day the table grows a runtime this says the same thing.
+    """
+    served = targets_of(sourced_recipe())
+
+    assert served
+    assert {target.scope for target in served} == {Scope.GLOBAL}
+
+
+def test_a_recipe_with_no_source_keeps_both_scopes() -> None:
+    """The other half, or the fix above would read as *"scope is always global"*."""
+    served = targets_of(recipe("cloudflare", HttpServer(url="https://x/mcp")))
+
+    assert {target.scope for target in served} == {Scope.PROJECT, Scope.GLOBAL}
+
+
 SERVERS_BY_TRANSPORT = {
     Transport.HTTP: HttpServer(url="https://x/mcp"),
     Transport.STDIO: StdioServer(command="uvx"),

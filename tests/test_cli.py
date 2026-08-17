@@ -2630,6 +2630,55 @@ def test_list_mcp_from_shows_the_recipe_and_writes_nothing(
     assert "claude-code" in project.joined(output)
 
 
+def test_the_line_a_federated_recipe_prints_carries_the_origin_it_came_from(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The invariant `test_the_mcp_line_the_list_prints_installs_when_it_is_pasted_back` fixes,
+    on the one path that never had it.
+
+    A federated recipe is **not in the catalog** — that is what `--from` is for —
+    so `overpower install --mcp acme` pasted back exits 2 naming the four slugs
+    that are. The line the screen prints is a promise that typing it does what
+    the screen just described, and it is the same promise whether the recipe was
+    obtained or embedded.
+
+    Asserted here as *the line carries the origin*, and by the sibling below as
+    *the embedded line still does not*, because the failure mode of the fix is
+    printing `--from` for every recipe on the catalog screen.
+    """
+    # given
+    _ = project.target(tmp_path, monkeypatch)  # tty=False: the screen goes through a pipe
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    monkeypatch.setattr(
+        remote, "fetch_with_git", git_remote.planting(git_remote.mcp_recipe_files("cloudflare"))
+    )
+
+    code, output = project.run(capsys, "list", "--mcp", "cloudflare", "--from", REMOTE)
+
+    line = next(row for row in _rows(output) if row.startswith("overpower install"))
+    assert code == 0
+    assert line == f"overpower install --mcp cloudflare --from {REMOTE}"
+
+
+def test_the_embedded_recipe_prints_no_origin_it_did_not_come_from(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The other half: a recipe read off the catalog has no origin to name.
+
+    `--from` on that line would be a flag the reader has to delete, pointing at
+    a repository the recipe never came from.
+    """
+    # given
+    project.catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": MCP_URL})
+    _ = project.target(tmp_path, monkeypatch)
+
+    code, output = project.run(capsys, "list", "--mcp", "cloudflare")
+
+    line = next(row for row in _rows(output) if row.startswith("overpower install"))
+    assert code == 0
+    assert line == "overpower install --mcp cloudflare"
+
+
 def test_list_from_with_no_mcp_exits_two_before_obtaining_anything(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

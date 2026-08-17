@@ -67,6 +67,7 @@ from overpower.screens import (
     ACTIVE_MARK,
     AI_FRAMEWORK_FLAG,
     BUNDLE_FLAG,
+    FROM_FLAG,
     MCP_FLAG,
     PROGRAM,
     SKILL_FLAG,
@@ -397,7 +398,7 @@ def list_catalog(
     from_: Annotated[
         str | None,
         typer.Option(
-            "--from",
+            FROM_FLAG,
             metavar="URL",
             help="Take --mcp from any GitHub repository instead of the embedded catalog. "
             "The URL is a search root: the repository, a subfolder or `.overpower/mcp` "
@@ -432,7 +433,7 @@ def list_catalog(
     # `mcp` is not `None` here: the guard above already refused every other
     # shape a `--from` line on `list` could have.
     with catalog_from(from_, mcps=(mcp,) if mcp else ()) as catalog:
-        screen = _listed(catalog, ai_framework=None, skill=None, bundle=None, mcp=mcp)
+        screen = _listed(catalog, ai_framework=None, skill=None, bundle=None, mcp=mcp, origin=from_)
         _print_banner()
         _out.print(screen)
 
@@ -467,15 +468,22 @@ def _refuse_a_list_line_from_cannot_answer(
         raise NothingToListForError
 
 
-def _listed(
+def _listed(  # noqa: PLR0913 — one keyword per selector, plus the catalog and where it came from
     catalog: Catalog,
     *,
     ai_framework: str | None,
     skill: str | None,
     bundle: str | None,
     mcp: str | None,
+    origin: str | None = None,
 ) -> RenderableType:
-    """The screen the flags asked for: the whole catalog, or one item of it."""
+    """The screen the flags asked for: the whole catalog, or one item of it.
+
+    `origin` is the `--from` search root the catalog was obtained from, and only
+    the MCP screen takes it: it is the one item that can be read from outside
+    the catalog, so it is the only line whose printed command needs to say where
+    it came from to work pasted back.
+    """
     if ai_framework is not None:
         return framework_screen(catalog.framework(ai_framework))
     if skill is not None:
@@ -487,7 +495,7 @@ def _listed(
         # recipe serves is derived from the table (rule 4), so it is computed
         # here — where the product's own table is — and handed to the screen.
         recipe = catalog.mcp(mcp)
-        return mcp_screen(recipe, targets_of(recipe))
+        return mcp_screen(recipe, targets_of(recipe), origin)
     return catalog_screen(catalog)
 
 
@@ -551,7 +559,7 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
         # is the only other thing it could mean.
         str | None,
         typer.Option(
-            "--from",
+            FROM_FLAG,
             metavar="URL",
             help="Take --skill or --mcp from any GitHub repository instead of the embedded "
             "catalog. The URL is a search root: the repository, a subfolder or the "

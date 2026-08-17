@@ -39,15 +39,16 @@ from overpower.recipes import (
     HttpServer,
     StdioServer,
     Transport,
+    input_id,
 )
-from overpower.runtimes import MCP_DOCUMENTS, Dialect
+from overpower.runtimes import MCP_DOCUMENTS, Dialect, Scope
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
     from pathlib import Path
 
     from overpower.recipes import Recipe, Slot
-    from overpower.runtimes import McpDocument, Scope
+    from overpower.runtimes import McpDocument
 
 type JsonValue = str | bool | Sequence[JsonValue] | Mapping[str, JsonValue]
 """What a rendered graft is made of, and the set is closed at four.
@@ -275,11 +276,21 @@ def targets_of(
     property above: *"the same recipe answers differently when the table
     changes"* is only assertable if the table can be handed in, and a test that
     monkeypatched the module constant would be asserting the patch.
+
+    **Two terms and not one**, because two different things decide a pair. The
+    document decides whether the transport can be spelled at all; the *recipe*
+    decides which scopes are open to it, and a recipe with `[source]` clones to
+    an absolute path on this machine, which cannot go into the team's repository
+    (ADR 0015). `overpower.planning` refuses that pair with exit 3 and the
+    wizard declines to offer it — this is the third surface, and a screen that
+    offers what the next step is certain to reject is the one place the three
+    could disagree.
     """
     return tuple(
         Target(runtime=runtime, scope=scope)
         for (runtime, scope), document in documents.items()
         if recipe.transport in _transports(document.dialect)
+        and (recipe.source is None or scope is Scope.GLOBAL)
     )
 
 
@@ -554,20 +565,10 @@ def _prompt(name: str) -> Mapping[str, JsonValue]:
     """
     return {
         "type": PROMPT_STRING,
-        INPUT_IDENTITY: _input_id(name),
+        INPUT_IDENTITY: input_id(name),
         "description": name,
         "password": True,
     }
-
-
-def _input_id(name: str) -> str:
-    """`GIT_TOKEN` → `git-token`, the identifier shape the measured files use.
-
-    Derived from the slot name and never stored beside it, so the recipe carries
-    one name for one secret: two recipes that need `GITHUB_TOKEN` derive the same
-    id, land on the same entry, and the person is asked once.
-    """
-    return name.lower().replace("_", "-")
 
 
 def _vscode_reference(name: str) -> str:
@@ -583,7 +584,7 @@ def _vscode_reference(name: str) -> str:
     The prompt reference cannot fail that way: what is missing, the editor asks
     for, and what is answered goes to the keychain (`_prompt`).
     """
-    return f"${{input:{_input_id(name)}}}"
+    return f"${{input:{input_id(name)}}}"
 
 
 def _devin_reference(name: str) -> str:

@@ -101,9 +101,17 @@ class Dialect(StrEnum):
 
     Stdio carries **no** discriminator: the vendor documents `"http"` and `"sse"`
     as the values of that field and infers stdio from `command`, so there is no
-    value to write. Evidence is the vendor's documentation and not a measurement
-    — the binary is not on the machine this was written on
-    (`docs/research/mcp-config-formats.md` § Adendo 2026-08-13).
+    value to write.
+
+    **The binary has since been run** — `devin 3000.4.25`, in a sandbox with
+    `HOME` redirected (`docs/research/mcp-config-formats.md` § Medição
+    2026-08-14) — and the grade is now split rather than uniform. What the
+    measurement covers: `devin mcp list/get/add` read and write this file with
+    no login and no trust prompt, and an unrecognised field is swallowed at exit
+    0. What it does **not** cover is this paragraph: the *values* of `transport`
+    are still read off the vendor's documentation, because asserting them needs
+    a server actually starting, and that is behind the login the measurement
+    stopped at. So the weaker grade is stated here and only here.
     """
 
 
@@ -775,11 +783,21 @@ MCP_DOCUMENTS: Mapping[tuple[str, Scope], McpDocument] = MappingProxyType(
             root_key="servers",
             dialect=Dialect.VSCODE,
         ),
-        # Vendor documentation and **not** a measurement, in
-        # https://github.com/panlabs-tech/overpower/issues/80: `.devin/mcp_config.json`
-        # at the root of the project, `mcpServers`, and no approval gate
-        # documented anywhere — so `born_pending` stays false, because inventing
-        # one would be asserting a fact nobody here could observe.
+        # Measured, in `docs/research/mcp-config-formats.md` § Medição
+        # 2026-08-14 (https://github.com/panlabs-tech/overpower/issues/87):
+        # `devin mcp list/get/add` read and write `.devin/mcp_config.json` at the
+        # root of the project, under `mcpServers`, with no login and no trust
+        # prompt. The row was vendor documentation when it was written
+        # (https://github.com/panlabs-tech/overpower/issues/80); the binary has
+        # since been run.
+        #
+        # `born_pending` stays false, and that clause is **unchanged by the
+        # measurement rather than confirmed by it**: there is still no approval
+        # gate documented anywhere, and the run could not close the question
+        # either way — starting a session is behind a mandatory login, and a
+        # `--respect-workspace-trust` flag was found whose reach is unconfirmed.
+        # Inventing a warning here would assert a fact nobody has observed, and
+        # so would calling this one measured.
         ("devin", Scope.PROJECT): McpDocument(
             relative=".devin/mcp_config.json",
             root_key="mcpServers",
@@ -880,12 +898,23 @@ copied from a list.
 
 **That sentence used to say "rendered and measured", and the second row is what
 moved it.** Said plainly rather than edited quietly: `.mcp.json` was executed
-against Claude Code 2.1.220, and the Devin row was read off the vendor's
-documentation with the binary absent from the machine
-(https://github.com/panlabs-tech/overpower/issues/80). The bar that survives is
-*primary source, read directly* — which the research already treats as a grade it
-carries, and lists among its own weaknesses. What the bar still refuses is the
-thing it was written against: a path transcribed from somebody's list.
+against Claude Code 2.1.220, while the Devin row was written from the vendor's
+documentation alone (https://github.com/panlabs-tech/overpower/issues/80). The
+bar that survives is *primary source, read directly* — which the research already
+treats as a grade it carries, and lists among its own weaknesses. What the bar
+still refuses is the thing it was written against: a path transcribed from
+somebody's list.
+
+**The Devin row has since been measured, and only in part**
+(https://github.com/panlabs-tech/overpower/issues/87,
+`docs/research/mcp-config-formats.md` § Medição 2026-08-14). `devin 3000.4.25`
+was installed into a sandbox and run: the file, the root key and the absence of
+any trust prompt on read and write are now executed facts. Two things are not,
+and stayed the weaker grade in the places that state them — the *values* of
+`transport`, and whether a server ever starts pending, both of which need a
+session that a mandatory login stops. So the row is no longer one grade: it is
+measured where it was run and documented where it was not, which is why the
+distinction below is stated per claim rather than per row.
 
 **The difference between the two grades is not a column here.** It lives in the
 dialect's docstring and in `docs/research/mcp-config-formats.md`, because no code

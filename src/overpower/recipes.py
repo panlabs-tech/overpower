@@ -218,6 +218,26 @@ in Claude Code, a `bearer_token_env_var` field in Codex — stays the renderer's
 """
 
 
+def input_id(name: str) -> str:
+    """`GIT_TOKEN` → `git-token`, the identifier shape the measured files use.
+
+    Derived from the slot name and never stored beside it, so the recipe carries
+    one name for one secret: two recipes that need `GITHUB_TOKEN` derive the same
+    id, land on the same entry, and the person is asked once.
+
+    **It lives here for the reason `AUTHORIZATION` does**, and it moved here for
+    exactly that reason: the derivation is not injective — it lowercases and
+    folds `_` to `-` — so two slot names can reach one identifier, and the
+    entries are replaced by it. The renderer building that list would keep the
+    last and fill both references with it. Only the **reader** can catch that,
+    because only the reader sees all the slots at once.
+
+    A target's *spelling* is still the renderer's — `${input:<id>}` is written
+    there, and nothing here knows the syntax that wraps this string.
+    """
+    return name.lower().replace("_", "-")
+
+
 def carrier_of(role: Role) -> Transport:
     """The transport that has somewhere to put a secret with this role.
 
@@ -630,6 +650,13 @@ def _slots(
     a table would keep one of them and drop the other at exit 0 — a secret gone
     from a file nobody re-reads. `[server.env]` joins the same comparison,
     because a literal and a slot end up as keys of one table too.
+
+    **A slot occupies two places, not one**, and the second is the prompt. One
+    measured target declares its prompts in a list beside the servers and refers
+    to them by `input_id` of the name — a derivation that is not injective — so
+    two slots filling two *different* headers can still reach one prompt and
+    overwrite each other. That collision is invisible to `_filled`, which is
+    right about the places and blind to the names, so it is caught beside it.
     """
     if not isinstance(value, list):
         raise MalformedRecipeError(path, SLOTS_KEY, "a list of tables")
@@ -638,6 +665,10 @@ def _slots(
     # so this is the whole of the `[server.env]` side of the comparison.
     taken = dict.fromkeys(written, f"`[{SERVER_KEY}.env]`")
     slots: list[Slot] = []
+    # A second namespace and not a second entry in `taken`: a prompt identifier
+    # and a variable name are different places that happen to be strings, and
+    # one map would refuse a recipe whose variable spells another's prompt id.
+    prompted: dict[str, tuple[str, str]] = {}
     for index, entry in enumerate(cast("list[object]", value)):
         key = f"{SLOTS_KEY}[{index}]"
         slot = _slot(path, key, transport, entry, has_source=has_source)
@@ -645,7 +676,16 @@ def _slots(
         held = taken.get(place)
         if held is not None:
             raise CollidingSlotError(path, key, place, held)
+        prompt = input_id(slot.name)
+        asked = prompted.get(prompt)
+        # The **same** name reaching one prompt is the point of deriving it: one
+        # secret, asked once, filling both places. Only two *different* names
+        # reaching one prompt lose something — the second declaration replaces
+        # the first, and the prompt then describes one of the two.
+        if asked is not None and asked[0] != slot.name:
+            raise CollidingSlotError(path, key, prompt, asked[1])
         taken[place] = key
+        prompted[prompt] = (slot.name, key)
         slots.append(slot)
     return tuple(slots)
 

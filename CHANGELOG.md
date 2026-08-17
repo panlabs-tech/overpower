@@ -23,6 +23,15 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.21.1] - 2026-08-16
+
+### Fixed
+
+- A tela de `list --mcp` para de prometer o que o install recusa. Uma receita que traz codigo-fonte nao e mais oferecida em escopo de projeto — o install ja recusava e o wizard ja obedecia, so a tela nao. E a linha que `list --mcp <slug> --from <url>` manda copiar carrega a origem: sem ela, colada de volta, saia com exit 2 dizendo que nao existe MCP com esse nome. ([#115](https://github.com/panlabs-tech/overpower/issues/115))
+- Dois slots de nomes distintos que chegam ao mesmo prompt sao recusados na leitura da receita. A derivacao do identificador de prompt nao e injetiva — baixa a caixa e troca `_` por `-` —, entao `API_KEY` e `API-KEY` viravam um prompt so: a segunda declaracao apagava a primeira e os dois lugares recebiam calados o mesmo segredo, em exit 0. Dois slots com o **mesmo** nome continuam valendo, que e justamente o ponto de derivar o identificador: um segredo, perguntado uma vez. ([#116](https://github.com/panlabs-tech/overpower/issues/116))
+- A tabela de runtimes para de dizer que a linha do Devin e doc do fornecedor "e nao uma medicao", com o binario "ausente da maquina". Desde a medicao em sandbox as duas frases sao falsas, e o commit da medicao nao tinha tocado este arquivo. O que continua em aberto — os valores de `transport` e se um servidor nasce pendente, ambos atras do login obrigatorio — segue marcado como aberto, agora por afirmacao e nao por linha inteira. ([#117](https://github.com/panlabs-tech/overpower/issues/117))
+
+
 ## [0.21.0] - 2026-08-16
 
 ### Added

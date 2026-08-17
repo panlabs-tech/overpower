@@ -280,6 +280,27 @@ header* would make the renderer re-validate what the reader already decided.
 """
 
 
+def role_of(slot: Slot) -> Role:
+    """The role a slot was declared with, read back off the shape it became.
+
+    The reader spends the word: `role = "env"` becomes an `EnvSlot`, and after
+    that nothing carries the spelling. A screen that has to say *what secrets to
+    arrange before installing* needs it back, and it is recovered here — beside
+    `carrier_of`, on the module that owns the shape — so that a fourth slot is a
+    hole the type checker points at rather than a `match` somewhere else that
+    quietly answers nothing for it.
+    """
+    match slot:
+        case EnvSlot():
+            return Role.ENV
+        case HeaderSlot():
+            return Role.HEADER
+        case BearerSlot():
+            return Role.BEARER
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
 @dataclass(frozen=True)
 class StdioServer:
     """A server the client launches: a command, its arguments and its environment.

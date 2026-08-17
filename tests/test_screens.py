@@ -53,7 +53,17 @@ from overpower.planning import (
     Write,
     WriteMode,
 )
-from overpower.recipes import HttpServer, Recipe, StdioServer
+from overpower.recipes import (
+    BearerSlot,
+    Check,
+    EnvSlot,
+    HeaderSlot,
+    HttpServer,
+    Precondition,
+    Recipe,
+    StdioServer,
+    role_of,
+)
 from overpower.rendering import Fragment, Target, targets_of
 from overpower.runtimes import Scope
 from overpower.screens import (
@@ -270,14 +280,19 @@ The signal a moving recording buys is worth less than the bug a static one hid.
 
 
 def recorded_stdio_recipe() -> Recipe:
-    """The stdio recipe, and it carries the three fields that transport admits.
+    """The stdio recipe, and it carries every field that transport admits.
 
     A command, its arguments and one value of `[server.env]` — which is the
     distinction the schema exists for: the address of a panel is **not** a
-    secret, so it is written literally, while a secret would be a slot the
-    product refuses to write (https://github.com/panlabs-tech/overpower/issues/78).
+    secret, so it is written literally, while a secret is a slot the product
+    refuses to write (https://github.com/panlabs-tech/overpower/issues/78).
     Recorded separately from the HTTP one because the two draw different rows,
     and a screen with rows nobody recorded is a screen free to move unseen.
+
+    It carries **a slot and a precondition** because the recorded HTTP recipe
+    carries neither: between the two, both states of each row are recorded — the
+    row drawn, and the row correctly absent. Recording only the empty state is
+    what let two rows the spec asks for be missing without a snapshot moving.
     """
     return Recipe(
         name="coolify",
@@ -288,6 +303,8 @@ def recorded_stdio_recipe() -> Recipe:
             args=("mcp-server-coolify", "--panel"),
             env={"COOLIFY_BASE_URL": "https://vps.panlabs.tech"},
         ),
+        slots=(EnvSlot(name="COOLIFY_ACCESS_TOKEN"),),
+        preconditions=(Precondition(check=Check.COMMAND_EXISTS, value="npx"),),
     )
 
 
@@ -1234,6 +1251,120 @@ def test_the_mcp_screen_names_the_command_the_arguments_and_the_environment(widt
     assert "command uvx" in rendered
     assert "args mcp-server-coolify --panel" in rendered
     assert "env COOLIFY_BASE_URL https://vps.panlabs.tech" in rendered
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_mcp_screen_names_the_slots_the_recipe_requires_and_the_role_of_each(
+    width: int,
+) -> None:
+    """History 3, and the whole point of it is *before* rather than *after*.
+
+    *"Which slots it requires and the role of each, so I know what secrets I
+    need before installing, and do not find out from a 401 afterwards."* The
+    name alone would not answer it: a secret bound into a header and a secret
+    exported into the environment are two different things to go and arrange,
+    and the role is the half that says which.
+
+    The `--dry-run` of `install` is not this row and never was — it is under a
+    different verb, it is conditional on the variable being unset, and it never
+    names the role at all.
+    """
+    rendered = rows(render(mcp_screen(recorded_stdio_recipe(), RECORDED_TARGETS), width))
+
+    assert "slots COOLIFY_ACCESS_TOKEN env" in rendered
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_mcp_screen_names_the_preconditions_the_recipe_declares(width: int) -> None:
+    """History 5: what this machine has to already have, read before installing.
+
+    The only other surface for a precondition is the refusal that `install`
+    raises, which is exactly the *"find out afterwards"* the history exists to
+    end. Both halves are on the row because a check with no value names no fact
+    — `command_exists` is a question, `npx` is what it asks about.
+
+    The label is `needs` and not `preconditions` for a reason the row next to it
+    pays for: measured at 60 columns, the longer word pushes every value right
+    and folds the `[server.env]` address mid-token. `_recipe_facts` carries the
+    whole argument.
+    """
+    rendered = rows(render(mcp_screen(recorded_stdio_recipe(), RECORDED_TARGETS), width))
+
+    assert "needs command_exists npx" in rendered
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_a_recipe_declaring_no_slot_and_no_precondition_draws_neither_row(width: int) -> None:
+    """The rule `_declared` already keeps: never a row the reader has to interpret.
+
+    An empty `slots` row would read as *"a secret is needed and the product
+    could not say which"*, which is worse than the silence it replaces — and it
+    is the state the recorded HTTP recipe is in, deliberately.
+    """
+    rendered = rows(render(mcp_screen(recorded_recipe(), RECORDED_TARGETS), width))
+
+    assert [row for row in rendered if row.startswith(("slots ", "needs "))] == []
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_every_role_a_slot_can_carry_reaches_the_screen(width: int) -> None:
+    """Three roles, three spellings on the row, and none of them invented here.
+
+    `bearer` and `header` are separate members for a reason the renderer cares
+    about, so a screen that collapsed them would be describing a recipe the
+    product does not have. Asserted over the closed set rather than over one
+    example, so a fourth role cannot arrive with no row to draw.
+    """
+    recipe = Recipe(
+        name="acme",
+        path=Path("acme.toml"),
+        description="Three secrets, one per role.",
+        server=HttpServer(url="https://mcp.acme.test/mcp"),
+        slots=(
+            BearerSlot(name="ACME_TOKEN"),
+            HeaderSlot(name="ACME_KEY", header="X-Acme-Key"),
+        ),
+    )
+
+    rendered = rows(render(mcp_screen(recipe, RECORDED_TARGETS), width))
+
+    assert "slots ACME_TOKEN bearer" in rendered
+    assert "ACME_KEY header" in rendered
+    assert "slots COOLIFY_ACCESS_TOKEN env" in rows(
+        render(mcp_screen(recorded_stdio_recipe(), RECORDED_TARGETS), width)
+    )
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_what_a_shipped_recipe_declares_reaches_the_screen_that_evaluates_it(
+    width: int,
+) -> None:
+    """The two rows above, against the catalog that actually ships.
+
+    Everything else on this screen is drawn from recipes recorded here, whose
+    bytes are ours so curation cannot move a recording. That is the right trade
+    for layout and the wrong one for *this* property: the rows were missing for
+    as long as they were, in part, because no fixture declared a slot or a
+    precondition — so a screen test built only on fixtures could go green over a
+    catalog nobody had looked at.
+
+    A rule and not an inventory, in the shape `test_catalog.py` uses: whatever
+    the four recipes declare has to be on their screen. It says nothing about
+    which recipes exist or what they require, so curation is free to change both
+    — it goes red only if something declared stops being shown.
+    """
+    recipes = shipped().mcps
+
+    assert recipes
+    for recipe in recipes:
+        rendered = rows(render(mcp_screen(recipe, targets_of(recipe)), width))
+        joined = " ".join(rendered)
+        for slot in recipe.slots:
+            assert slot.name in joined, f"{recipe.name}: {slot.name}"
+            assert str(role_of(slot)) in joined, f"{recipe.name}: role of {slot.name}"
+        for precondition in recipe.preconditions:
+            assert str(precondition.check) in joined, f"{recipe.name}: {precondition.check}"
+            assert precondition.value in joined, f"{recipe.name}: {precondition.value}"
 
 
 @pytest.mark.parametrize("width", WIDTH_CASES)

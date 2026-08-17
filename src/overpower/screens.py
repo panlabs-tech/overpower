@@ -58,7 +58,7 @@ from overpower.inspection import (
     UnsetSlot,
 )
 from overpower.planning import DirectoryTree, DocumentKey, WriteMode
-from overpower.recipes import HttpServer, Recipe, StdioServer
+from overpower.recipes import HttpServer, Recipe, StdioServer, role_of
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
@@ -69,7 +69,7 @@ if TYPE_CHECKING:
     from overpower.discovery import Bundle, Catalog, Framework
     from overpower.inspection import Diagnosis, Finding, Notice, Terminal
     from overpower.planning import Carried, Destination, Landing, Plan, Selection
-    from overpower.recipes import Server
+    from overpower.recipes import Precondition, Server, Slot
     from overpower.rendering import Target
 
 THEME = Theme(
@@ -592,14 +592,68 @@ def _recipe_facts(
 ) -> Sequence[tuple[str, RenderableType]]:
     """What the recipe declares, then the one or two answers derived from it.
 
-    Every label but the last is a **field of the recipe**, spelled the way the
-    TOML spells it — `command`, `args`, `env`, `url`. That is deliberate, and it
-    is what makes the last rows read as what they are: `targets` and `scopes`
-    are the only lines on the screen with no field behind them, because which
-    targets a recipe serves is derived from (transport, slot roles, target) and
-    never declared (rule 4).
+    Every label but the last two names something the recipe **declares**, and
+    all but one is spelled the way the TOML spells it — `command`, `args`,
+    `env`, `url`, `slots`. That is what makes the last rows read as what they
+    are: `targets` and `scopes` are the only lines on the screen with nothing
+    declared behind them, because which targets a recipe serves is derived from
+    (transport, slot roles, target) and never declared (rule 4).
+
+    `needs` is the one label that is not its field's name, and the width is why.
+    Spelling it `preconditions` makes it the longest label on the screen, and
+    since the rows share one grid every other value is pushed right by six
+    columns: measured at 60, that folds `[server.env]` mid-token — the address
+    a reader has to be able to take in breaks across two lines. The distinction
+    the paragraph above rests on is *declared against derived*, and `needs`
+    keeps it: it names `[[preconditions]]`, which the recipe declares.
+
+    The order is *what the server is*, then **what you must already have**, then
+    where it can go. The two middle rows are the ones §Descobrir of the spec
+    asks for by name: which secrets to arrange before installing, and what
+    tooling this machine needs — both so they are read here rather than found
+    out afterwards, from a 401 or from an obscure error inside the agent.
     """
-    return (*_declared(recipe.server), *_target_facts(targets))
+    return (
+        *_declared(recipe.server),
+        *_required(recipe.slots),
+        *_demanded(recipe.preconditions),
+        *_target_facts(targets),
+    )
+
+
+def _required(slots: Sequence[Slot]) -> tuple[tuple[str, RenderableType], ...]:
+    """The secrets the recipe needs, each with the role that says where it goes.
+
+    In declaration order and never sorted, unlike `_pairs`: `[[slots]]` is an
+    array and the recipe chose the order, while `[server.env]` is a table and
+    has none to keep.
+
+    The role is half the answer and not decoration — a secret bound into a
+    header and a secret exported into the environment are two different things
+    for the reader to go and arrange.
+    """
+    if not slots:
+        return ()
+    rows = [(slot.name, Text(str(role_of(slot)), style="op.key")) for slot in slots]
+    return (("slots", _stacked(rows)),)
+
+
+def _demanded(preconditions: Sequence[Precondition]) -> tuple[tuple[str, RenderableType], ...]:
+    """What this machine must already have, in the words the recipe declared it in.
+
+    Both halves, because a check names no fact without its value:
+    `command_exists` is the question and `npx` is what it asks about. The
+    vocabulary is closed at three, so the left column is never free text a
+    recipe invented — which is also what lets the row be read without the schema
+    open beside it.
+    """
+    if not preconditions:
+        return ()
+    rows = [
+        (str(precondition.check), Text(precondition.value, style="op.key"))
+        for precondition in preconditions
+    ]
+    return (("needs", _stacked(rows)),)
 
 
 def _declared(server: Server) -> tuple[tuple[str, RenderableType], ...]:

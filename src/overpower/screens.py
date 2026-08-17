@@ -142,6 +142,15 @@ one v0.1.0 ships, and the day a command lands in the pool the CLI grows the flag
 before this line can name it.
 """
 
+FROM_FLAG = "--from"
+"""Not a selector — it says *where the selector was read from*, and it is here for
+the same reason the four above are.
+
+A federated recipe is not in the catalog, so the line that installs it carries
+this flag or exits 2. That makes it part of a printed command, and a printed
+command is a promise that the flag inside it exists.
+"""
+
 
 class Mark(StrEnum):
     """The five punctuation marks of a session, named rather than spelled.
@@ -554,12 +563,20 @@ def artifact_screen(artifact: Artifact) -> RenderableType:
     )
 
 
-def mcp_screen(recipe: Recipe, targets: Sequence[Target]) -> RenderableType:
+def mcp_screen(
+    recipe: Recipe, targets: Sequence[Target], origin: str | None = None
+) -> RenderableType:
     """One MCP server: the recipe whole, and which targets it can be written for.
 
     The **whole** recipe, and that is the ticket's own word: a description never
     truncated, the transport, the command or the URL, the literal environment it
     carries — and the one row that is not a field of the recipe at all.
+
+    `origin` is the `--from` search root, or `None` for a recipe read off the
+    catalog, and it exists so the line this screen prints is a line that works
+    pasted back. A federated recipe is not in the catalog; without the origin the
+    printed command exits 2 naming the slugs that are. It arrives as a value for
+    the same reason `targets` does — the screen draws what the command decided.
 
     `targets` arrives as a value rather than being computed here, and that is
     the same division the plan screen already runs on: what a screen draws is
@@ -580,7 +597,7 @@ def mcp_screen(recipe: Recipe, targets: Sequence[Target]) -> RenderableType:
                 recipe.name,
                 str(recipe.transport),
                 recipe.description,
-                commands=(_install(MCP_FLAG, recipe.name),),
+                commands=(_install(MCP_FLAG, recipe.name, origin),),
                 facts=_recipe_facts(recipe, targets),
             )
         ],
@@ -1291,9 +1308,18 @@ def _block(title: str, note: str, entries: Sequence[RenderableType]) -> Panel:
     )
 
 
-def _install(flag: str, name: str) -> str:
-    """The line that installs one item, exactly as it has to be typed back."""
-    return f"{PROGRAM} install {flag} {name}"
+def _install(flag: str, name: str, origin: str | None = None) -> str:
+    """The line that installs one item, exactly as it has to be typed back.
+
+    `origin` is the search root a federated recipe was obtained from, and it is
+    part of the line rather than a note beside it: a recipe read through `--from`
+    is **not in the catalog**, so the line without it exits 2 naming the slugs
+    that are. Every other caller passes nothing, because an item read off the
+    catalog has no origin to name and a `--from` there would point at a
+    repository it never came from.
+    """
+    origin_flag = "" if origin is None else f" {FROM_FLAG} {origin}"
+    return f"{PROGRAM} install {flag} {name}{origin_flag}"
 
 
 def _inspect(flag: str, name: str) -> str:

@@ -23,6 +23,17 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.21.0] - 2026-08-16
+
+### Added
+
+- A tela de `list --mcp <slug>` mostra os slots que a receita exige, com o papel de cada um, e as precondicoes que ela declara. Eram as duas unicas coisas que a secao Descobrir da spec pedia por escrito e que a tela nunca mostrou: quem avaliava um servidor descobria o segredo que falta num 401 e o ferramental que falta num erro do agente. ([#113](https://github.com/panlabs-tech/overpower/issues/113))
+
+### Fixed
+
+- As receitas `coolify` e `hostinger-vps` declaram que precisam do `npx`. Instalar qualquer uma numa maquina sem Node recusava nada: escrevia a configuracao, saia 0, e a falta so aparecia depois, como erro obscuro do agente. Agora a recusa vem antes do primeiro byte, nomeando o que falta. ([#112](https://github.com/panlabs-tech/overpower/issues/112))
+
+
 ## [0.20.0] - 2026-08-14
 
 ### Added

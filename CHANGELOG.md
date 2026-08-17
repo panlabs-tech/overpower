@@ -23,6 +23,14 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.21.3] - 2026-08-16
+
+### Fixed
+
+- Um comentario de fim de linha fica na entrada que ele anota. A insercao movia o rabo de whitespace inteiro do ultimo par para o servidor recem-escrito, entao um `// nota` que estava na linha de um servidor passava a anotar o que o overpower acabou de escrever — o diff deixava de ser aditivo, com uma linha removida. O comentario em linha propria, que anota o objeto e nao uma entrada, continua descendo com o fecho. ([#122](https://github.com/panlabs-tech/overpower/issues/122))
+- Um arquivo de configuracao que existe e nao pode ser lido produz um erro nomeado, dizendo qual arquivo e o que o sistema respondeu. Antes caia no painel de excecao inesperada e o produto se acusava — "This is a bug in the overpower, not in what you typed" — por uma permissao que outra pessoa pos. O exit code nao muda: continua 1, e a parada continua sendo antes do primeiro byte. ([#123](https://github.com/panlabs-tech/overpower/issues/123))
+
+
 ## [0.21.2] - 2026-08-16
 
 ### Fixed

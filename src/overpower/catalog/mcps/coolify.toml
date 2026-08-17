@@ -27,3 +27,12 @@ COOLIFY_BASE_URL = "https://vps.panlabs.tech"
 [[slots]]
 name = "COOLIFY_ACCESS_TOKEN"
 role = "env"
+
+# `npx` ships with Node, and this recipe cannot start a process without it. Left
+# undeclared, a machine with no Node took the write, exited 0, and failed much
+# later inside the agent — the exact "find out afterwards" that declaring it
+# ends. The check only ever *reads* the machine: nothing it finds travels back
+# into the recipe or into what gets written.
+[[preconditions]]
+check = "command_exists"
+value = "npx"

@@ -6,15 +6,18 @@ the overpower know how to install* — and the name is the one the test doctrine
 fixed for the discovery mirror.
 
 Every tree here is built in `tmp_path`: the disk is real, always (ADR 0010). The
-tests that read the tree shipped in the package are the three at the bottom, and
+tests that read the tree shipped in the package are the five at the bottom, and
 none of them asserts what today's curation put inside it: one says the roots
-resolve, and the other two assert **rules** the curation has to keep obeying —
-that an embedded recipe pins an exact version, and that the embedded set reaches
-every branch the renderer has.
+resolve, and the other four assert **rules** the curation has to keep obeying —
+that an embedded recipe pins an exact version, that the embedded set reaches
+every branch the renderer has, that a recipe launched as a process declares the
+command that launches it, and that what the four of them render carries no
+spelling only one target understands.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from typing import TYPE_CHECKING
 
@@ -31,7 +34,9 @@ from overpower.discovery import (
 )
 from overpower.errors import BadInvocationError, OverpowerError
 from overpower.packaged import catalog_file, content_root
-from overpower.recipes import BearerSlot, EnvSlot, HttpServer, StdioServer
+from overpower.recipes import BearerSlot, Check, EnvSlot, HttpServer, StdioServer
+from overpower.rendering import Fragment, Inputs, render
+from overpower.runtimes import MCP_DOCUMENTS, Scope
 from overpower.written import read_written_catalog
 
 if TYPE_CHECKING:
@@ -536,3 +541,75 @@ def test_the_embedded_recipes_exercise_the_matrix_they_were_chosen_for() -> None
         isinstance(recipe.server, StdioServer) and recipe.server.env and recipe.slots
         for recipe in recipes
     )
+
+
+def test_every_embedded_stdio_recipe_declares_the_command_that_launches_it() -> None:
+    """Curation, asserted: an embedded recipe never needs tooling it did not declare.
+
+    A recipe launched as a process needs that process to exist, and a machine
+    without it is not an error the graft can see: the write succeeds, the exit is
+    **0**, and the failure surfaces much later as an obscure error from the agent
+    — which is precisely the *"descobrir depois"* that `[[preconditions]]` was
+    born to end. What reproved was never *requiring* tooling; it was requiring it
+    **without declaring it** (`docs/agents/domain.md`).
+
+    Asserted against the command the recipe itself carries rather than against a
+    literal `npx`, so a fifth recipe launched by anything else is held to the
+    same rule without this test being edited.
+    """
+    launched = [
+        recipe
+        for recipe in load_catalog(content_root(), catalog_file()).mcps
+        if isinstance(recipe.server, StdioServer)
+    ]
+
+    assert launched
+    for recipe in launched:
+        server = recipe.server
+        assert isinstance(server, StdioServer)
+        required = {
+            precondition.value
+            for precondition in recipe.preconditions
+            if precondition.check is Check.COMMAND_EXISTS
+        }
+        assert server.command in required, recipe.name
+
+
+def carried_strings(graft: Fragment | Inputs) -> str:
+    """Everything a graft would write, as one blob a substring can be looked for in."""
+    match graft:
+        case Fragment():
+            return json.dumps(graft.value)
+        case Inputs():
+            return json.dumps(graft.entries)
+
+
+def test_every_embedded_recipe_renders_for_every_dialect_carrying_no_shell_default() -> None:
+    """The net under the shipped catalog: the four recipes, actually rendered.
+
+    Nothing rendered an embedded recipe before this. `test_rendering.py` is built
+    on values it writes inline — correctly, because the renderer is a pure
+    function — so the **literal** path of `[server.env]` was reachable only by
+    the recipes nobody exercised, and editing `coolify.toml` to spell its address
+    `${COOLIFY_BASE_URL:-https://…}` went in green.
+
+    That spelling is the trap the whole schema exists around: `${VAR:-default}`
+    is Claude Code's syntax **alone**, and it reaches the other two targets
+    literally, so the server comes up talking to an address with a `:-` in it.
+    Rule 4 — *the contract is logical, never literal* — is what this asserts, and
+    it asserts it where the contract is broken by curation rather than by code.
+
+    Twelve and not four: every dialect renders every recipe, and a recipe that
+    served only some of them would leave a spelling unasserted.
+    """
+    recipes = load_catalog(content_root(), catalog_file()).mcps
+    dialects = ("claude-code", "vscode", "devin")
+    documents = [MCP_DOCUMENTS[runtime, Scope.PROJECT] for runtime in dialects]
+
+    rendered = [(recipe, render(recipe, document)) for recipe in recipes for document in documents]
+
+    assert len(rendered) == 12
+    for recipe, grafts in rendered:
+        assert grafts, recipe.name
+        for graft in grafts:
+            assert ":-" not in carried_strings(graft), recipe.name

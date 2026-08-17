@@ -22,3 +22,11 @@ args = ["-y", "--package", "hostinger-api-mcp@0.2.5", "hostinger-vps-mcp"]
 [[slots]]
 name = "HOSTINGER_API_TOKEN"
 role = "env"
+
+# The twin of the declaration in `coolify.toml`, and for the same reason: this
+# server is a process `npx` launches, so a machine without Node cannot run what
+# the write would configure. Declared here rather than assumed, because what
+# reproved was never requiring tooling — it was requiring it without saying so.
+[[preconditions]]
+check = "command_exists"
+value = "npx"

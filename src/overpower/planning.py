@@ -161,7 +161,7 @@ class Write:
     destination: Destination
     mode: WriteMode
     files: int
-    """How many files this write puts on disk. The screen adds them up.
+    """How many files this write puts on disk, as far as its own landing can tell.
 
     One for the first graft into a document: the document is a file, and writing
     a key into it writes that file. **Zero for a second graft into the same
@@ -169,6 +169,12 @@ class Write:
     report at the end counts what landed on disk, where one file did. What the
     *plan* counts for a graft is keys and not files, which is why the two halves
     of one recipe still show as two rows on the screen.
+
+    **The final count is not a sum of this field**, and cannot be: a landing is
+    built per selection, so three servers asked for in one line are three
+    landings each answering `1` for the same `.vscode/mcp.json`. Only
+    `overpower.writing` sees the whole plan, and it is where the same document
+    reached twice stops counting twice.
     """
 
 
@@ -299,6 +305,18 @@ class Plan:
     """
 
     @property
+    def landings(self) -> tuple[Landing, ...]:
+        """Every landing, in the order the writer reaches them.
+
+        The sibling of `writes` and the reason it is not derived from it: a
+        landing is a **place**, and how many writes fall in one differs by class
+        — a copy landing carries one per artifact, a graft landing one per key.
+        The writer needs the boundary to count what the report promises, and
+        flattening first is exactly what loses it.
+        """
+        return tuple(landing for selection in self.selections for landing in selection.landings)
+
+    @property
     def writes(self) -> tuple[Write, ...]:
         """Every write, in the order the writer performs them.
 
@@ -307,12 +325,7 @@ class Plan:
         the failure report say *"wrote 14 of 22, stopped here"* and mean
         something.
         """
-        return tuple(
-            write
-            for selection in self.selections
-            for landing in selection.landings
-            for write in landing.writes
-        )
+        return tuple(write for landing in self.landings for write in landing.writes)
 
 
 @dataclass(frozen=True)

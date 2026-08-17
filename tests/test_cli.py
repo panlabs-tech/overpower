@@ -937,6 +937,88 @@ def test_a_graft_into_vscode_says_nothing_about_approval(
     assert (root / ".vscode" / "mcp.json").is_file()
 
 
+def test_a_server_and_its_prompt_in_one_document_are_counted_as_one_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """#75, on the pair the spec names: *"the two are one write of the plan"*.
+
+    A VS Code slot lands the server under `servers` and the prompt it refers to
+    under `inputs` — two keys, one document — and the spec says why they count
+    as one: *"because they land in the same place"*. That place is the landing,
+    and `_graft_landing` already opens by saying it draws exactly one however
+    many keys fall in it. The **files** half was already collapsed on that
+    reading; the writes half counted keys.
+
+    The unit is the landing rather than the `Write` object, and the federated
+    case below is what fixes which: the spec calls clone-plus-graft two writes,
+    and that is two landings as well as two objects, so it agrees with either
+    reading and settles nothing. This line is the only one that discriminates.
+    """
+    # given
+    project.catalog_of(tmp_path, monkeypatch, mcps={"panel": project.SLOTTED})
+    root = project.target(tmp_path, monkeypatch)
+
+    code, output = project.run(capsys, "install", "--mcp", "panel", "--runtime", "vscode")
+
+    assert code == 0
+    assert "1 write · 1 file" in project.joined(output)
+    assert (root / ".vscode" / "mcp.json").is_file()
+
+
+def test_several_servers_landing_in_one_document_are_counted_as_one_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The contract `overpower.planning` states in its own words, on the case that broke it.
+
+    *"One for the first graft into a document. **Zero for a second graft into the
+    same one**"* — and "the same one" is the same **document**. Three servers
+    asked for in one line land in one `.vscode/mcp.json`, so two of the three are
+    second grafts into the same one; the count restarted per selection and said
+    three, where `git status` shows one file.
+
+    Each of the three carries a slot, so this is also the multi-key case: nine
+    keys, three servers, one document, and the honest answer to both questions
+    is the number of documents.
+    """
+    # given
+    project.catalog_of(
+        tmp_path,
+        monkeypatch,
+        mcps={"panel": project.SLOTTED, "second": project.SLOTTED, "third": project.SLOTTED},
+    )
+    root = project.target(tmp_path, monkeypatch)
+
+    code, output = project.run(
+        capsys, "install", "--mcp", "panel,second,third", "--runtime", "vscode"
+    )
+
+    assert code == 0
+    assert [entry.name for entry in (root / ".vscode").iterdir()] == ["mcp.json"]
+    assert "3 writes · 1 file" in project.joined(output)
+
+
+def test_one_server_in_two_runtimes_still_counts_the_two_documents_it_landed_in(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The half the two fixes above must not eat: distinct documents still count.
+
+    The rule is *one per document*, not *one per run*. Collapsing by document
+    and collapsing to one are the same edit if nobody asserts the difference.
+    """
+    # given
+    project.catalog_of(tmp_path, monkeypatch, mcps={"panel": project.SLOTTED})
+    root = project.target(tmp_path, monkeypatch)
+
+    code, output = project.run(
+        capsys, "install", "--mcp", "panel", "--runtime", "claude-code,vscode"
+    )
+
+    assert code == 0
+    assert (root / ".mcp.json").is_file()
+    assert (root / ".vscode" / "mcp.json").is_file()
+    assert "2 writes · 2 files" in project.joined(output)
+
+
 def test_a_vscode_slot_is_not_a_variable_the_shell_has_to_export(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:
@@ -1301,6 +1383,38 @@ def test_a_sourced_recipe_clones_to_the_machine_and_resolves_the_token(
             "args": ["run", "--project", str(destination), "server.py"],
         }
     }
+
+
+def test_a_clone_and_a_graft_are_two_writes_because_they_are_two_places(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The half that fixes the unit, from #75: *"a federated MCP costs two writes"*.
+
+    Collapsing a server and its prompt into one write and collapsing *everything*
+    into one are the same edit if nobody asserts the difference. Here the two
+    writes land in two different places — a folder on the machine and a key in a
+    document — so nothing collapses, and the count stays two.
+
+    That is also why this line settles which unit the spec meant and the
+    federated case alone could not: two landings **and** two write objects agree
+    on 2, so it reads the same under either. The VS Code pair is the case where
+    they disagree.
+    """
+    # given
+    project.catalog_of(tmp_path, monkeypatch)
+    project.custom_recipe(tmp_path, "homegrown", SOURCED)
+    home = tmp_path / "home"
+    project.at_home(monkeypatch, home)
+    monkeypatch.setattr(cli, "_out", project.pinned(tty=False))
+    local = git_remote.build(tmp_path / "origin", {"server.py": "print('hi')\n"})
+    monkeypatch.setattr(remote, "fetch_with_git", git_remote.instead_of_github(local))
+
+    code, output = project.run(
+        capsys, "install", "--mcp", "homegrown", "--runtime", "claude-code", "--global"
+    )
+
+    assert code == 0
+    assert "2 writes" in project.joined(output)
 
 
 def test_a_sourced_recipe_in_project_scope_is_refused_naming_the_fix(

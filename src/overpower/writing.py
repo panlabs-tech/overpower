@@ -124,23 +124,48 @@ def execute(plan: Plan) -> Report:
 
     A failure leaves what was already written and reports where it stopped —
     there is no rollback, and the reasoning is in the module docstring.
+
+    **`done` and what the report says are two different counts**, and the split
+    is the point rather than an accident. `done` counts operations performed, so
+    the partial-failure message means *"this many of the operations I was going
+    to do"* and its denominator is the same list. The report counts what the
+    reader can see afterwards, and for a graft those disagree: a server and the
+    prompt it refers to are two operations and — by #75, *because they land in
+    the same place* — **one write**, and however many servers reach one document
+    it is **one file**.
+
+    The file count deduplicates across the whole plan and not inside a landing,
+    because a landing is built per selection and cannot see the others: three
+    servers asked for in one line are three landings on one `.vscode/mcp.json`,
+    and the second and third are exactly the *"second graft into the same one"*
+    the count promises to answer zero for.
     """
-    writes = plan.writes
+    total = len(plan.writes)
     done = 0
+    written = 0
     files = 0
+    grafted: set[Path] = set()
     degraded: list[Path] = []
-    for write in writes:
-        try:
-            landed = _perform(write)
-        except OSError as failure:
-            # `.path` on either form of destination: both of them occupy one,
-            # and which one it is does not change what the report has to name.
-            raise WriteFailedError(done, len(writes), write.destination.path, failure) from failure
-        if landed is not write.mode:
-            degraded.append(write.destination.path)
-        done += 1
-        files += write.files
-    return Report(writes=done, files=files, degraded=tuple(degraded))
+    for landing in plan.landings:
+        for index, write in enumerate(landing.writes):
+            try:
+                landed = _perform(write)
+            except OSError as failure:
+                # `.path` on either form of destination: both of them occupy one,
+                # and which one it is does not change what the report has to name.
+                raise WriteFailedError(done, total, write.destination.path, failure) from failure
+            if landed is not write.mode:
+                degraded.append(write.destination.path)
+            done += 1
+            if write.mode is not WriteMode.GRAFT:
+                written += 1
+                files += write.files
+                continue
+            written += 1 if index == 0 else 0
+            path = write.destination.path
+            files += 1 if path not in grafted else 0
+            grafted.add(path)
+    return Report(writes=written, files=files, degraded=tuple(degraded))
 
 
 def points_elsewhere(path: Path) -> bool:

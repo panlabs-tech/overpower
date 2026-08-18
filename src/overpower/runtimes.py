@@ -124,11 +124,13 @@ class McpDocument:
     **file plus a key inside it**, so this row carries the root key as well as
     the path.
 
-    There is deliberately **no field for the file type**. JSON and JSONC differ
-    for a reader that uses the standard library, and this product does not: the
-    graft reads both through the same parser
-    (docs/adr/0016-o-diff-aditivo-e-requisito.md). A field with no reader would
-    be a field that goes stale unnoticed.
+    The file type **is** a column here, and it was not for exactly as long as
+    nothing read it. The clause this replaces was conditional — *a field with no
+    reader would be a field that goes stale unnoticed* — and the condition ended
+    when the refusal needed it. The graft still reads every document through the
+    one tolerant parser, which is what ADR 0016 bought; what it cannot do is
+    assume the runtime on the other side is as forgiving, because measured, none
+    of them is.
     """
 
     relative: str
@@ -148,6 +150,22 @@ class McpDocument:
     session. It is a column of this table and not a fact of the CLI because it
     is a fact of the pair (runtime, scope), and ADR 0014 makes the warning a
     requirement rather than a courtesy.
+    """
+
+    tolerates_jsonc: bool = False
+    """Whether a comment or a trailing comma is legal in this document.
+
+    A property of the **file**, never of the dialect: `Dialect` spells keys and
+    not syntax, and the two only look like one axis because today's three rows
+    happen to agree. They stop agreeing the moment the Copilot CLI arrives —
+    measured in `docs/research/mcp-config-formats.md`, it reads a **strict**
+    `.mcp.json` and a **JSONC** `~/.copilot/mcp-config.json`, and both of them
+    spell `mcpServers`, so one dialect would have to answer twice.
+
+    `False` is the default that fails safely, so a row added without a thought
+    about syntax gets the refusal rather than the silent write: strict and wrong
+    costs an exit 3 that names its own fix, tolerant and wrong costs a document
+    the runtime cannot read and no error anywhere.
     """
 
     anchor: Anchor | None = None
@@ -782,6 +800,7 @@ MCP_DOCUMENTS: Mapping[tuple[str, Scope], McpDocument] = MappingProxyType(
             relative=".vscode/mcp.json",
             root_key="servers",
             dialect=Dialect.VSCODE,
+            tolerates_jsonc=True,
         ),
         # Measured, in `docs/research/mcp-config-formats.md` § Medição
         # 2026-08-14 (https://github.com/panlabs-tech/overpower/issues/87):
@@ -852,6 +871,7 @@ MCP_DOCUMENTS: Mapping[tuple[str, Scope], McpDocument] = MappingProxyType(
             relative="Code/User/mcp.json",
             root_key="servers",
             dialect=Dialect.VSCODE,
+            tolerates_jsonc=True,
             anchor=PlatformAnchor(
                 windows=_roaming(),
                 macos=HomeAnchor("Library/Application Support"),

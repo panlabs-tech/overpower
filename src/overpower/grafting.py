@@ -73,6 +73,7 @@ from json5.model import (
 )
 
 from overpower.errors import OverpowerError, RefusedError
+from overpower.jsonio import loads_json
 from overpower.rendering import Fragment, Inputs
 
 if TYPE_CHECKING:
@@ -195,7 +196,28 @@ def write_document(path: Path, text: str) -> None:
         _ = handle.write(text)
 
 
-def refuse_if_broken(path: Path, text: str, graft: Graft) -> None:
+def _refuse_unless_strict(path: Path, text: str) -> None:
+    """Refuse a document the runtime reading it could not parse.
+
+    The graft reads **every** document through the tolerant parser, which is
+    what keeps a comment in a `.vscode/mcp.json` alive across a write
+    (docs/adr/0016-o-diff-aditivo-e-requisito.md). The runtime on the other side
+    is not so generous, and that is a fact of the file rather than of the
+    dialect: measured, `JSON.parse` stops dead on a trailing comma, so a
+    `.mcp.json` carrying one is already a file Claude Code does not read.
+
+    Grafting into it would be the worst outcome the product has — exit 0, a
+    graft on disk, and a runtime that goes on seeing no servers at all. So the
+    tolerant reader stays, and the refusal asks the stricter question next to it.
+    """
+    try:
+        _ = loads_json(text)
+    except ValueError as broken:
+        message = f"the runtime reading it parses strict JSON, and {broken}"
+        raise MalformedDocumentError(path, message) from broken
+
+
+def refuse_if_broken(path: Path, text: str, graft: Graft, *, tolerates_jsonc: bool) -> None:
     """Refuse `text` unless `grafted` could put `graft` in it.
 
     Separate from `grafted` because of *when*: the caller runs it over every
@@ -208,18 +230,32 @@ def refuse_if_broken(path: Path, text: str, graft: Graft) -> None:
     server, and one whose `inputs` is an object has nowhere to receive a prompt.
     Checking only the top level was measured answering **0** to a dry run whose
     real run answers 3.
+
+    It also answers *how many*, and not only *what*, for the handful of keys the
+    graft looks up. A document carrying one of them twice is a document whose
+    lookups disagree with its readers, and writing into it is the worst outcome
+    the product has: exit 0 over a graft the runtime never sees. It was also an
+    evasion of the check above — a `mcpServers` that is a string is refused with
+    3 on its own and was accepted with 0 behind a repeated root key.
+
+    `tolerates_jsonc` travels from the table row rather than from the dialect,
+    because strictness is a fact of the **document**: it is the caller that
+    knows which file this text came out of.
     """
+    if not tolerates_jsonc:
+        _refuse_unless_strict(path, text)
     model = _document(path, text)
     root = _object_at(path, model.value, "its top level")
+    _refuse_repeated(path, root, graft.root_key, "its top level")
     index = _index_of(root, graft.root_key)
     if index is None:
         return
     named = f"`{graft.root_key}`"
     match graft:
         case Fragment():
-            _ = _object_at(path, root.values[index], named)
+            _refuse_repeated(path, _object_at(path, root.values[index], named), graft.name, named)
         case Inputs():
-            _ = _array_at(path, root.values[index], named)
+            _refuse_twins(path, _array_at(path, root.values[index], named), graft)
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -302,6 +338,65 @@ def _array_at(path: Path, node: object, named: str) -> JSONArray:
         message = f"{named} is {type(node).__name__} and not a list"
         raise MalformedDocumentError(path, message)
     return node
+
+
+def _refuse_repeated(path: Path, obj: JSONObject, name: str, inside: str) -> None:
+    """Refuse when `name` is a key of `obj` more than once.
+
+    Narrow on purpose, and the narrowness is the whole design: this is asked
+    only of the keys the graft **looks up** to decide where to land. A key
+    repeated anywhere else in the document is the user's, like every other thing
+    in a file that is not ours to repair — but repeated *here* it makes the
+    lookup answer one occurrence while the runtime reads the other, and the
+    write lands somewhere nobody reads. RFC 8259 § 4 calls the result
+    *unpredictable*; the product cannot mediate between a document and a reader
+    without knowing what the document says.
+    """
+    if len(_indices_of(obj, name)) > 1:
+        message = (
+            f"`{name}` is a key of {inside} twice, "
+            "and which one a reader takes is undefined — delete one"
+        )
+        raise MalformedDocumentError(path, message)
+
+
+def _refuse_twins(path: Path, listing: JSONArray, graft: Inputs) -> None:
+    """Refuse when the list answers one identity with more than one element.
+
+    `_element_index_of` is the lookup here, and it shadows the way `_index_of`
+    does, one level down: *the same entry* is a field and never a position, so
+    two elements carrying one id leave the graft replacing the first while VS
+    Code reads whichever it reads. It asks the same of the id **inside** an
+    element, because that is the key it reads to compare — an element spelling
+    its own id twice is read by its first and matched by its last.
+    """
+    for element in listing.values:
+        if isinstance(element, JSONObject):
+            _refuse_repeated(path, element, graft.identity, f"an element of `{graft.root_key}`")
+    for entry in graft.entries:
+        wanted = entry.get(graft.identity)
+        if not isinstance(wanted, str):
+            continue
+        carrying = [
+            element
+            for element in listing.values
+            if isinstance(element, JSONObject) and _identity_of(element, graft.identity) == wanted
+        ]
+        if len(carrying) > 1:
+            message = (
+                f"`{graft.root_key}` has {len(carrying)} elements answering to `{wanted}`, "
+                "and which one a reader takes is undefined — delete all but one"
+            )
+            raise MalformedDocumentError(path, message)
+
+
+def _identity_of(element: JSONObject, identity: str) -> str | None:
+    """What `element` calls itself, read the way `_element_index_of` reads it."""
+    at = _index_of(element, identity)
+    if at is None:
+        return None
+    found = element.values[at]
+    return found.characters if isinstance(found, String) else None
 
 
 def _holder(
@@ -519,8 +614,8 @@ def _object(value: Mapping[str, JsonValue], layout: _Layout) -> JSONObject:
     return obj
 
 
-def _index_of(obj: JSONObject, name: str) -> int | None:
-    """Where `name` sits among the object's keys, or `None` when it is not there.
+def _indices_of(obj: JSONObject, name: str) -> list[int]:
+    """Every position `name` occupies among the object's keys, in order.
 
     A key is a quoted string in every measured file and may be a bare identifier
     in JSON5, so every spelling answers: a document written by hand as
@@ -535,13 +630,32 @@ def _index_of(obj: JSONObject, name: str) -> int | None:
     same reasoning `_element_index_of` gives for reading a value through `String`
     applies to the key, and it applies harder, because this is the lookup that
     decides append against replace.
+
+    Every position and not the first one, because *how many* is the other
+    question asked of these keys: the model this reads is a CST and keeps both
+    occurrences, so it is the only layer where a document carrying one key twice
+    can still be seen at all.
     """
+    found: list[int] = []
     for index, key in enumerate(obj.keys):
-        if isinstance(key, String) and key.characters == name:
-            return index
-        if isinstance(key, Identifier) and key.name == name:
-            return index
-    return None
+        if (isinstance(key, String) and key.characters == name) or (
+            isinstance(key, Identifier) and key.name == name
+        ):
+            found.append(index)
+    return found
+
+
+def _index_of(obj: JSONObject, name: str) -> int | None:
+    """Where `name` sits among the object's keys, or `None` when it is not there.
+
+    The **first** occurrence, which is the right answer only because
+    `refuse_if_broken` has already turned away the documents where there is more
+    than one: measured, `json.loads` and `JSON.parse` both resolve a repeated key
+    by the *last*, so on a document carrying two this would land the graft where
+    the runtime never looks.
+    """
+    found = _indices_of(obj, name)
+    return found[0] if found else None
 
 
 def _ending(tail: Sequence[str | Comment], layout: _Layout) -> list[str | Comment]:

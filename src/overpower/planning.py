@@ -662,7 +662,7 @@ def plan_for(
     )
 
 
-def refuse_broken_documents(plan: Plan) -> None:
+def refuse_broken_documents(plan: Plan, scope: Scope) -> None:
     """Refuse before the first byte if a document this plan grafts into is broken.
 
     Here rather than in `overpower.writing` because of **`--dry-run`**: the
@@ -678,16 +678,28 @@ def refuse_broken_documents(plan: Plan) -> None:
     It reads **every write** and not every path, because what makes a document
     unusable is the pair (file, root key): a `mcpServers` that is a string
     parses and still has nowhere to receive a server.
+
+    It walks the **landings** rather than `plan.writes` directly, and takes the
+    scope, because *broken* also depends on who reads the file: a trailing comma
+    is idiomatic in `.vscode/mcp.json` and fatal in `.mcp.json`. Only the landing
+    still knows which runtimes read the place — `Plan.writes` flattens that away
+    — which is the same walk, for the same reason, that `pending_activation`
+    makes.
     """
-    for write in plan.writes:
-        destination = write.destination
-        source = write.source
-        if (
-            isinstance(destination, DocumentKey)
-            and isinstance(source, Fragment | Inputs)
-            and destination.path.is_file()
-        ):
-            refuse_if_broken(destination.path, _readable(destination.path), source)
+    for landing in plan.landings:
+        tolerates_jsonc = _tolerates_jsonc(landing.readers, scope)
+        for write in landing.writes:
+            destination = write.destination
+            source = write.source
+            if (
+                isinstance(destination, DocumentKey)
+                and isinstance(source, Fragment | Inputs)
+                and destination.path.is_file()
+            ):
+                readable = _readable(destination.path)
+                refuse_if_broken(
+                    destination.path, readable, source, tolerates_jsonc=tolerates_jsonc
+                )
 
 
 def _readable(path: Path) -> str:
@@ -863,6 +875,20 @@ def _any_document(
 def _born_pending(readers: Sequence[str], scope: Scope) -> bool:
     """Whether any runtime reading this place leaves the server waiting for a human."""
     return _any_document(readers, scope, lambda document: document.born_pending)
+
+
+def _tolerates_jsonc(readers: Sequence[str], scope: Scope) -> bool:
+    """Whether a comment or a trailing comma is legal in the place these runtimes read.
+
+    *Every* and not *any*, which is why this one does not go through
+    `_any_document`: a document one runtime forgives and another parses strictly
+    is a document the strict one cannot read, so the place is tolerant only when
+    nothing reading it is strict. A place no row answers for is strict as well —
+    the empty answer has to fall on the side that refuses, because the other
+    side of being wrong is a write no runtime ever sees.
+    """
+    known = [document for key in readers if (document := mcp_document_of(key, scope)) is not None]
+    return bool(known) and all(document.tolerates_jsonc for document in known)
 
 
 def _refuse_a_sourced_recipe_outside_machine_scope(recipes: Sequence[Recipe], scope: Scope) -> None:

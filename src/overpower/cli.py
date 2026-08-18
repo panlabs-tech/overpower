@@ -809,7 +809,7 @@ def _perform(  # noqa: PLR0913 — one argument per thing `plan_for` itself take
     # paths: a `--dry-run` that answered 0 to a line the real run refuses with 3
     # would be a report about a different installation
     # (https://github.com/panlabs-tech/overpower/issues/76).
-    refuse_broken_documents(plan)
+    refuse_broken_documents(plan, request.scope)
     # Same reasoning, a fact of the machine rather than of a document: a
     # `--dry-run` that skipped this would report on a different machine than
     # the one that runs `install` for real (https://github.com/panlabs-tech/overpower/issues/82).

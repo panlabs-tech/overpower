@@ -452,9 +452,20 @@ CLOUDFLARE = "https://mcp.cloudflare.com/mcp"
 MCP_JSON = ".mcp.json"
 """Where Claude Code reads MCP servers in a repository — measured, not transcribed."""
 
+VSCODE_JSON = ".vscode/mcp.json"
+"""Where VS Code reads MCP servers in a repository — measured, not transcribed."""
+
+VSCODE = ("--runtime", "vscode")
+"""The selector under test, spelled once: the second target the product renders.
+
+Up here with `MCP_JSON` and not down in its own section, because the two
+documents differ by something this section needs: `.vscode/mcp.json` tolerates a
+comment and `.mcp.json` does not, so the tests about what the insertion does
+*around* a comment can only be written against this one.
+"""
+
 OCCUPIED = """\
 {
-  // the schema is mine, and nobody asked the overpower to touch it
   "$schema": "https://example.com/mcp.schema.json",
   "mcpServers": {
     "antigo": {
@@ -466,9 +477,16 @@ OCCUPIED = """\
 """
 """A document with everything the graft has to leave alone.
 
-A comment the standard library cannot even parse, a root key no tool of ours
-knows, and a server of the user's whose `args` are on one line — which is exactly
-what `json.dumps` reflows, measured, in the friendliest case there is.
+A root key no tool of ours knows, and a server of the user's whose `args` are on
+one line — which is exactly what `json.dumps` reflows, measured, in the
+friendliest case there is.
+
+**Strict JSON, and it carried a comment until it could not.** This seed is fed
+to `.mcp.json` and to Devin's document, and both of those are parsed by their
+runtime with a strict reader: a comment here is a file Claude Code does not
+read, so a graft preserving one was preserving a document that was already
+dead. The comment moved to `.vscode/mcp.json`, where it is legal and idiomatic
+and where the same insertion mechanics are proven against it.
 """
 
 
@@ -549,7 +567,9 @@ def test_the_rest_of_the_document_arrives_byte_for_byte(
     *"In a repository the git is the manifest"* only holds if `git diff` answers
     exactly what the tool wrote. Measured, `json.dumps` in the friendliest case
     there is — strict JSON, no comments, the same indent — already reflows a
-    server nobody touched.
+    server nobody touched, and this document **is** that friendliest case: the
+    same promise over a comment is proven where a comment may legally sit, in
+    `test_a_comment_in_the_vscode_document_survives_both_grafts`.
     """
     # given
     catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": CLOUDFLARE})
@@ -562,7 +582,7 @@ def test_the_rest_of_the_document_arrives_byte_for_byte(
     after = document.read_text(encoding="utf-8")
     assert lost_lines(OCCUPIED, after) == []
     assert '      "args": ["server.js"]' in after
-    assert "  // the schema is mine, and nobody asked the overpower to touch it" in after
+    assert '  "$schema": "https://example.com/mcp.schema.json",' in after
     assert CLOUDFLARE in after
 
 
@@ -627,17 +647,23 @@ def test_a_comment_at_the_end_of_the_object_is_not_swallowed_by_the_comma(
     the comment line** — `// a note,` — and the comment would swallow it: valid
     JSON5, one server short, exit 0. So the whitespace is moved onto the new
     entry instead of rebuilt, and the comma goes in front of it.
+
+    Against `.vscode/mcp.json`, because that is the only document where the
+    hazard can arise: a comment is idiomatic there and refused in `.mcp.json`,
+    whose reader parses strict JSON.
     """
     # given
     catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": CLOUDFLARE})
     root = target(tmp_path, monkeypatch)
+    document = root / VSCODE_JSON
+    document.parent.mkdir(parents=True)
     text = (
-        '{\n  "mcpServers": {\n    "antigo": { "command": "node" }\n'
+        '{\n  "servers": {\n    "antigo": { "command": "node" }\n'
         "    // a note the user left at the end\n  }\n}\n"
     )
-    document = occupied(root, text)
+    document.write_text(text, encoding="utf-8", newline="")
 
-    code, output = run(capsys, "install", "--mcp", "cloudflare", "--runtime", "claude-code")
+    code, output = run(capsys, "install", "--mcp", "cloudflare", *VSCODE)
 
     assert code == 0
     after = document.read_text(encoding="utf-8")
@@ -684,16 +710,21 @@ def test_a_comment_at_the_end_of_a_line_stays_on_the_entry_it_annotates(
     characters: a split between them would strand the carriage return on the
     line above, which is a byte moved by the one function whose whole purpose is
     to move none.
+
+    Against `.vscode/mcp.json` for the same reason its sibling is: a comment is
+    legal there and refused in a document whose reader parses strict JSON.
     """
     # given
     catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": CLOUDFLARE})
     root = target(tmp_path, monkeypatch)
     note = "// meu comentario sobre o antigo"
     annotated = f'    "antigo": {{ "command": "node" }} {note}'
-    text = f'{{{newline}  "mcpServers": {{{newline}{annotated}{newline}  }}{newline}}}{newline}'
-    document = occupied(root, text)
+    text = f'{{{newline}  "servers": {{{newline}{annotated}{newline}  }}{newline}}}{newline}'
+    document = root / VSCODE_JSON
+    document.parent.mkdir(parents=True)
+    document.write_text(text, encoding="utf-8", newline="")
 
-    code, output = run(capsys, "install", "--mcp", "cloudflare", "--runtime", "claude-code")
+    code, output = run(capsys, "install", "--mcp", "cloudflare", *VSCODE)
 
     assert code == 0
     after = document.read_text(encoding="utf-8")
@@ -876,12 +907,6 @@ def test_the_document_is_created_when_the_repository_has_none(
 # --------------------------------------------------------------------------- #
 # the VS Code document: two keys of one file, and the prompt behind the secret
 # --------------------------------------------------------------------------- #
-
-VSCODE_JSON = ".vscode/mcp.json"
-"""Where VS Code reads MCP servers in a repository — measured, not transcribed."""
-
-VSCODE = ("--runtime", "vscode")
-"""The selector under test, spelled once: the second target the product renders."""
 
 
 def test_a_vscode_install_writes_the_server_and_the_prompt_into_one_document(
@@ -1248,12 +1273,45 @@ BROKEN = [
     pytest.param('{"mcpServers": {,,}}\n', id="not-json"),
     pytest.param('["mcpServers"]\n', id="not-an-object"),
     pytest.param('{"mcpServers": "not a table"}\n', id="root-key-not-an-object"),
+    pytest.param(
+        '{"mcpServers": {"antigo": {"command": "node"}},\n'
+        ' "mcpServers": {"outro": {"command": "node"}}}\n',
+        id="duplicate-root-key",
+    ),
+    pytest.param(
+        '{"mcpServers": {"cloudflare": {"command": "A"},\n'
+        '                "cloudflare": {"command": "B"}}}\n',
+        id="duplicate-server-name",
+    ),
+    pytest.param(
+        '{"mcpServers": {"antigo": {"command": "node"}}, "mcpServers": "not a table"}\n',
+        id="shadowed-root-key-not-an-object",
+    ),
+    pytest.param('{"mcpServers": {"antigo": {"command": "node"},},}\n', id="trailing-comma"),
+    pytest.param(
+        '{\n  // mine, and the reader of this file cannot parse it\n  "mcpServers": {}\n}\n',
+        id="comment",
+    ),
 ]
-"""The three shapes of *already broken*, and the third is the one that hides.
+"""The shapes of *already broken*, and the ones that hide are the whole point.
 
 The first two fail at the parser. The third parses perfectly and still has
 nowhere to put a server — so a check that stopped at the top level would answer
 that it is fine, which is exactly what it did until it was measured.
+
+The last three carry one key twice, which the RFC calls valid and leaves
+*unpredictable*. Measured, `JSON.parse` and `json.loads` both resolve it by the
+**last** occurrence while the graft lands on the **first**: the write is real,
+the exit is 0, and the runtime goes on reading the old value. The sixth is the
+third one wearing a disguise — alone it is refused with 3, and hidden behind a
+duplicated root it was accepted with 0, which made the duplicate an evasion of
+a check that already existed.
+
+The last two are broken only **here**. Every shape is fed to `.mcp.json`, which
+its readers parse as strict JSON, and a trailing comma or a comment stops them
+dead — the same two bytes are idiomatic in `.vscode/mcp.json` and stay accepted
+there. This list is a list of documents that are already broken *for the
+runtime that reads them*, which is why the file it is fed to is part of it.
 """
 
 
@@ -1329,6 +1387,63 @@ def test_a_broken_file_is_refused_before_the_copies_of_the_same_line_land(
     assert document.read_text(encoding="utf-8") == broken
 
 
+def test_a_duplicate_the_graft_never_looks_up_is_not_ours_to_refuse(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The refusal is narrow by construction, and this is the edge that says so.
+
+    What makes a duplicate refusable is not that it is a duplicate — it is that
+    the graft *reads that key* to decide where to land, so an ambiguous answer
+    sends the write somewhere the runtime does not look. `$schema` is a key the
+    graft never asks about, so it stays the user's business, exactly like every
+    other thing in a file that is not ours to repair.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": CLOUDFLARE})
+    root = target(tmp_path, monkeypatch)
+    text = (
+        '{\n  "$schema": "https://example.com/a.json",\n'
+        '  "$schema": "https://example.com/b.json",\n'
+        '  "mcpServers": {\n    "antigo": {"command": "node"}\n  }\n}\n'
+    )
+    document = occupied(root, text)
+
+    code, _ = run(capsys, "install", "--mcp", "cloudflare", "--runtime", "claude-code")
+
+    assert code == 0
+    assert "cloudflare" in parsed(document)["mcpServers"]  # pyright: ignore[reportOperatorIssue]
+
+
+def test_two_prompts_carrying_one_id_are_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The list has a lookup of its own, and it shadows the way the object does.
+
+    `inputs` is matched by a field and never by position — that is what makes
+    the same secret asked for twice one prompt. Two entries carrying one id
+    leave that lookup answering the first while VS Code reads whichever it
+    reads, which is the ambiguity of a duplicated key one level down.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"panel": SLOTTED})
+    root = target(tmp_path, monkeypatch)
+    document = root / VSCODE_JSON
+    document.parent.mkdir(parents=True)
+    text = (
+        '{\n  "servers": {},\n  "inputs": [\n'
+        '    { "type": "promptString", "id": "panel-token", "description": "mine" },\n'
+        '    { "type": "promptString", "id": "panel-token", "description": "also mine" }\n'
+        "  ]\n}\n"
+    )
+    document.write_text(text, encoding="utf-8", newline="")
+
+    code, output = run(capsys, "install", "--mcp", "panel", *VSCODE)
+
+    assert code == 3
+    assert document.read_text(encoding="utf-8") == text
+    assert "mcp.json" in joined(output)
+
+
 # --------------------------------------------------------------------------- #
 # #80: the second target, and the writer that does not know there are two
 # --------------------------------------------------------------------------- #
@@ -1361,6 +1476,34 @@ def test_the_second_target_lands_in_its_own_document_under_a_directory_it_create
     assert code == 0
     assert files_under(root) == {DEVIN_JSON}
     assert document_keys(root / DEVIN_JSON) == keys_in(output)
+
+
+def test_the_second_target_refuses_a_document_its_reader_could_not_parse(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Devin enters the table strict, and this is where that decision is written down.
+
+    Measured in https://github.com/panlabs-tech/overpower/issues/87: a malformed
+    `.devin/mcp_config.json` answers *"No MCP servers configured"* at exit 0 —
+    the graft disappears with no error at all, which is the worst class the spec
+    names. The row's grade of evidence is vendor documentation and not a
+    measurement, so the column is set on the **asymmetry** and not on certainty:
+    strict and wrong costs a refusal that names its own fix, tolerant and wrong
+    costs a server that silently is not there.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": CLOUDFLARE})
+    root = target(tmp_path, monkeypatch)
+    document = root / DEVIN_JSON
+    document.parent.mkdir(parents=True)
+    text = '{"mcpServers": {"antigo": {"command": "node"},},}\n'
+    document.write_text(text, encoding="utf-8", newline="")
+
+    code, output = run(capsys, "install", "--mcp", "cloudflare", "--runtime", "devin")
+
+    assert code == 3
+    assert document.read_text(encoding="utf-8") == text
+    assert "mcp_config.json" in joined(output)
 
 
 def test_the_two_targets_write_two_documents_that_disagree_on_everything_but_the_key(

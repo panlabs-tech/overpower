@@ -550,6 +550,25 @@ def test_no_machine_document_is_born_pending() -> None:
     assert not any(document.born_pending for document in machine)
 
 
+def test_the_table_says_which_documents_tolerate_jsonc_and_which_do_not() -> None:
+    """Strictness is a fact of the file, so it is a column here and not a derivation.
+
+    Both VS Code rows tolerate it — `.vscode/mcp.json` is documented as JSONC and
+    a comment in one is idiomatic. The other four do not: measured, Claude Code
+    reads `.mcp.json` with `JSON.parse`, and Devin's rows enter strict on the
+    asymmetry of being wrong rather than on a measurement of their own.
+
+    Deliberately **not** asserted against `Dialect`. The two axes agree across
+    these six rows and stop agreeing at the Copilot CLI, which reads a strict
+    `.mcp.json` and a JSONC `~/.copilot/mcp-config.json` under one spelling of
+    the root key — so a dialect would have to answer twice, exactly the shape
+    `Dialect` says it refuses to be.
+    """
+    assert len(MCP_DOCUMENTS) == 6
+    tolerant = {key for (key, _), document in MCP_DOCUMENTS.items() if document.tolerates_jsonc}
+    assert tolerant == {"vscode"}
+
+
 def test_a_project_document_still_hangs_off_the_repository() -> None:
     """The row decides the base, not the scope argument — rule 8, both axes."""
     (place,) = mcp_places_of(["claude-code"], Scope.PROJECT, REPO, environment())

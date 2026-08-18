@@ -23,6 +23,41 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.21.4] - 2026-08-17
+
+### Fixed
+
+- **A configuration file carrying the same key twice is refused instead of written
+  into.** Every parser measured — `json.loads`, `JSON.parse` — resolves a repeated
+  key by the **last** occurrence, and the graft landed on the **first**: `install`
+  exited 0, reported `1 write · 1 file`, named `.mcp.json › mcpServers.cloudflare`
+  in its plan, and the runtime went on reading the user's old value. It was also
+  an evasion of a refusal that already existed — a `mcpServers` that is a string
+  exits 3 on its own and exited 0 hidden behind a duplicated root key.
+
+  The refusal is **narrow by construction**: it covers the keys the graft actually
+  looks up to decide where to land — the root key, the server name under it, and
+  the id of an `inputs[]` entry — and nothing else. A key repeated anywhere else
+  in the document is still none of the product's business, the same way every
+  other thing in a file that is not ours to repair is not. RFC 8259 § 4 calls the
+  result of a duplicate *unpredictable*, and ADR 0013 now carries the amendment
+  that says why that makes it a broken file rather than a collision to overwrite. ([#125](https://github.com/panlabs-tech/overpower/issues/125))
+- **A trailing comma or a comment in a document whose runtime parses strict JSON is
+  refused instead of written into.** `.mcp.json` and Devin's `mcp_config.json` are
+  read on the other side by a strict parser, so a file carrying either is already
+  a file that runtime cannot read — and `install` was exiting 0 over it, leaving a
+  graft on disk that nothing would ever see. `.vscode/mcp.json` is JSONC, where a
+  comment and a trailing comma are idiomatic, and nothing changes there: the graft
+  still reads every document through the tolerant parser that keeps them alive
+  across a write.
+
+  Strictness is now a **column of the table that decides the document**, beside the
+  one that knows a server is born pending. It is a fact of the file and is never
+  derived from the dialect, which spells keys and not syntax: the Copilot CLI
+  reads a strict `.mcp.json` and a JSONC `~/.copilot/mcp-config.json` under one
+  spelling of the root key, so a dialect would have to answer twice. ([#126](https://github.com/panlabs-tech/overpower/issues/126))
+
+
 ## [0.21.3] - 2026-08-16
 
 ### Fixed

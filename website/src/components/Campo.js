@@ -35,7 +35,8 @@ import Translate, {translate} from '@docusaurus/Translate';
 import estilos from './catalogo.module.css';
 
 // Só identificador de código como entrada — minúsculo e ASCII por contrato do
-// gerador (`scripts/lib/assinatura.mjs`). Sem normalização de acento: não há
+// gerador (`scripts/lib/assinatura.mjs` do gabarito, que não veio com este
+// componente). Sem normalização de acento: não há
 // acento a normalizar.
 function slugificar(nome) {
   return nome.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
@@ -65,7 +66,7 @@ function Campo({especie, name, type, required, deprecated, padrao, children}) {
           aria-label={translate(
             {
               id: 'shinydoc.campo.ancora',
-              message: 'Link para {nome}',
+              message: 'Link to {nome}',
               description: 'Nome acessível da âncora de linha de um campo de API',
             },
             {nome: name},
@@ -86,7 +87,7 @@ function Campo({especie, name, type, required, deprecated, padrao, children}) {
           {padrao === undefined ? null : (
             <span className={estilos.fieldChip}>
               <Translate id="shinydoc.campo.padrao" description="Rótulo do valor default de um campo de API">
-                padrão
+                default
               </Translate>{' '}
               <code>{padrao}</code>
             </span>
@@ -96,7 +97,7 @@ function Campo({especie, name, type, required, deprecated, padrao, children}) {
               <Translate
                 id="shinydoc.campo.obrigatorio"
                 description="Chip que marca um parâmetro obrigatório">
-                obrigatório
+                required
               </Translate>
             </strong>
           ) : null}

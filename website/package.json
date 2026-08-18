@@ -9,6 +9,7 @@
     "swizzle": "docusaurus swizzle",
     "clear": "docusaurus clear",
     "serve": "docusaurus serve",
+    "test": "node --test scripts/busca.test.mjs",
     "portao:1": "./scripts/portao-1-literais.sh",
     "portao:2": "./scripts/portao-2-motion.sh",
     "portao:3": "./scripts/portao-3-outline.sh",
@@ -31,8 +32,16 @@
     "@docusaurus/types": "3.10.2"
   },
   "browserslist": {
-    "production": [">0.5%", "not dead", "not op_mini all"],
-    "development": ["last 3 chrome version", "last 3 firefox version", "last 5 safari version"]
+    "production": [
+      ">0.5%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 3 chrome version",
+      "last 3 firefox version",
+      "last 5 safari version"
+    ]
   },
   "engines": {
     "node": ">=20.0"

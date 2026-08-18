@@ -482,6 +482,12 @@ jobs:
       - name: The icon manifest and the vendored drawings are a bijection
         run: npm run icones
 
+      # The search ladder — scoring, normalisation, highlight ranges — is pure
+      # logic and is the only part of the site a unit test can reach. The modal
+      # around it is `<dialog>` plus keyboard, which only a browser can judge.
+      - name: The search ladder
+        run: npm test
+
       # Last, because it is the slowest and because it is where the three
       # `onBroken*: throw` actually run.
       - name: Build

@@ -71,7 +71,7 @@
    alguém colar um valor torto.
    --------------------------------------------------------------------------- */
 
-@property --sd-brand  { syntax: '<color>';  inherits: true; initial-value: #BC461D; }
+@property --sd-brand  { syntax: '<color>';  inherits: true; initial-value: #8156C0; }
 @property --sd-radius { syntax: '<length>'; inherits: true; initial-value: 16px; }
 
 /* =============================================================================
@@ -85,7 +85,11 @@
      de fábrica. As outras cinco entregam referência ou pilha de fonte, que
      initial-value não sabe expressar: colagem inválida ali apaga o que a linha
      alimenta, à vista. */
-  --sd-brand:          #BC461D;
+  /* A marca DIVERGE do gabarito, e diverge por decisão travada: a #129 §11
+     diz `--sd-brand` continua `#8156C0`, que era o valor do shinydoc quando a
+     spec foi escrita. O gabarito passou para `#BC461D` depois; o overpower
+     ficou com o roxo, que é o que o favicon também usa. */
+  --sd-brand:          #8156C0;
   --sd-brand-on-dark:  oklch(from var(--sd-brand) max(l, 0.72) c h);
   --sd-brand-on-light: oklch(from var(--sd-brand) min(l, 0.50) c h);
   --sd-font-body:      'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
@@ -619,7 +623,8 @@
    na troca de tema. Sem a faixa não há o que manter escuro fora do modo.
 
    Se ela voltar, o seletor volta AQUI e não num bloco próprio — e
-   `scripts/contraste.mjs` casa este seletor em início de linha, então voltar
+   O `scripts/contraste.mjs` do gabarito — que não veio — casa este seletor em
+   início de linha, então voltar
    com ele exige acertar o casamento lá junto. */
 :root {
   color-scheme: dark;
@@ -755,7 +760,7 @@
      precedente dos quatro `--sd-hue-*`. O corporativo redesenha; não re-marca.
 
      Piso conferível por comando, e não só registrado:
-     `node scripts/contraste.mjs --verificar`.
+     `node scripts/contraste.mjs --verificar`, no gabarito.
      --------------------------------------------------------------------- */
   --sd-code-fg:        var(--sd-text-body);
   --sd-code-parameter: #7FE4E9;   /* oklch(85.9% 0.095 200) — o cyan, o identificador */

@@ -65,18 +65,17 @@ const SISTEMA = [
   {nome: 'arrow-right', papeis: ['sistema'], onde: 'paginação e CTA de card'},
 ];
 
-/**
- * Navegação · 6 tags sobre 6 arquivos, e **nenhum deles mora num array próprio**.
- *
- * O gabarito tinha dois órfãos de navegação — `code-xml` e `activity` — porque a
- * árvore dele tinha onze seções e duas delas não achavam glifo que já estivesse
- * no vocabulário do autor. A árvore daqui tem seis, e as seis acharam: `rocket`,
- * `terminal`, `layers`, `book-open`, `wrench` e `package` já eram nomes de
- * autoria e carregam a segunda tag na própria entrada. O array intermediário
- * ficou sem habitante, e um array vazio que só documenta a própria vacuidade é
- * ruído — ele saiu, e os dois órfãos voltaram a ser o que sempre foram: nomes
- * que o autor escreve como string.
- */
+/*
+   Navegação · 6 tags sobre 6 arquivos, e **nenhum deles mora num array próprio**.
+   
+   O gabarito tinha dois órfãos de navegação — `code-xml` e `activity` — porque a
+   árvore dele tinha onze seções e duas delas não achavam glifo que já estivesse
+   no vocabulário do autor. A árvore daqui tem seis, e as seis acharam: `rocket`,
+   `terminal`, `layers`, `book-open`, `wrench` e `package` já eram nomes de
+   autoria e carregam a segunda tag na própria entrada. O array intermediário
+   ficou sem habitante, e um array vazio que só documenta a própria vacuidade é
+   ruído — ele saiu, e os dois órfãos voltaram a ser o que sempre foram: nomes
+   que o autor escreve como string. */
 
 
 /**

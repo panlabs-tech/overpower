@@ -172,7 +172,7 @@ export default function SearchBar() {
         <Icon name="search" size="sm" />
         <span className={estilos.rotulo}>
           <Translate id="shinydoc.busca.abrir" description="Rótulo do botão que abre a busca">
-            Buscar
+            Search
           </Translate>
         </span>
         <kbd className={estilos.atalho}>{mac ? '⌘' : 'Ctrl'} K</kbd>
@@ -200,7 +200,7 @@ export default function SearchBar() {
             aria-activedescendant={resultados.length > 0 ? idOpcao(ativo) : undefined}
             aria-label={translate({
               id: 'shinydoc.busca.campo',
-              message: 'Buscar na documentação',
+              message: 'Search the documentation',
               description: 'Nome acessível do campo de busca',
             })}
             value={consulta}
@@ -216,7 +216,7 @@ export default function SearchBar() {
             onClick={fechar}
             aria-label={translate({
               id: 'shinydoc.busca.fechar',
-              message: 'Fechar a busca',
+              message: 'Close search',
               description: 'Nome acessível do botão que fecha o modal de busca',
             })}>
             <Icon name="x" size="sm" />
@@ -229,7 +229,7 @@ export default function SearchBar() {
           className={estilos.lista}
           aria-label={translate({
             id: 'shinydoc.busca.resultados',
-            message: 'Resultados',
+            message: 'Results',
             description: 'Nome acessível da lista de resultados da busca',
           })}>
           {resultados.map((r, i) => (
@@ -249,7 +249,7 @@ export default function SearchBar() {
                   <Translate
                     id="shinydoc.busca.fallback"
                     description="Marca de resultado cuja página ainda está em português">
-                    em português
+                    untranslated
                   </Translate>
                 </span>
               ) : null}
@@ -264,7 +264,7 @@ export default function SearchBar() {
             : translate(
                 {
                   id: 'shinydoc.busca.contagem',
-                  message: '{n} resultados',
+                  message: '{n} results',
                   description: 'Anúncio do número de resultados, para leitor de tela',
                 },
                 {n: resultados.length},
@@ -278,19 +278,19 @@ export default function SearchBar() {
           <span>
             ↑↓{' '}
             <Translate id="shinydoc.busca.tecla.navegar" description="Legenda das setas no rodapé do modal">
-              navegar
+              navigate
             </Translate>
           </span>
           <span>
             ↵{' '}
             <Translate id="shinydoc.busca.tecla.abrir" description="Legenda do Enter no rodapé do modal">
-              abrir
+              open
             </Translate>
           </span>
           <span>
             esc{' '}
             <Translate id="shinydoc.busca.tecla.fechar" description="Legenda do Esc no rodapé do modal">
-              fechar
+              close
             </Translate>
           </span>
         </footer>

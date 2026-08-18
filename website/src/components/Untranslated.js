@@ -43,7 +43,7 @@ export default function Untranslated() {
         <Translate
           id="shinydoc.untranslated.aviso"
           description="Aviso no topo de uma página que ainda não foi traduzida">
-          Esta página ainda não foi traduzida. O conteúdo abaixo está em português.
+          This page has not been translated yet.
         </Translate>
       </p>
     </aside>

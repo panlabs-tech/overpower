@@ -9,17 +9,14 @@
 # Nothing here can publish to PyPI. It never runs `uv build`, it holds no
 # `id-token` scope for the `pypi` environment, and the only artifact it uploads
 # is the static site.
+#
+# https://github.com/panlabs-tech/overpower/issues/130
 name: Deploy the documentation site
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
-
-permissions:
-  contents: read
-  pages: write
-  id-token: write
 
 # One deployment at a time, and the queue does not cancel the one already in
 # flight: `cancel-in-progress: true` here would abort a deploy mid-upload and
@@ -32,6 +29,15 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
+    # On the job and not on the workflow, which is the shape `release.yml` and
+    # `tag.yml` already use. It matters most here: this job runs `npm ci` over
+    # third-party packages, and a workflow-level block would hand that step the
+    # `id-token: write` that exchanges for a deployment credential. Only `deploy`
+    # needs it. `pages: read` is what `configure-pages` reads the site config
+    # with — it does not enable Pages, and `enablement` stays at its default.
+    permissions:
+      contents: read
+      pages: read
     defaults:
       run:
         working-directory: website
@@ -65,6 +71,9 @@ jobs:
     name: Publish
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

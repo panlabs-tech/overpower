@@ -37,7 +37,7 @@ export default function Table({children, ...resto}) {
       tabIndex={0}
       aria-label={translate({
         id: 'shinydoc.tabela.regiao',
-        message: 'Tabela',
+        message: 'Table',
         description: 'Nome acessível da região rolável que envolve toda tabela',
       })}>
       <table {...resto}>{children}</table>

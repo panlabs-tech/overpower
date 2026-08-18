@@ -206,7 +206,10 @@ if (congelado !== agora) {
   console.error('');
   console.error('Um nome REMOVIDO cujo arquivo existe em src/theme/ é a falha silenciosa:');
   console.error('o arquivo passa a ser ignorado, sem erro, e a customização some.');
-  console.error(`Reconcilie o ledger (`.claude/rules/swizzle-theme.md`) e rode: node ${ARTEFATO.replace('.txt', '.mjs')} --congelar`);
+  console.error(
+    `Reconcilie o ledger (.claude/rules/swizzle-theme.md) e rode: ` +
+      `node ${ARTEFATO.replace('.txt', '.mjs')} --congelar`,
+  );
   falhas += 1;
 }
 

@@ -831,8 +831,10 @@ aside.theme-doc-sidebar-container {
 
    `TOC/styles.module.css` do `theme-classic` declara `top: calc(var(
    --ifm-navbar-height) + 1rem)`. Com o adaptador escrevendo 112 em
-   `--ifm-navbar-height`, isso dá 128 — medido, e é o que `npm run paridade`
-   acusava contra o alvo de 152 do §11. Os 16 do upstream são a respiração
+   `--ifm-navbar-height`, isso dá 128 — medido no gabarito, onde `npm run
+   paridade` o acusava contra o alvo de 152. Aquele portão comparava o site
+   com um alvo externo por Chrome headless e não veio no transplante; o
+   número que ele mediu veio. Os 16 do upstream são a respiração
    dele; a nossa é `--sd-space-10`, a mesma que o `<main>` já dá ao `<article>`
    (§1, acima). Alinhar os dois é o que a linha `TOC grudado em` cobra: o
    índice não sobe acima do texto que ele indexa.
@@ -1033,7 +1035,8 @@ html.docs-doc-page .theme-doc-breadcrumbs {
 }
 
 /* O item de home — o `<li>` do ícone de casa. Ele é o primeiro sempre que a
-   rota de landing existe, e ela existe: `src/pages/index.js`. */
+   rota `/` existe, e ela existe: aqui não por uma landing em `src/pages/`, que
+   não veio no transplante, mas pela própria visão geral, que leva `slug: /`. */
 html.docs-doc-page .breadcrumbs__item:first-child,
 html.docs-doc-page .breadcrumbs__item--active {
   display: none;

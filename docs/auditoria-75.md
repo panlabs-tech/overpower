@@ -6,6 +6,18 @@ federada e a segunda operação de escrita"*), construída por 16 tickets fechad
 
 Nenhum arquivo de `src/` ou `tests/` foi editado durante a auditoria.
 
+> **Estado, 2026-08-17: os 13 achados estão fechados.** Este documento é o relatório da auditoria
+> como ela foi feita, contra a base nomeada na § 0 — não é uma lista de pendências. Os consertos
+> saíram em cinco PRs, e o raciocínio de cada um mora no corpo do PR, não aqui:
+> [#114](https://github.com/panlabs-tech/overpower/pull/114) (`S0-1`, `S1-1`, `S1-2`),
+> [#118](https://github.com/panlabs-tech/overpower/pull/118) (`S1-3`, `S1-5`, `S9-2`, `S10-1`),
+> [#121](https://github.com/panlabs-tech/overpower/pull/121) (`S4-3`, `C2-1`),
+> [#124](https://github.com/panlabs-tech/overpower/pull/124) (`S1-4`, `C3-01`) e
+> [#127](https://github.com/panlabs-tech/overpower/pull/127) (`S4-1`, `S4-2`).
+> Onde a medição do conserto discordou da auditoria, quem vale é o PR — o desempate do `S4-3` não
+> desempatava, o `S9-2` tinha três trechos e não dois, e o conserto proposto para o `S4-2` não
+> alcançava o dado. As dúvidas abertas da § 7 continuam abertas.
+
 ---
 
 ## 0. A base auditada, e uma correção de método

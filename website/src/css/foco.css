@@ -1,0 +1,341 @@
+/* =============================================================================
+   shinydoc — o contrato de estado de entrada
+
+   Foco, press e alvo de toque. As duas metades do mesmo mecanismo — o par
+   `(hover: hover)` / `(pointer: coarse)` — moram juntas de propósito: separá-las
+   poria os dois lados de uma decisão só em arquivos diferentes.
+
+   **Este é o único arquivo do projeto onde a palavra `outline` pode aparecer.**
+   O portão 3 reprova qualquer outra ocorrência em `src/`, e o motivo é
+   específico: este contrato não morre por alguém desenhar um anel ruim. Morre
+   por alguém escrever `outline: none` num botão para "limpar" o visual — a linha
+   de CSS mais comum do mundo, que apaga acessibilidade de teclado sem sintoma
+   visível para quem a escreveu.
+
+   Zero literal, zero swizzle, zero dependência.
+   Ver ADR 4 do shinydoc e shinydoc-docusaurus/docs/design/foco.md.
+   ============================================================================= */
+
+/* -----------------------------------------------------------------------------
+   1. A regra. Universal.
+
+   Universal, e não uma lista de focáveis, por causa do MODO DE FALHAR:
+
+   · lista de alvos → elemento novo não ganha anel, e **só quem navega por
+     teclado descobre**;
+   · regra universal → um contêiner ganha anel indevido, e **qualquer um vê, na
+     hora**.
+
+   Prefira a falha que se enxerga.
+
+   O mecanismo é `outline` e **não** uma camada da sombra multi-camada.
+   `box-shadow` não se acrescenta — se redeclara inteiro —, então todo elemento
+   elevado teria que repetir as três camadas dele só para pendurar a quarta.
+   `outline` compra quatro coisas de graça: não afeta layout, acompanha
+   `border-radius` nativamente, **não participa da transição da sombra** (é o que
+   torna o anel instantâneo uma consequência da escolha de propriedade em vez de
+   uma regra a lembrar), e é ortogonal ao anel de 1px da elevação — os dois
+   convivem como círculos concêntricos, separados pelo afastamento.
+
+   O afastamento não é estética: é o que FECHA o contrato. Com ele o anel é
+   pintado inteiramente fora da caixa do elemento, então **ele nunca pousa sobre
+   o preenchimento do próprio elemento** — pousa sempre sobre a superfície que
+   está atrás. Botão de acento com anel de acento seria 1:1 sem isso.
+
+   `:focus-visible` sozinho, zero `:focus`. Em campo de texto o navegador casa
+   `:focus-visible` mesmo no clique de mouse, que é a única situação em que
+   `:focus` seria necessário. Acrescentá-lo poria anel em todo botão e link
+   clicado com o mouse — o ruído que leva alguém a escrever `outline: none`.
+   ----------------------------------------------------------------------------- */
+
+:focus-visible {
+  outline: var(--sd-focus-width) solid var(--sd-focus-ring);
+  outline-offset: var(--sd-focus-offset);
+}
+
+/* -----------------------------------------------------------------------------
+   2. As exceções — lista fechada, e nenhuma é componente operável
+
+   O `theme-common` tem um `programmaticFocus` que põe `tabindex="-1"`, foca e
+   remove o atributo. Ele roda **a cada navegação client-side** sobre o
+   `<div role="region">` que envolve o skip link. Pela spec de CSS UI, elemento
+   focado por programa casa `:focus-visible` quando o anterior casava — e quem
+   navega por teclado clica um item de sidebar com Enter, que casava.
+
+   Esse div tem altura zero (o único filho é `position: fixed`). Sem estas três
+   linhas, o site desenharia **uma linha de acento atravessando o topo da página
+   a cada clique de sidebar**.
+
+   O `tabindex` é removido logo depois de focar, então `[tabindex='-1']` não
+   serve de seletor: a exceção precisa nomear os elementos. O id é constante
+   exportada pelo `theme-common`, não string descoberta.
+
+   O `:has()` exige o `<a>` do skip link como filho DIRETO — o invólucro de
+   rolagem de tabela, que também é `[role='region']` com `tabindex`, não é
+   atingido.
+   ----------------------------------------------------------------------------- */
+
+main:focus-visible,
+#__docusaurus_skipToContent_fallback:focus-visible,
+[role='region']:has(> a[href='#__docusaurus_skipToContent_fallback']):focus-visible {
+  outline: none;
+}
+
+/* -----------------------------------------------------------------------------
+   3. O anel muda de dono onde um ancestral corta
+
+   `outline` é cortado por ancestral com `overflow` diferente de `visible`. Nos
+   focáveis do site isso acontece **uma vez**: o `<pre tabindex="0">` preenche a
+   moldura do bloco de código, que corta.
+
+   A regra geral, para quem vier depois: onde um focável encostar na borda de um
+   ancestral que corta, o anel muda de dono via `:has()`.
+
+   Menor aceito, sem regra: um link exatamente na aresta de rolagem da sidebar
+   tem ~2px de anel cortados. O foco rola o elemento para dentro da vista, então
+   o corte é parcial e passageiro.
+   ----------------------------------------------------------------------------- */
+
+.theme-code-block pre:focus-visible {
+  outline: none;
+}
+
+.theme-code-block:has(pre:focus-visible) {
+  outline: var(--sd-focus-width) solid var(--sd-focus-ring);
+  outline-offset: var(--sd-focus-offset);
+}
+
+/* -----------------------------------------------------------------------------
+   4. O `transition: all` do upstream — UM, e não três
+
+   `outline` é animável, então um `transition: all` o arrasta junto, e o efeito é
+   pior que um fade: `outline-style` é propriedade discreta e vira aos 50%, o que
+   deixa O ANEL AUSENTE POR METADE DA DURAÇÃO DEPOIS DA TECLA.
+
+   ERAM TRÊS ELEMENTOS NESTA REGRA, E DOIS NUNCA FORAM DEFEITO. Medido no CSS
+   emitido do build, o arquivo inteiro tem exatamente DUAS declarações
+   `transition: all`:
+
+     · `.backToTopButton_sjWU` — o botão de voltar ao topo. É este, e só este.
+     · `.copyButtonIcon_*` / `.copyButtonSuccessIcon_*` — os dois `<svg>` DENTRO
+       do botão de copiar, não o botão. Eles são `aria-hidden` e não recebem
+       foco, logo não há anel para o `all` deles arrastar. `.theme-code-block
+       button` também nunca os alcançava: a regra mirava o botão, e o `all` mora
+       nos filhos.
+
+   E `.theme-doc-card-container` NÃO EXISTE neste site — zero ocorrências nos 108
+   HTML publicados. O `DocCard/Layout` que a redação antiga citava não é
+   renderizado por nenhuma rota daqui.
+
+   O TERCEIRO DEFEITO ERA O SELETOR, e é o mais caro: `.theme-back-to-top-button`
+   nu é (0,1,0), o mesmo peso da classe hasheada `.backToTopButton_sjWU` que
+   carrega o `all`. Empate se resolve por ORDEM DE CARGA, e o módulo do
+   theme-classic carrega depois — medido no bundle: a nossa regra no byte 82514,
+   a do upstream no 87502. A forma nua perdia em silêncio e sem sintoma, então a
+   correção inteira desta seção nunca chegou a rodar.
+
+   Somar o tipo do elemento leva o seletor a (0,1,1) e o tira da ordem. É o mesmo
+   mecanismo de `button.theme-back-to-top-button` em `chrome.css` e de
+   `div.theme-code-block` em `componentes.css` — e este arquivo é a terceira vez
+   que a armadilha aparece, agora fechada.
+
+   `visibility` ENTRA NA LISTA porque o upstream a transicionava por dentro do
+   `all`, e a base do botão é `opacity: 0` + `visibility: hidden`. Sem ela na
+   lista, a saída deixaria de desaparecer junto com o fade. Trocamos a lista de
+   propriedades, não o comportamento — tirar `outline` dela é o objetivo inteiro.
+
+   Nota que vale escrita: o Infima encurta a transição sob
+   `prefers-reduced-motion`, então o defeito **desaparecia justamente para quem
+   pediu menos movimento** e persistia para todo mundo.
+   ----------------------------------------------------------------------------- */
+
+button.theme-back-to-top-button {
+  transition:
+    opacity var(--sd-move-state),
+    transform var(--sd-move-state),
+    visibility var(--sd-move-state),
+    background-color var(--sd-move-state),
+    box-shadow var(--sd-move-state);
+}
+
+/* -----------------------------------------------------------------------------
+   5. O skip link ganha a forma do sistema
+
+   Cor e sombra dele já vêm do adaptador. A classe de módulo é manglada e
+   inalcançável; o atributo `href` é estável porque o id é constante exportada.
+
+   O `:focus` do upstream fica: ele controla POSIÇÃO, não indicador, e o link só
+   é alcançável por Tab — `:focus` e `:focus-visible` coincidem nele.
+   ----------------------------------------------------------------------------- */
+
+a[href='#__docusaurus_skipToContent_fallback'] {
+  border-radius: var(--sd-radius-sm);
+}
+
+/* -----------------------------------------------------------------------------
+   6. Press — `:active`, e ele NÃO é gated
+
+   **Hover não tem substituto no toque, porque hover não é estado: é prévia.** No
+   toque não existe ponteiro para prever com, então a pergunta "o que entra no
+   lugar" pressupõe uma lacuna que não existe. O que o toque precisa é
+   confirmação de que o dedo chegou, e isso é `:active`.
+
+   Obrigatório, e não desejável: o Infima declara
+   `-webkit-tap-highlight-color: transparent` na regra de `html`. **O upstream já
+   apagou o retorno nativo do toque.** Sem esta regra, um tap em item de sidebar,
+   link ou botão não produz reação nenhuma até a página trocar.
+
+   Press com mouse também merece confirmação, e o highlight nativo foi apagado
+   nos dois — por isso `:active` é o único dos três itens desta seção que não
+   fica sob `(pointer: coarse)`.
+
+   **Instantâneo na entrada, suave na saída, por uma declaração.** A transição de
+   entrada usa o `transition` do estado de destino; a de saída usa o da regra
+   base. `none` e não uma duração zero: duração é vocabulário de motion e não se
+   crava, e aqui não há movimento nenhum a nomear.
+   ----------------------------------------------------------------------------- */
+
+:is(a, button, summary, [role='tab']):active {
+  transition: none;
+}
+
+/* **Os mesmos tokens do hover, superfície por superfície** — e "os mesmos" é
+   literal, não aproximado. O hover de cada uma dessas superfícies é escrito pelo
+   Infima sobre uma variável diferente, e o adaptador já decidiu para onde cada
+   uma aponta; o press repete o destino, nunca um valor novo. Um press com tinta
+   própria seria um terceiro estado se apresentando como confirmação do segundo.
+   Foi conferido no fonte do Infima, uma superfície de cada vez. */
+.menu__link:active,
+.menu__caret:active {
+  background: var(--sd-border-subtle);
+}
+
+.navbar__link:active {
+  color: var(--sd-text-strong);
+}
+
+.table-of-contents__link:active,
+.footer__link-item:active {
+  color: var(--sd-accent);
+}
+
+.breadcrumbs__link:active {
+  background: var(--sd-surface-wash);
+}
+
+.pagination-nav__link:active {
+  border-color: var(--sd-accent);
+}
+
+/* -----------------------------------------------------------------------------
+   7. `(pointer: coarse)` — o espelho exato do `(hover: hover)`
+
+   Dois recursos do upstream **morrem em silêncio no toque**, e os dois foram
+   verificados no fonte:
+
+   · a **âncora de heading** é `opacity: 0` e só volta em `*:hover > .hash-link`.
+     A classe é `:global`, então o conserto custa uma declaração e nenhum
+     swizzle — se fosse hasheada, a âncora no toque seria decisão cara e
+     provavelmente perdida;
+   · o **botão de copiar** só fica visível em foco ou hover, por classe de CSS
+     Module hasheada. A âncora estável é `.theme-code-block`, e `(0,1,1)` vence
+     a classe hasheada `(0,1,0)`.
+
+   No telefone a âncora de heading é a única forma de copiar link de seção, e o
+   botão de copiar é o recurso mais usado de um bloco de código. Os dois somem
+   sem erro, sem aviso e sem sintoma para quem testa no desktop.
+   ----------------------------------------------------------------------------- */
+
+@media (pointer: coarse) {
+  .hash-link {
+    opacity: 1;
+  }
+
+  .theme-code-block button {
+    opacity: 1;
+  }
+
+  /* A terceira âncora que morreria em silêncio no toque, mesma família das
+     duas acima — a âncora de linha do campo de API (Campo.js, #99). A parte
+     publicada (`data-sd-part="ancora"`) alcança sem custar o hash do CSS
+     Module, pelo mesmo motivo do `.hash-link`: se fosse hasheada, o conserto
+     custaria uma decisão cara. Continua atrás do limiar de 997px de
+     `catalogo.module.css` — abaixo dele o elemento nem monta com posição
+     própria. */
+  [data-sd-part='ancora'] {
+    opacity: 1;
+  }
+
+  /* O piso de alvo. **Lista de exceções, não lista de alvos** — mesma forma e
+     mesmo motivo da regra de foco: lista de alvos falha em silêncio, e falha só
+     para quem tem o dedo grande ou a mão trêmula.
+
+     44px é a SC 2.5.5, que é AAA. O piso AA é 24px, e a 24 nada no site mudaria
+     — o item de sidebar do Infima já passa disso. Escolher 24 seria escrever uma
+     regra que não faz nada. 44 muda a densidade da gaveta de sidebar no
+     estreito, e esse é o custo, aceito porque a gaveta rola e é operada com o
+     polegar. */
+  a,
+  button,
+  summary,
+  [role='tab'],
+  [role='option'] {
+    min-height: var(--sd-target-min);
+    align-content: center;
+  }
+
+  /* A ÂNCORA DE HEADING RECEBE O PISO E NÃO O CUMPRE, e o mecanismo é o que este
+     arquivo já cataloga noutro lugar: `.hash-link` é `<a>`, então o seletor
+     acima o alcança e escreve `min-height: 44px` nele — mas ele é `display:
+     inline`, e **elemento `inline` ignora altura mínima em silêncio**. A mesma
+     armadilha que fez o link do rodapé virar `inline-flex` no estreito.
+
+     Medido a 1512 com `(pointer: coarse)` emulado por CDP: `.hash-link` sai
+     **22,48 × 29** com `min-height` computado em `44px` e `opacity: 1`. No
+     mesmo cenário, `.menu__link` sobe de 36 para 44 — o piso funciona onde o
+     `display` deixa. A regra não falhou; ela foi engolida.
+
+     `inline-flex` conserta a altura e **não** a largura: 22,48 continua sob 44,
+     e alargar a caixa de verdade empurraria o glifo para longe do título ou
+     esticaria a linha do heading de 32 para 44, mexendo no ritmo vertical da
+     coluna em toda página. A área de toque cresce por PSEUDO-ELEMENTO, que é o
+     recurso que amplia alvo sem tocar em layout.
+
+     `::after` e não `::before`: o `::before` é do `theme-classic` e carrega o
+     glifo `#` (medido no CSS emitido). Sobrescrevê-lo apagaria o desenho.
+
+     O alvo cobre os últimos ~14px do título, e isso é ganho e não colisão: o
+     que ele ativa é o link da própria seção, que é o que quem toca ali quer.
+     No ponteiro fino nada disto existe — lá a âncora é revelada por hover e um
+     alvo invisível de 44px sobre o fim do título roubaria a seleção de texto. */
+  .hash-link {
+    position: relative;
+  }
+
+  .hash-link::after {
+    content: '';
+    position: absolute;
+    inset-block-start: 50%;
+    inset-inline-start: 50%;
+    translate: -50% -50%;
+    inline-size: var(--sd-target-min);
+    block-size: var(--sd-target-min);
+  }
+
+  /* A exceção, e é a única: link inline na prosa. A própria SC 2.5.8 o isenta, e
+     alargá-lo quebraria o ritmo vertical da coluna de texto.
+
+     O ESCOPO É `.markdown`, E NÃO `.theme-doc-markdown`, e a diferença passou a
+     importar quando a referência gerada entrou no ar. São duas prosas agora: o
+     `DocItem/Content` do upstream escreve as DUAS classes juntas
+     (`clsx(ThemeClassNames.docs.docMarkdown, 'markdown')`, medido em 3.10.2), e
+     o `ApiDocItem` escreve só `markdown` — ele recusa a outra desde que ela era
+     o cartão. Escopar pela classe de cartão isentaria a página de doc e deixaria
+     o link da página gerada com 44px de altura, quebrando o ritmo da coluna em
+     tela de toque. `.markdown` é a classe que de fato significa *prosa*, e ela
+     cobre as duas. */
+  .markdown :is(p, li, td, th, blockquote) a {
+    min-height: 0;
+    align-content: normal;
+  }
+}

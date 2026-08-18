@@ -431,6 +431,62 @@ jobs:
           )
           PY
 
+  # The documentation site. It lives in `website/`, is a Node project inside a
+  # Python repository, and reaches none of the paths the wheel is built from —
+  # so nothing here can move the version or trip `release-ready`.
+  #
+  # Its gates are named `portao:N` because the scripts came, verbatim, from
+  # `panlabs-tech/shinydoc-docusaurus` along with the theme they guard. Renaming
+  # them would only break the cross-reading with the repository the mechanism
+  # came from; the step names below say in English what each one asserts.
+  #
+  # This job runs on every push and not only when `website/` changes. A `paths:`
+  # filter would leave it *skipped*, and `gate` treats a skipped dependency as a
+  # failure on purpose — the alternative is a required check that goes green by
+  # not running.
+  site:
+    name: site
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      # `npm ci` and not `npm install`: it fails instead of silently re-resolving,
+      # which is the same contract `uv sync --locked` gives the Python side.
+      - name: Install the locked dependencies
+        run: npm ci
+
+      - name: Gate 1 — colour, length, time and curve live only in tokens.css
+        run: npm run portao:1
+
+      - name: Gate 2 — no duration or curve hard-coded into a transition
+        run: npm run portao:2
+
+      - name: Gate 3 — `outline` lives only in foco.css
+        run: npm run portao:3
+
+      # Runs `docusaurus swizzle --list` for real and diffs it against the frozen
+      # ledger. It is the only thing that sees the failure the Docusaurus docs
+      # describe: a component renamed upstream makes the swizzled file be ignored
+      # entirely, with no error and no broken build.
+      - name: Gate 7 — the swizzle surface still matches the installed theme
+        run: npm run portao:7
+
+      - name: The icon manifest and the vendored drawings are a bijection
+        run: npm run icones
+
+      # Last, because it is the slowest and because it is where the three
+      # `onBroken*: throw` actually run.
+      - name: Build
+        run: npm run build
+
   # The one name the ruleset requires. It exists for mechanics, not elegance: a
   # required check is remembered *by name*, and a matrix cell's name carries the
   # matrix values — so without this job, changing the matrix would leave the
@@ -440,11 +496,15 @@ jobs:
   # `if: always()` plus the explicit assertion below, and not the empty job the
   # decision sketched: a job skipped because a dependency failed reports as
   # *skipped*, and GitHub treats a skipped required check as successful. An
-  # empty `needs: [static, test]` job would therefore go green exactly when the
-  # gate had something to say.
+  # empty `needs: [static, test, site]` job would therefore go green exactly when
+  # the gate had something to say.
+  #
+  # `site` joined the list when the documentation site did. A gate that does not
+  # block a merge protects nothing, and the CSS doctrine the site's four gates
+  # guard IS the layout the transplant went to fetch.
   gate:
     name: gate
-    needs: [static, test]
+    needs: [static, test, site]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -452,7 +512,9 @@ jobs:
         env:
           STATIC: ${{ needs.static.result }}
           TEST: ${{ needs.test.result }}
+          SITE: ${{ needs.site.result }}
         run: |
-          echo "static=$STATIC test=$TEST"
+          echo "static=$STATIC test=$TEST site=$SITE"
           [ "$STATIC" = "success" ] || { echo "::error::static did not succeed"; exit 1; }
           [ "$TEST" = "success" ] || { echo "::error::test did not succeed"; exit 1; }
+          [ "$SITE" = "success" ] || { echo "::error::site did not succeed"; exit 1; }

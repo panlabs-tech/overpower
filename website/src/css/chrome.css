@@ -1,0 +1,1376 @@
+/* =============================================================================
+   shinydoc — o chrome
+
+   O shell da página de documentação: proporções, navbar com faixa de tabs,
+   sidebar, TOC, eyebrow, subtítulo, paginação, footer e o comportamento em tela
+   estreita.
+
+   NÃO HÁ CARTÃO. A página é plana, e o que segura a geometria são duas caixas
+   invisíveis — uma na coluna, uma no `<article>`.
+
+   Este arquivo NÃO tem valor literal — cor, comprimento, tempo e curva vivem em
+   `tokens.css` e chegam aqui por nome. A única exceção é o limiar de media
+   query, que é comprimento e que a media query não sabe ler de custom property;
+   o portão 1 tem uma segunda perna que exige que **todo limiar do projeto seja
+   996 ou 997**, o literal compilado do Infima.
+
+   E ele nunca lê `--ifm-*`. O adaptador de mão única escreve nessas variáveis;
+   nada do projeto as consome. Ver ADR 1 do shinydoc.
+
+   Zero swizzle. Tudo aqui é degrau 0 (variável do Infima) ou degrau 1 (classe
+   estável — `ThemeClassNames`, classes do Infima, `className` em `sidebars.js`).
+   Procedência: shinydoc-docusaurus/docs/design/chrome.md.
+   ============================================================================= */
+
+/* -----------------------------------------------------------------------------
+   1. A cadeia de proporções
+
+   `--sd-container-width` → `--sd-doc-width` (container − TOC) → prosa. Os
+   valores moram em `tokens.css`; aqui e no documento eles se citam por nome,
+   para que a cadeia não tenha uma segunda versão que envelhece sozinha.
+
+   O CONGELAMENTO é `sidebar + container` — token em `tokens.css`, não mais só
+   prosa — e é a largura a partir da qual o grupo sidebar + conteúdo + TOC
+   para de crescer. Não leva termo de gutter: quem fazia esse papel era o
+   preenchimento horizontal do `<main>`, e ele saiu — ver a nota abaixo do
+   bloco `(a)`.
+
+   A #96 dá ao congelamento o seu PRIMEIRO consumidor real: antes dele, sidebar
+   e `<main>` eram dois irmãos soltos dentro de `.docRoot` — hashed, sem
+   seletor estável —, e toda a folga da tela ia para a direita porque nada
+   centralizava o par. A correção não toca `.docRoot`: seleciona ESTRUTURA, não
+   nome. `<main>` é landmark HTML5 e é sempre filho direto do flex que também
+   segura a sidebar — `div:has(> main)` alcança esse pai sem citar a classe
+   hasheada, e sem custar `unsafe`. Provado em protótipo antes desta
+   implementação — ver `prototypes/96-centralizacao` na branch descartável, e
+   o veredito no commit dela.
+
+   O NÚMERO MUDOU DEPOIS DO PROTÓTIPO: ele testou o mecanismo com 1472 (o
+   congelamento de antes da #96), e o mecanismo passou. O NÚMERO final é
+   1408, e só apareceu medindo o site inteiro contra a âncora — `sidebar(288)
+   + container(1152) = 1440` não cabia num quadro de 1408, que é o que as
+   margens simétricas de `chrome.md` §11 exigem. `--sd-container-width` caiu
+   para 1120 para fechar a conta: `288 + 1120 = 1408`. Ver `tokens.css`. */
+
+html.docs-doc-page div:has(> main) {
+  max-width: var(--sd-congelamento);
+  margin-inline: auto;
+}
+
+/* Ela fecha em três declarações, e as três existem por um motivo mecânico:
+
+   (a) O `<main>` PERDEU o preenchimento horizontal que tinha — ver a nota na
+       regra de `<main>` abaixo. Antes da #96 era ele quem completava a
+       distância até a borda da viewport; agora essa distância é o
+       `margin-inline: auto` do wrapper acima, e um preenchimento a mais
+       aqui dobraria a conta.
+   (b) O `.col` perde o preenchimento horizontal. Sem isso a coluna de
+       conteúdo nasce menor do que deveria, porque os dois lados são cobrados
+       por dentro dela.
+   (c) A coluna do TOC recebe a separação de um lado só, para que a borda
+       direita dela feche com a borda direita do container. A separação é
+       `--sd-space-6`, ORIGEM PRÓPRIA — ver `tokens.css`.
+
+   A COLUNA DO TOC NÃO É MAIS 25% DE UM GRID DE DOZE. O grid morreu nesta
+   issue: `.row` continua `display:flex` do Infima — não se toca —, mas
+   `.col--3` deixa de ler a fração de 12 e passa a ler `--sd-toc-width`
+   direto, um comprimento explícito. A coluna de conteúdo não precisa de
+   declaração simétrica: ela é `.col` NUA — sem `col--N` — e a própria regra
+   do Infima já a faz `flex: 1 0`, crescendo para preencher o que sobra da
+   `.row` depois do TOC fixo. É exatamente a "largura explícita" que a issue
+   pede, e é o motivo de a prosa poder variar com a presença do TOC em vez de
+   travar num número só — ver mais abaixo, e `chrome.md` §1.2 e §1.5. */
+
+html.docs-doc-page main > .container > .row > .col--3 {
+  flex-basis: var(--sd-toc-width);
+  max-width: var(--sd-toc-width);
+}
+
+html.docs-doc-page main {
+  /* O `<main>` PERDEU O PREENCHIMENTO HORIZONTAL na #96. Até aqui ele
+     completava, com `calc(gutter − 16)`, a distância até a borda da
+     viewport que ele mesmo era — o `<main>` não tinha pai que o
+     centralizasse, então tinha que abrir a própria margem. Agora tem: o
+     wrapper de `chrome.css` §1 centraliza o grupo inteiro com
+     `margin-inline: auto`, e essa distância vira trabalho dele. Manter o
+     preenchimento aqui SOMARIA à margem do wrapper em vez de completá-la —
+     e foi exatamente esse dobrar que produzia os 32px de sobra que a
+     álgebra do congelamento (ver `tokens.css`) não fechava. Note que abaixo
+     de 997 esta declaração já valia zero — `gutter` e `--sd-space-4` são o
+     mesmo número aí —, então a mudança não toca a tela estreita. */
+
+  /* O TOPO DO CONTEÚDO — o último elo da cadeia, e o único vertical, e o
+     único que sobrevive à #96 sem mudar de mecanismo.
+
+     Ele completa no `<main>` o que o container já dá. E aqui isso não é
+     simetria de estilo: é a ÚNICA rota. O `DocRoot/Layout/Main` cola
+     `padding-top--md` no container, e essa classe do Infima é `!important` —
+     nenhuma declaração de folha de estilo a vence sem escrever um
+     `!important` de volta, que é o que este projeto não faz em lugar nenhum.
+
+     Somando por fora, a conta fecha sem brigar: 16 do container mais o que
+     falta para 40. Medido: o `<article>` abre em 152 numa viewport larga, com o
+     topo grudado em 112. */
+  padding-top: calc(var(--sd-space-10) - var(--sd-space-4));
+}
+
+html.docs-doc-page main > .container > .row > .col {
+  padding-inline: 0;
+}
+
+html.docs-doc-page main > .container > .row > .col.col--3 {
+  padding-inline: var(--sd-space-6) 0;
+}
+
+/* -----------------------------------------------------------------------------
+   O CARTÃO MORREU, E A CAIXA INVISÍVEL FICOU
+
+   `.theme-doc-markdown` deixa de ser superfície. Nem fundo, nem anel, nem
+   preenchimento, nem raio, nem sombra — a página fica plana, e `grep` por
+   `.theme-doc-markdown` como superfície não acha nada.
+
+   O que sobrevive do cartão é o `max-width`, e ele MUDA DE DONO: sobe do corpo
+   para a coluna. Medido em 3.10.2, o `DocItem/Layout` aplica `docItemCol`
+   (`max-width: 75% !important`, hasheada) sempre que `hide_table_of_contents`
+   NÃO está no front matter — inclusive em página sem heading, que não tem TOC
+   para mostrar mas também não foi mandada esconder. SÃO TRÊS configurações:
+
+   A. **Com TOC** (`toc.length > 0`, não escondido) — `.col--3` existe como
+      irmão, e `docItemCol` também se aplica. Mas quem decide a largura aqui
+      não é o `!important`: é o `flex: 1 0` da coluna NUA, que cresce para
+      preencher o que sobra depois do TOC fixo — 816, hoje, contra o teto de
+      840 do `!important`. O teto fica acima do que o flex entrega e não
+      belisca nada.
+   B. **Sem heading, não escondida** — `docItemCol` se aplica do mesmo jeito
+      que em A (a condição é só `!hidden`), mas não há `.col--3` para dividir a
+      `.row` com ela. A coluna cresce sozinha até o teto, e o teto AQUI BATE:
+      840 — 75% de `--sd-container-width` —, e não há como descer disso sem
+      `!important` de volta — o que este projeto não escreve. É a única das
+      três configurações que o CSS não alcança.
+   C. **Escondida no front matter** (`hide_table_of_contents: true`) —
+      `docItemCol` não se aplica, e sem ela não há teto nenhum de upstream. A
+      coluna iria a 100% da `.row` se nada aqui dissesse o contrário.
+
+   ANTES da #96, o alvo das três era o MESMO número — 864, 75% dos 1152 de
+   então — e a caixa invisível existia para PREVENIR a configuração C de
+   alargar. A #96 inverte a decisão que produzia isso — ver `chrome.md`
+   §1.5 — e o `max-width` que sobrevive do cartão muda de papel: de "trava C
+   no mesmo pixel de A" para "trava só A", com `:has()` decidindo qual das
+   duas está na tela. B fica de fora dos dois lados, pelo motivo escrito
+   acima: não é escolha, é o `!important` que ninguém vence. (Os números de A
+   e B também mudaram por conta própria, depois: 816/840 em vez de 848/864,
+   quando `--sd-container-width` caiu de 1152 para 1120 — ver `tokens.css`.)
+
+   A MEDIDA DA PROSA sai de dois seletores estáveis — um elemento e uma classe do
+   Infima — no lugar da lista de onze elementos que crescia a cada componente
+   novo do catálogo. Com a lista morre a superfície que produziu o defeito do
+   `<header>`: não há mais lista da qual um elemento possa escapar.
+
+   E O BREAKOUT CONTINUA MORTO. Código e tabela medem o `<article>` inteiro,
+   nunca uma lista de filhos — só que agora o `<article>` já não é um número
+   fixo, é o que a configuração da página decide.
+
+   O `.pagination-nav` entra pelo mesmo motivo que o `<article>`: ele é IRMÃO
+   dele, não filho, e sem a segunda linha a paginação mediria a coluna inteira
+   enquanto o texto acima dela mede a prosa.
+
+   O ancestral `main > .container > .row > .col` está aqui de propósito, e não
+   por gosto de especificidade: a Referência da API tem layout próprio, com o
+   `<article>` dela dentro de um `.row` cujo filho NÃO é `.col`. Sem o escopo, a
+   paginação daquela página encolheria para a prosa e sairia do prumo com a
+   coluna de texto que ela fecha.
+   ----------------------------------------------------------------------------- */
+
+/* A largura NARROW só se aplica com o TOC de fato VISÍVEL — `:has(> .col--3)`
+   sozinho não basta, porque `:has()` enxerga a PRESENÇA no DOM, não o
+   `display`, e o TOC continua no DOM entre 997 e 1279 mesmo escondido (ver
+   §9 e a regra de `.col--3` acima). O padrão sem media query é LARGO —
+   `--sd-container-width` para a coluna. O `<article>` é seletor à parte, e a
+   NARROW dele não é `--sd-doc-width`: é `--sd-prose-width`, 720 — a âncora
+   mede 720,81 com o TOC presente, o mesmo número de antes da #96. O que a
+   #96 muda não é o número da prosa com TOC; é ela deixar de ser o único
+   número que existe. Sem TOC visível, a prosa acompanha a coluna inteira —
+   `--sd-container-width` — e é aí que ela cresce. */
+html.docs-doc-page main > .container > .row > .col:not(.col--3) :is(article, .pagination-nav) {
+  max-width: var(--sd-container-width);
+  margin-inline: auto;
+}
+
+@media (min-width: 1280px) {
+  html.docs-doc-page main > .container > .row:has(> .col--3) > .col:not(.col--3) {
+    max-width: var(--sd-doc-width);
+  }
+
+  html.docs-doc-page main > .container > .row:has(> .col--3) > .col:not(.col--3) :is(article, .pagination-nav) {
+    max-width: var(--sd-prose-width);
+  }
+}
+
+html.docs-doc-page .theme-doc-markdown > :first-child {
+  margin-top: 0;
+}
+
+html.docs-doc-page .theme-doc-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+/* -----------------------------------------------------------------------------
+   O ritmo vertical — assimétrico, e é a regra que uma reprodução ingênua erraria
+
+   48 antes de um cabeçalho, 16 depois, com `h2` e `h3` abrindo IDÊNTICO. O
+   Infima escala o ar de cima com o tamanho do título (`h2` a 2 × leading, `h3`
+   a 1,5), o que é o gesto intuitivo e o errado: o que separa uma seção da
+   anterior não tem relação com o corpo do título dela.
+
+   É esta regra que resgata `--sd-space-12`. Ele tinha DOIS consumidores — o
+   preenchimento do cartão e a metade dele no estreito —, e os dois morrem com o
+   cartão. Sem esta regra o degrau ficaria órfão, que é o defeito do Infima que
+   este projeto nomeou.
+
+   Especificidade: (0,2,2) contra a (0,1,1) do Infima. Vence sem `!important`, e
+   sem reescrever `--ifm-*-vertical-rhythm-*` fora do adaptador — que abriria uma
+   sexta exceção com escopo contra a lista fechada do ADR 1 do shinydoc.
+   ----------------------------------------------------------------------------- */
+
+html.docs-doc-page .markdown > :is(h2, h3, h4, h5, h6) {
+  margin-top: var(--sd-space-12);
+  margin-bottom: var(--sd-space-4);
+}
+
+/* -----------------------------------------------------------------------------
+   O `h1`/`h2` do `<article>` ignoravam a escala de tipo — defeito medido, sem
+   ticket que o cobrisse antes da #96.
+
+   `tokens.css` escreve `--ifm-h1-font-size`/`--ifm-h2-font-size` no `:root`, e
+   o Infima RELÊ as duas direto no elemento: `.markdown h1:first-child` e
+   `.markdown > h2` redeclaram a MESMA custom property sobre o próprio título,
+   e herança perde para declaração direta no mesmo elemento — independente de
+   quão específico for o seletor do `:root`. Medido: 48px/32px na tela em vez
+   dos 36px/24px que `tokens.css` já declarava. A escala do projeto estava
+   certa; só não alcançava o elemento.
+
+   A resposta NÃO é reescrever `--ifm-h1-font-size` aqui — isso seria escrever
+   fora do adaptador, a sexta exceção com escopo contra a lista fechada do
+   ADR 1 do shinydoc. É mais simples do que isso: `font-size` é propriedade normal, não
+   variável, e uma declaração direta nela vence a que o Infima computa a
+   partir da custom property, no MESMO seletor, carregado depois. Zero
+   `--ifm-*` tocado fora de `tokens.css`. */
+.markdown h1:first-child {
+  font-size: var(--sd-type-3xl);
+}
+
+@media (min-width: 997px) {
+  .markdown h1:first-child {
+    font-size: var(--sd-type-4xl);
+  }
+}
+
+.markdown > h2 {
+  font-size: var(--sd-type-2xl);
+}
+
+/* -----------------------------------------------------------------------------
+   O subtítulo — a linha que toda página do site ganha
+
+   Ele nasce do `description` do front matter e é injetado pelo override da chave
+   `h1` no registro de `@theme/MDXComponents` (degrau 3). O CSS aqui não sabe
+   disso: ele vê um parágrafo com a nossa classe, logo abaixo do título.
+
+   `--sd-subtitulo-recuo` e não a margem do título: as margens de irmãos
+   adjacentes COLAPSAM para a maior das duas, então o ar de baixo do `h1` — que é
+   maior — venceria e o recuo medido nunca apareceria. Zerar o do `h1` é o que
+   deixa o do subtítulo mandar.
+
+   Peso e cor não são declarados, e isso é fiel: na âncora o subtítulo herda o
+   bloco de prosa. O que ele declara é o corpo, que é o único que foi medido.
+   ----------------------------------------------------------------------------- */
+
+html.docs-doc-page h1:has(+ .subtitulo) {
+  margin-bottom: 0;
+}
+
+html.docs-doc-page .subtitulo {
+  margin-top: var(--sd-subtitulo-recuo);
+  font-size: var(--sd-type-lg);
+  /* A entrelinha é DECLARADA, e sem ela o subtítulo herdava a da prosa (1,75)
+     sobre 18px = 31,5px, contra os 28 de `chrome.md` §12 — alvo `exato`. É a
+     única das três medidas do subtítulo que a herança não entregava: peso e cor
+     continuam não declarados, e isso segue fiel à âncora. */
+  line-height: var(--sd-subtitulo-entrelinha);
+}
+
+/* -----------------------------------------------------------------------------
+   2. Navbar — DUAS LINHAS, e a segunda sangra de ponta a ponta
+
+   A marca e o cluster da direita ficam na linha 1; as três tabs caem numa faixa
+   de largura total abaixo dela. Total: `--sd-topo-grudado`.
+
+   ISTO ERA A PERDA 4, e ela estava errada. `chrome.md` §8, `swizzle.md` §4 e o
+   ADR 2 do shinydoc diziam que a faixa *"exigiria reestruturar `Navbar/*`"*. Não exige: ela
+   sai de degrau 0 (dois tokens do Infima), degrau 1 (as quatro regras abaixo) e
+   degrau 2 (um item de config). `Navbar/Layout` e `Navbar/Content` continuam
+   `unsafe`, e continuam INTOCADOS — o portão 7 passa com a faixa montada.
+
+   Quatro peças, e nenhuma é decorativa:
+
+   1. **A altura do topo**, em `tokens.css`. `.navbar` tem `height` fixo e não
+      `min-height`; sem o token novo a segunda linha TRANSBORDA e pinta sobre o
+      conteúdo da página. O preenchimento vertical vai a zero junto, senão as
+      duas linhas ficam dentro de uma caixa de conteúdo mais curta que o `<nav>`
+      e desalinham da faixa pintada.
+   2. **A quebra**, aqui: `.navbar__items` passa a envolver, e um espaçador de
+      base 100% e altura 0 abre a linha. O espaçador é OPÇÃO PÚBLICA — um item
+      `{type: 'html'}` entre a marca e as tabs. Escolhido em vez de dar
+      `flex-basis: 100%` à marca porque não acopla a faixa à existência de uma
+      marca.
+   3. **A altura determinada da linha 1**, por `min-height` na marca e
+      `align-self: flex-start` no cluster da direita. Sem ela a linha 1 encolhe
+      para a altura natural da marca e a faixa pintada não casa com as tabs.
+   4. **O sangramento**, por parada dura de `linear-gradient` no próprio `.navbar`.
+      O `<nav>` já mede a viewport inteira, e SÓ O FUNDO precisa sangrar — o
+      fundo não é das tabs. Zero DOM novo, zero pseudo-elemento.
+
+   O escopo `@media (min-width: 997px)` é OBRIGATÓRIO, e é a armadilha mais cara
+   desta faixa: abaixo do limiar o navbar volta a uma linha, as tabs vão para
+   dentro do hambúrguer, e `.navbar-sidebar__brand` e `.navbar-sidebar__items`
+   leem o mesmo `--ifm-navbar-height`. Sem o escopo, o cabeçalho do drawer infla
+   no estreito.
+
+   TRÊS PERDAS NOMEADAS, e a primeira é a que dói:
+
+   · **a ordem de foco passa a divergir da leitura visual.** O `Tab` desce para a
+     faixa e volta a subir, porque o DOM tem dois blocos (esquerda inteira,
+     depois direita inteira) enquanto a faixa distribui a esquerda em duas
+     linhas. **Não é contornável nesta rota**, e é o único ponto do projeto onde
+     a conta do `unsafe` voltaria à mesa. Ver `shinydoc-docusaurus/docs/design/foco.md`;
+   · **a largura útil da faixa é a de `.navbar__items`, não a da viewport.** O
+     fundo sangra; o conteúdo não;
+   · **são 48px de chrome vertical em toda página.**
+
+   À direita a ordem declarada continua: Buscar · PT · GitHub. A alternância de
+   tema fecha a linha e não é declarável — o `Navbar/Content` a renderiza depois
+   dos itens da direita.
+
+   O slot de busca custa zero pixel enquanto estiver vazio: o próprio upstream
+   esconde o contêiner com `:empty`. Remover a busca não deixa buraco.
+
+   GitHub entra como **palavra**, não como glifo, e é decisão de orçamento: não
+   há marca de terceiro no manifesto. A marca do site é palavra pelo mesmo
+   motivo, e por um mais forte — ver abaixo.
+   ----------------------------------------------------------------------------- */
+
+/* O ESPAÇADOR DA FAIXA no painel do estreito — o mesmo defeito, medido.
+   O `HtmlNavbarItem` renderiza o item com `menu__list-item` quando é móvel, e
+   a classe traz um degrau de margem: mede zero de altura e ainda assim abre 4px
+   de espaço fantasma entre a marca e a primeira tab, dentro da lista do drawer.
+
+   A faixa não existe abaixo do limiar; o espaçador dela tampouco. O seletor se
+   escopa sozinho — `menu__list-item` só é aplicada na forma móvel. */
+.menu__list-item.quebra-de-faixa {
+  display: none;
+}
+
+/* A MARCA — só a palavra, e monocromática.
+
+   Ela voltou para o caminho NATIVO: `navbar.title` sem `navbar.logo` faz o
+   upstream renderizar `<b class="navbar__title">` dentro do `.navbar__brand`.
+   Não há mais glifo, não há mais componente de tema próprio para desenhá-lo, e
+   não há mais `.navbar__brand:empty` — o link não é mais vazio, porque a marca
+   passa pela config.
+
+   O argumento é o da figura da landing, com força maior: a marca aparece em
+   TODA página e a landing em uma. Tingir uma palavra de acento no canto
+   superior esquerdo é o enfeite que a régua recusa, então ela fica em
+   `--sd-text-strong` — a MESMA tinta que a palavra já tinha. O que saiu foi o
+   glifo, que era a única coisa aqui a consumir `--sd-accent`.
+
+   Medido no artefato, nos dois modos: `250,242,249` no escuro e `15,10,15` no
+   claro, os dois iguais a `--sd-text-strong` resolvido e diferentes do acento.
+
+   Duas classes do Infima, degrau 1: `.navbar__brand` posiciona, `.navbar__title`
+   carrega a tipografia. As declarações são as mesmas que a marca tinha — o que
+   saiu foi o glifo, não a forma da palavra. */
+.navbar__brand {
+  display: flex;
+  align-items: center;
+  color: var(--sd-text-strong);
+}
+
+.navbar__title {
+  font-family: var(--sd-font-heading);
+  font-size: var(--sd-type-sm);
+  font-weight: var(--sd-weight-heading);
+  letter-spacing: var(--sd-tracking-tight);
+}
+
+/* A ABA DO NAVBAR NA ESCALA DE UI, e a razão de ela precisar de declaração é a
+   OUTRA metade da armadilha do Infima.
+
+   O `.theme-doc-breadcrumbs` mais abaixo neste arquivo tem o caso clássico: o
+   Infima CRAVA `font-size` dentro do elemento e vence a herança. Aqui é o
+   inverso — ele **não declara nada**, e o link herda os 16px do `<html>`.
+   Medido: `.navbar__item.navbar__link` saía em `16px` contra o alvo de `14px`
+   de `tokens.md` §13, `Δ +2`.
+
+   Ausência de declaração no upstream é tão invisível quanto declaração errada,
+   e o modo de falhar é pior: não há nada para achar com `grep`. Foi o
+   comparador de paridade que apontou.
+
+   `.navbar__link` alcança as três tabs, os itens do dropdown de locale e o
+   mesmo link dentro da gaveta do estreito — que é onde ele deve chegar: a
+   escala de UI é uma só, e a tabela de alvo mede a densidade do chrome, não uma
+   instância dele. */
+.navbar__link {
+  font-size: var(--sd-type-sm);
+}
+
+/* O HAIRLINE — o rodapé do navbar inteiro, nas duas formas (uma linha no
+   estreito, duas de 997 para cima). Substitui a faixa cinza: onde havia
+   parada dura de gradiente separando uma superfície levantada da página, fica
+   só o fio — a linha de tabs passa a ler TRANSPARENTE sobre o fundo da
+   própria página, sem segunda superfície debaixo dela. */
+.navbar {
+  border-bottom: var(--sd-border-width) solid var(--sd-border-subtle);
+}
+
+/* A FAIXA — três das quatro peças que sobram depois da #96. A primeira mora
+   em `tokens.css`, porque é token, e o espaçador é item de config em
+   `docusaurus.config.js`. O SANGRAMENTO DE FUNDO SAIU: a faixa não pinta mais
+   nada atrás de si — ela lê o fundo da página, como a #96 pede — e o hairline
+   acima já faz o trabalho de separação que o gradiente fazia.
+
+   São TRÊS PEÇAS e CINCO REGRAS agora: a quebra são três — envolver, abrir a
+   linha e impedir que as duas linhas se estiquem para dividir a altura —, a
+   altura determinada são duas, uma por cluster. */
+@media (min-width: 997px) {
+  /* O CONTAINER DO NAVBAR passa a ser o MESMO grupo que centraliza sidebar +
+     conteúdo + TOC — mesmo `max-width`, mesmo `margin-inline: auto`. Sem
+     isso a marca fica alinhada ao VIEWPORT enquanto o cabeçalho de grupo da
+     sidebar se move com o congelamento, e os dois se desencontram a partir
+     da primeira largura em que o grupo centraliza. O preenchimento
+     horizontal do `.navbar` (herdado, intocado) é o que põe a marca na mesma
+     vertical da sidebar — ver `chrome.css` §3 —, e essa conta só volta a
+     fechar se os DOIS lados tiverem o mesmo inset esquerdo.
+
+     CORREÇÃO MEDIDA: a frase acima dizia "na mesma vertical do PREENCHIMENTO
+     da sidebar", e isso não se sustenta em nenhuma largura sozinha — o alvo
+     troca de lado no congelamento. A 1512, `brand.left` 52 casa com a BORDA da
+     caixa da sidebar (52), enquanto o TEXTO do item cai em 76, 24px à direita.
+     A 1280 e 1100 é o inverso: o texto do item casa (24 = 24) e a caixa não
+     (0 contra 24). O que este bloco entrega é o inset esquerdo comum entre
+     navbar e caixa da sidebar acima do congelamento — que é o que a linha da
+     fileira do topo, logo abaixo, consome. Corrigir a vertical do TEXTO é
+     outro ticket, e mexeria no recuo do item, não aqui. */
+  /* `position: relative` entrou na #98 — é o container que a busca centraliza
+     contra (`SearchBar/estilos.module.css`), via `position: absolute` no
+     próprio gatilho. Sem isto o navegador subiria a busca de containing block
+     até achar um ancestral posicionado — provavelmente o `.navbar` (sticky), e
+     aí ela centralizaria no VIEWPORT, não na coluna que este bloco acabou de
+     assentar. */
+  .navbar__inner {
+    position: relative;
+    max-width: var(--sd-congelamento);
+    margin-inline: auto;
+  }
+
+  /* As duas colunas do `.navbar__inner` param de se centrar contra as DUAS
+     linhas — a da esquerda porque ela é quem tem duas, a da direita porque ela
+     mora na linha 1. */
+  .navbar__inner {
+    align-items: flex-start;
+  }
+
+  /* A LINHA DA FILEIRA DO TOPO — a segunda linha da navbar, e ela não é
+     variação da primeira.
+
+     A âncora desenha DUAS: a de baixo sangra de ponta a ponta da viewport (é a
+     que o `.navbar` já pinta, §2) e esta para exatamente onde a marca começa e
+     onde o último ícone termina. Medido na âncora a 1440: a linha vai de 48 a
+     1392, `logo.left` é 48 e o `right` do alternador de tema é 1392 — Δ 0 nas
+     DUAS bordas, confirmado por varredura de pixel do screenshot, não só por
+     `getBoundingClientRect`.
+
+     O `::before` mora no `.navbar__inner` porque essa caixa JÁ É a identidade
+     que a âncora pede, e isso é medido aqui: a 1512 o inner vai de 52 a 1460, o
+     `.navbar__brand` começa em 52 e o alternador termina em 1460. Δ 0 dos dois
+     lados, a 1512, 1280 e 1100. Não entra geometria nova — a altura é
+     `--sd-navbar-height`, que `tokens.css` já descreve como "a LINHA 1 do topo,
+     não o topo inteiro".
+
+     É `::before` ABSOLUTO, e não `border-block-end` na fileira, porque a
+     fileira 1 não é um elemento: ela são dois — `.navbar__brand` e
+     `.navbar__items--right` — separados pelo vão do meio, e uma borda em cada
+     um daria dois segmentos com buraco entre eles.
+
+     ACRESCENTA, não move. Mover o hairline do `.navbar` para cá foi testado em
+     página viva: a linha de baixo encurta 52px de cada lado a 1512 e deixa de
+     sangrar — que é justamente o que a âncora faz questão de manter.
+
+     O escopo de 997 é obrigatório, por duas razões medidas: abaixo do limiar a
+     navbar tem UMA fileira e a linha não teria o que separar; e o
+     `.navbar__inner` volta a `position: static`, o que subiria o containing
+     block até o `.navbar` e desmancharia o recuo. */
+  .navbar__inner::before {
+    content: '';
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    height: var(--sd-navbar-height);
+    border-block-end: var(--sd-border-width) solid var(--sd-border-subtle);
+    pointer-events: none;
+  }
+
+  /* A quebra. `align-content: flex-start` é o que impede as duas linhas de se
+     esticarem para dividir a altura do `<nav>` entre elas: sem ele a linha 1
+     rouba metade da folga e a faixa deixa de casar com as tabs. */
+  .navbar__items:not(.navbar__items--right) {
+    flex-wrap: wrap;
+    align-content: flex-start;
+  }
+
+  .navbar__items > .quebra-de-faixa {
+    flex: 0 0 100%;
+    height: 0;
+    padding: 0;
+  }
+
+  /* A linha 1, determinada. `.navbar__brand` é classe do Infima — degrau 1, e
+     não acoplamento a nome nosso. */
+  .navbar__items > .navbar__brand {
+    min-height: var(--sd-navbar-height);
+  }
+
+  .navbar__items--right {
+    align-self: flex-start;
+    height: var(--sd-navbar-height);
+  }
+
+  /* As tabs preenchem a faixa em vez de flutuar nela. Sem a altura declarada o
+     item mede o texto e o realce de estado ficaria com a forma da palavra em
+     vez da forma da faixa.
+
+     O SUBLINHADO NA ABA ATIVA espelha `ul.tabs` em `componentes.css`:
+     transparente em repouso, acento quando ativa, margem negativa para
+     sobrepor o hairline em vez de somar a ele.
+
+     AS DUAS CLASSES ESTÃO NO MESMO ELEMENTO, e é por isso que o seletor abaixo
+     é composto e não `:has()`. O `DefaultNavbarItem` do theme-classic 3.10.2
+     passa `activeClassName='navbar__link--active'` para o MESMO `<a>` que já
+     recebe `navbar__item navbar__link` — o item de navbar não é um `<li>` com
+     link dentro, é o próprio link. Um `:has(> .navbar__link--active)` pede
+     descendente direto, nenhum item tem um, e a regra casava 0 de 4 em todas
+     as rotas: a aba ativa ficou sem o sublinhado de acento que `chrome.md` §3
+     publica, em 104 páginas do build. */
+  .navbar__items:not(.navbar__items--right) > .navbar__item:not(.quebra-de-faixa) {
+    display: flex;
+    align-items: center;
+    height: var(--sd-tabs-height);
+    border-block-end: calc(var(--sd-border-width) * 2) solid transparent;
+    margin-block-end: calc(var(--sd-border-width) * -1);
+  }
+
+  .navbar__items:not(.navbar__items--right)
+    > .navbar__item.navbar__link--active {
+    border-block-end-color: var(--sd-accent);
+  }
+}
+
+/* -----------------------------------------------------------------------------
+   3. Sidebar
+
+   `--sd-sidebar-width`, ícone por folha, recuo por nível inteiro no link, e
+   pílula preenchida no item ativo — issue #97 reescreveu os três eixos contra
+   a âncora. **Nada disto custa swizzle**: o `className` é contrato público do
+   schema de item de sidebar, e o resto sai de `ThemeClassNames`.
+
+   O ícone continua `mask-image` + `currentColor` — o segundo renderizador, e a
+   única rota zero-swizzle: não existe ponto `safe` para injetar componente
+   React num item de sidebar. O que a #97 mudou é ONDE ele mora: a âncora marca
+   a FOLHA e nunca o cabeçalho de grupo — o inverso do que este projeto tinha
+   até aqui, que marcava a categoria de topo e deixava a folha muda (a regra
+   antiga e a nova estão em shinydoc-docusaurus/docs/design/icones.md §8). Os onze pares
+   seção→ícone não mudam — só o nó que carrega o `className` do manifesto.
+
+   Como a máscara é pintada com `currentColor`, o estado ativo continua
+   pintando o ícone junto com o texto, de graça, e continua sem segundo
+   desenho para o modo escuro.
+
+   O rótulo de categoria continua um `<a class="menu__link">` com um
+   `<button class="menu__caret">` irmão — a categoria é clicável e aponta para
+   a visão geral. Isso não muda; o que muda é que a categoria deixou de ser o
+   nó que leva `.sidebar-icone`.
+   ----------------------------------------------------------------------------- */
+
+/* A folha é sempre um `<a class="menu__link">` direto dentro do `<li>`, sem o
+   `<button class="menu__caret">` que a categoria tem — ela não tem filho para
+   colapsar. Por isso um seletor só basta aqui: a dupla forma que o ícone de
+   cabeçalho precisava (categoria real contra categoria normalizada para link
+   quando fica sem filhos) não tem para quem ler numa folha — folha nunca teve
+   filho para perder. */
+.sidebar-icone > .menu__link::before {
+  content: '';
+  flex: none;
+  width: var(--sd-space-4);
+  height: var(--sd-space-4);
+  margin-right: var(--sd-space-2);
+  background-color: currentColor;
+  mask: var(--sd-sidebar-icone) center / contain no-repeat;
+}
+
+/* Os seis pares seção→ícone, um por categoria da árvore. A família é a da
+   categoria de topo e não reinicia por nível: a folha herda o ícone da seção a
+   que pertence, e é a seção que o leitor está lendo, não o arquivo.
+
+   Os seis nomes saem dos SVG já vendorizados em `static/icons/` — nenhum
+   desenho novo entrou, e o portão `npm run icones` confere a bijeção entre o
+   manifesto e os arquivos. */
+.sidebar-icone--start        { --sd-sidebar-icone: url('/icons/rocket.svg'); }
+.sidebar-icone--commands     { --sd-sidebar-icone: url('/icons/terminal.svg'); }
+.sidebar-icone--targets      { --sd-sidebar-icone: url('/icons/layers.svg'); }
+.sidebar-icone--reference    { --sd-sidebar-icone: url('/icons/book-open.svg'); }
+.sidebar-icone--development  { --sd-sidebar-icone: url('/icons/wrench.svg'); }
+.sidebar-icone--shipping     { --sd-sidebar-icone: url('/icons/package.svg'); }
+
+/* Tipografia e raio — um corpo só, categoria e folha, em todo nível. A âncora
+   usa peso normal com entrelinha maior, e reserva toda marcação de ativo para
+   a pílula (abaixo) e o falso-negrito — a mesma técnica que este projeto já
+   tinha para o item ativo, agora a única fonte de ênfase textual da sidebar.
+   O degrau de cor/peso que separava cabeçalho de folha saiu com o ícone: não
+   sobra sinal nenhum para os dois lerem diferente.
+
+   `line-height: calc(24 / 14)` é 24px a 14px de fonte — o alvo publicado em
+   shinydoc-docusaurus/docs/design/tokens.md §13, escrito como razão em vez de decimal cravado
+   porque `24 ÷ 14` não fecha em dízima finita: um decimal de quatro casas
+   (o padrão deste arquivo, `1.7143`) mede 24,0002px no navegador. Deixar o
+   `calc()` fazer a divisão em ponto flutuante duplo é mais preciso que
+   qualquer decimal escrito à mão, e nomeia a derivação: 24 é o alvo, 14 é
+   `--sd-type-sm`.
+
+   A JUSTIFICATIVA ENCOLHEU, e a forma fica. Este comentário dizia que o
+   `calc()` era necessário porque *"o alvo é `exato` e o comparador não
+   arredonda"* — e essa parte caiu: a tolerância daquela linha virou `±1`, que é
+   o que a doutrina de tolerância de chrome.md §11 sempre mandou para medida que
+   atravessa subpixel. Nem `calc()` nem decimal reprovariam hoje. O `calc()` fica
+   por ser mais preciso e por nomear a derivação, não mais por caber num alvo
+   que era impossível de fechar. Não é `--sd-leading-code` (1,7143): as duas entrelinhas
+   nascem de medições independentes que bateram perto uma da outra, e nomear a
+   daqui a partir de "código" seria o acoplamento falso que a escada de
+   leading já evita ao declarar `--sd-leading-h4` em nome próprio apesar de
+   repetir o número de `--sd-leading-ui`.
+
+   `border-radius` some do mixin do Infima (0,25rem cravado) e vira o alvo
+   publicado — `--sd-radius-md` bate 12px exato porque a base do projeto é 16.
+
+   `color` sai daqui e mora na regra seguinte, com `:not(.menu__link--active)`
+   — medido, não suposto: um seletor de duas classes (`.theme-doc-sidebar-menu
+   .menu__link`) tem a MESMA especificidade que `.menu__link.menu__link--active`
+   do Infima, e no empate quem carrega por último no cascade vence. Sem a
+   exclusão, o texto e o ícone do item ativo ficavam presos em
+   `--sd-text-muted` — o próprio bug que "texto e ícone do ativo herdam o
+   acento de graça" (a nota original desta seção) afirmava já estar resolvido. */
+.theme-doc-sidebar-menu .menu__link {
+  font-size: var(--sd-type-sm);
+  font-weight: var(--sd-weight-body);
+  line-height: calc(24 / 14);
+  border-radius: var(--sd-radius-md);
+}
+
+.theme-doc-sidebar-menu .menu__link:not(.menu__link--active) {
+  color: var(--sd-text-muted);
+}
+
+/* Recuo por nível — inteiro no link, issue #97. Até aqui o degrau vinha
+   metade da lista aninhada (o Infima soma `padding-left` a cada `<ul>` dentro
+   de `<ul>`) e metade do próprio link; a âncora não faz essa divisão, e copiar
+   o resultado sem copiar a decisão produz recuo que parece certo e se desfaz
+   no segundo nível — a pegadinha nomeada na issue.
+
+   A lista aninhada perde o `padding-left`; ela já não tinha margem nem borda
+   esquerda para perder — `.menu__list` zera margem na base do Infima, e
+   nenhuma regra deste projeto jamais desenhou borda nela.
+
+   O degrau é um `--sd-space-4` inteiro por nível, o mesmo total que a soma
+   antiga já dava: a #97 move o mecanismo, não a métrica. Nível 1 não precisa
+   de linha própria — `--ifm-menu-link-padding-horizontal` já entrega os 16px
+   do alvo publicado. Nível 3 só existe em `Ferramentas › Bibliotecas ›
+   Biblioteca C`, o único nó do site que usa o teto de profundidade (ver
+   shinydoc-docusaurus/docs/design/informacao.md §3.1).
+
+   Escopado a `.theme-doc-sidebar-menu`: `.menu__list .menu__list` sozinho
+   também casa a gaveta do dropdown de locale na navbar móvel — `Collapsible`
+   aninha um `<ul class="menu__list">` dentro do `<ul class="menu__list">` da
+   gaveta inteira, a mesma forma da sidebar. Sem o escopo, este zero vazaria
+   pro recuo do dropdown, que não pediu nada disto.
+
+   Um seletor só, não dois: `.theme-doc-sidebar-menu` é a MESMA tag que carrega
+   `.menu__list` na raiz da árvore — não um ancestral dela —, então qualquer
+   `.menu__list` aninhado (nível 2 ou 3) já é descendente de
+   `.theme-doc-sidebar-menu` sozinho. Encadear um segundo `.menu__list` no
+   seletor exigiria um ancestral ACIMA da raiz com as duas classes, que não
+   existe, e zeraria a busca inteira. */
+.theme-doc-sidebar-menu .menu__list {
+  padding-left: 0;
+}
+
+.theme-doc-sidebar-item-link-level-2 > .menu__link,
+.theme-doc-sidebar-item-category-level-2 > .menu__list-item-collapsible > .menu__link {
+  padding-left: calc(var(--sd-space-4) * 2);
+}
+
+.theme-doc-sidebar-item-link-level-3 > .menu__link {
+  padding-left: calc(var(--sd-space-4) * 3);
+}
+
+/* Falso-negrito no item ativo. Trocar o peso reflui o texto e faz o item pular
+   de largura no instante em que o leitor navega. */
+.theme-doc-sidebar-menu .menu__link--active {
+  text-shadow: var(--sd-negrito-optico);
+}
+
+/* A PÍLULA DO ATIVO não ganha regra de FUNDO própria — ela já sai correta da
+   composição acima. `--ifm-menu-color-background-active` já era
+   `--sd-surface-wash` (o acento a 12%) antes desta issue; o que faltava era só
+   o raio, que herdava 0,25rem cravado do mixin do Infima e agora sai da regra
+   de tipografia — mesmo seletor, `.menu__link`, ativo ou não. A âncora não usa
+   barra lateral, borda nem sombra no item ativo, e este projeto nunca desenhou
+   nenhuma das três aqui: não há o que remover.
+
+   O TEXTO E O ÍCONE precisaram, sim, de uma exclusão: `--ifm-menu-color-active`
+   já é `--sd-accent`, e o ícone é `currentColor`, mas a regra de tipografia
+   acima cravava `color` em TODO `.menu__link` com a mesma especificidade da
+   regra `--active` do Infima — no empate, o cascade decidia, e decidia errado.
+   O `:not(.menu__link--active)` na regra de cor é o que devolve o acento ao
+   item ativo; sem ele, texto e ícone do ativo ficavam presos em
+   `--sd-text-muted`. */
+
+/* O DIVISOR VERTICAL — vazamento do substrato nativo, e não pedido nenhum.
+   `DocRoot/Layout/Sidebar` (hasheada) declara `border-right: 1px solid
+   var(--ifm-toc-border-color)`. Não se toca a classe hasheada — não é
+   preciso: `ThemeClassNames.docs.docSidebarContainer` já está no MESMO
+   elemento, degrau 1.
+
+   MEDIDO, não suposto: `.theme-doc-sidebar-container` sozinha (0,1,0) NÃO
+   vence — o módulo do `DocRoot/Layout/Sidebar` é chunk separado e carrega
+   depois, o mesmo empate de ordem de carga que a seção do botão de voltar ao
+   topo já documentou para `.theme-back-to-top-button`. A resposta é a
+   mesma: somar o TIPO do elemento. O elemento é `<aside>`, e
+   `aside.theme-doc-sidebar-container` vai a (0,1,1) — tira o seletor da
+   ordem de carga em vez de depender dela.
+
+   Não se zera `--ifm-toc-border-color` no adaptador: a mesma variável também
+   pinta a borda do botão de recolher a sidebar
+   (`DocSidebar/Desktop/CollapseButton`), que não é vazamento — é contorno de
+   controle, e apagar os dois juntos seria remover peça que ninguém pediu que
+   saísse. */
+aside.theme-doc-sidebar-container {
+  border-right: none;
+}
+
+/* O ELEMENTO QUE DE FATO ROLA não é `.theme-doc-sidebar-container` — é o
+   `<nav class="menu thin-scrollbar">` dentro dele, medido em 3.10.2:
+   `DocSidebar/Desktop/Content` monta a lista nesse `<nav>`, e
+   `theme-doc-sidebar-menu` (`ThemeClassNames.docs.docSidebarMenu`) é o
+   `<ul>` FILHO dele, estático, do tamanho do conteúdo — não a caixa com
+   `overflow`. `.thin-scrollbar` é classe do Infima, degrau 0, e é ela quem
+   carrega o scroll; escopada ao container estável para não vazar para outro
+   `.thin-scrollbar` do site (código, TOC do estreito). */
+
+/* O DESVANECIMENTO DE TOPO — puro CSS, `mask-image` em vez de nó novo. A
+   máscara é relativa à CAIXA, não ao conteúdo que rola dentro dela — é por
+   isso que funciona em qualquer posição de scroll, sem JS a escutar evento. */
+.theme-doc-sidebar-container .thin-scrollbar {
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    black var(--sd-space-6)
+  );
+}
+
+/* A BARRA DE ROLAGEM — invisível em repouso, tingida no hover, com goteira
+   estável. `scrollbar-gutter: stable` reserva o espaço da barra SEMPRE, para
+   que o texto da sidebar não pule de largura quando ela aparece — o mesmo
+   defeito de salto que o falso-negrito do item ativo evita duas regras acima,
+   e a mesma resposta.
+
+   Duas propriedades por padrão de navegador — Firefox lê `scrollbar-color`,
+   WebKit lê os pseudo-elementos `::-webkit-scrollbar-*` que o `.thin-scrollbar`
+   do Infima já declara — e as duas citam os MESMOS tokens, para não haver uma
+   segunda paleta de barra de rolagem no projeto. */
+.theme-doc-sidebar-container .thin-scrollbar {
+  scrollbar-gutter: stable;
+  scrollbar-color: transparent transparent;
+}
+
+.theme-doc-sidebar-container .thin-scrollbar:hover {
+  scrollbar-color: var(--sd-border-strong) transparent;
+}
+
+.theme-doc-sidebar-container .thin-scrollbar::-webkit-scrollbar-thumb {
+  background-color: transparent;
+}
+
+.theme-doc-sidebar-container .thin-scrollbar:hover::-webkit-scrollbar-thumb {
+  background-color: var(--sd-border-strong);
+}
+
+/* -----------------------------------------------------------------------------
+   4. TOC
+
+   A largura é `--sd-toc-width`, explícita — não é mais fração de grid. A
+   #96 corrigiu a premissa que travava em 288: ver `chrome.css` §1 e
+   `chrome.md` §1.2.
+   ----------------------------------------------------------------------------- */
+
+.theme-doc-toc-desktop {
+  font-size: var(--sd-type-sm);
+  line-height: var(--sd-leading-ui);
+}
+
+/* O OFFSET DE STICKY, e ele é reescrito porque o do upstream não conhece a
+   linha em que o conteúdo abre.
+
+   `TOC/styles.module.css` do `theme-classic` declara `top: calc(var(
+   --ifm-navbar-height) + 1rem)`. Com o adaptador escrevendo 112 em
+   `--ifm-navbar-height`, isso dá 128 — medido no gabarito, onde `npm run
+   paridade` o acusava contra o alvo de 152. Aquele portão comparava o site
+   com um alvo externo por Chrome headless e não veio no transplante; o
+   número que ele mediu veio. Os 16 do upstream são a respiração
+   dele; a nossa é `--sd-space-10`, a mesma que o `<main>` já dá ao `<article>`
+   (§1, acima). Alinhar os dois é o que a linha `TOC grudado em` cobra: o
+   índice não sobe acima do texto que ele indexa.
+
+   O `max-height` vem junto, e não é enfeite. O do upstream é `calc(100vh -
+   (var(--ifm-navbar-height) + 2rem))` = `100vh − 144`; com o topo em 152 a
+   caixa passaria a viewport em 8px e o fim da lista ficaria fora de alcance
+   numa janela curta. A conta aqui é a mesma do painel da referência gerada
+   (`ApiDocItem/estilos.module.css`): o topo do conteúdo, mais a mesma
+   respiração embaixo. `--sd-viewport-altura` é `100dvh` — o token que o
+   projeto já usa para não medir contra a barra de endereço do telefone.
+
+   ESPECIFICIDADE, e ela custou uma medição. A regra do upstream é
+   `.tableOfContents`, hasheada, UMA classe (0,1,0) — a mesma desta, e empate
+   de especificidade se resolve por ordem de cascata. Medido no bundle:
+   `.theme-doc-toc-desktop` sai no byte 49513 e `.tableOfContents_*` no 87027,
+   ou seja o CSS Module do tema entra DEPOIS e ganha o empate. É por isso que
+   as duas declarações abaixo moram num seletor de dois degraus
+   (`html.docs-doc-page`, 0,2,1) em vez do seletor nu: subir um degrau vence
+   sem `!important`, que este projeto não escreve em lugar nenhum. É o mesmo
+   recurso que o resto deste arquivo já usa para alcançar o grid do Infima. */
+html.docs-doc-page .theme-doc-toc-desktop {
+  top: var(--sd-topo-conteudo);
+  max-height: calc(var(--sd-viewport-altura) - var(--sd-topo-conteudo) - var(--sd-space-10));
+
+  /* O ROLADOR DESCE PARA A LISTA. O upstream põe `overflow-y: auto` nesta
+     caixa; com o título entrando como pseudo-elemento DELA, o título rolaria
+     junto e sumiria em TOC longo — e na âncora ele fica fora da área que rola.
+     `flex` em coluna resolve sem aritmética nenhuma: a caixa mantém o
+     `max-height` de cima, o título ocupa o que precisa, e a lista fica com o
+     resto. Sem `min-height: 0` no filho o item flex se recusa a encolher
+     abaixo do conteúdo e a barra nunca aparece. */
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+}
+
+/* O TÍTULO DO ÍNDICE — "Nesta página", e ele é DUAS peças de CSS porque não
+   pode ser React.
+
+   `TOC`, `TOCItems` e `DocItem/TOC/Desktop` são todos `unsafe` no catálogo
+   congelado, e `swizzle.md` §2 lê `unsafe` como proibido; `chrome.md` §10 já
+   registrava isso como a perda 3, *"TOC com anatomia nova"*, e dizia que
+   estilo seguia alcançável. Isto é o estilo alcançando. O mecanismo é o mesmo
+   do ícone da sidebar — `mask` + `currentColor` sobre um pseudo-elemento —,
+   adotado lá pelo mesmo motivo: não há ponto de swizzle `safe` onde injetar
+   React.
+
+   Tudo o que a âncora mede aqui já era token deste projeto, sem exceção: a cor
+   é `--sd-text-body` nos DOIS modos (medido `#404246` no claro e `#cfd1d5` no
+   escuro, que é exatamente o que o token resolve), o corpo é `--sd-type-sm`, o
+   peso é `--sd-weight-ui` e o vão do ícone é `--sd-space-2`. Zero valor novo.
+
+   O RECUO É UMA COINCIDÊNCIA QUE FECHA, e vale escrever: o texto do item de
+   TOC começa a `2 × --ifm-toc-padding-horizontal` da borda da caixa — 12 do
+   `padding-left` do `<ul>` mais 12 do `margin` do `<li>`, os dois do Infima. E
+   ícone (`--sd-space-4`) mais vão (`--sd-space-2`) dão o mesmo número. Por
+   isso o título alinha com o texto dos itens E o ícone encosta na borda da
+   caixa, como na âncora, sem que nenhum dos dois precise ceder. */
+html.docs-doc-page .theme-doc-toc-desktop::before {
+  content: 'Nesta página';
+  display: block;
+  flex: none;
+  padding-inline-start: calc(var(--sd-space-4) + var(--sd-space-2));
+  color: var(--sd-text-body);
+  font-size: var(--sd-type-sm);
+  font-weight: var(--sd-weight-ui);
+  line-height: var(--sd-leading-ui);
+}
+
+/* O EN. `content` não passa pelo i18n do Docusaurus — não há `<Translate>` a
+   chamar de dentro do CSS. `html[lang]` é o que o próprio framework escreve na
+   raiz, e é a única junta disponível sem swizzle. Não há portão que confira
+   tradução de string de UI, então esta linha é a régua: some daqui, some do
+   site. */
+html[lang='en'].docs-doc-page .theme-doc-toc-desktop::before {
+  content: 'On this page';
+}
+
+/* O ÍCONE. Caixa própria, absoluta contra a caixa da TOC — que é `sticky`, e
+   portanto containing block. Ela não rola mais (o rolador desceu para a
+   lista), então o ícone fica parado junto com o título.
+
+   `block-size` é a altura da LINHA do título, não a do ícone: com
+   `mask ... center`, isso centra o glifo na primeira linha sem que ninguém
+   precise calcular meio pixel. `--sd-space-4` é o tamanho de ícone de chrome
+   que `icones.md` §1 já fixa, e é o mesmo do ícone da sidebar — dois glifos de
+   chrome em tamanhos diferentes na mesma tela leriam como defeito. */
+html.docs-doc-page .theme-doc-toc-desktop::after {
+  content: '';
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  inline-size: var(--sd-space-4);
+  block-size: calc(var(--sd-type-sm) * var(--sd-leading-ui));
+  background-color: var(--sd-text-body);
+  mask: url('/icons/list.svg') center / var(--sd-space-4) no-repeat;
+}
+
+/* A LISTA DO TOC NA ESCALA DE UI, e o `font-size` do slot não bastava.
+
+   `.theme-doc-toc-desktop` já declara `--sd-type-sm` (14px) acima, e a herança
+   morre uma geração adiante: o Infima crava `.table-of-contents { font-size:
+   0.8rem }` no `<ul>` que é filho dele, e `0.8 × 16 = 12,8`. Medido, o item de
+   TOC saía em `12,8px` contra o alvo de `14px` de `tokens.md` §13, `Δ −1,2`,
+   enquanto o slot em volta media 14 certinho — o pior tipo de falso verde, o
+   mesmo padrão que já custou os títulos de doc na #96.
+
+   O seletor é escopado ao TOC de desktop de propósito: `.table-of-contents` é
+   classe do Infima e o `TOCInline` do upstream a usa em outro contexto, que
+   este projeto não renderiza hoje e não deve reger de longe. */
+html.docs-doc-page .theme-doc-toc-desktop .table-of-contents {
+  font-size: var(--sd-type-sm);
+
+  /* A LISTA VIROU O ROLADOR, e as três declarações são consequência disso: a
+     caixa em volta cedeu o `overflow` para o título ficar fora do que rola
+     (ver o bloco acima), `min-height: 0` destrava o encolhimento do item flex,
+     e `scrollbar-width` repõe o afinamento que vinha da classe
+     `.thin-scrollbar` — ela mora na caixa, não aqui, e o tratamento completo
+     de barra deste arquivo é escopado à sidebar de propósito. */
+  overflow-y: auto;
+  min-height: 0;
+  scrollbar-width: thin;
+}
+
+/* A BORDA ESQUERDA — mesmo vazamento do divisor da sidebar, mesma resposta.
+   `.table-of-contents__left-border` é classe do Infima em `TOCItems`, degrau
+   0, e é o próprio nome da classe que confessa o que ela faz. */
+.table-of-contents__left-border {
+  border-left: none;
+}
+
+/* O LIMIAR PRÓPRIO DO TOC — 1280, o ponto em que a âncora o esconde. Escondido
+   por padrão, revelado só a partir dele: assim o literal do gate é UM número
+   (1280), não dois — não existe `max-width: 1279px` em lugar nenhum do
+   arquivo, só este `min-width`.
+
+   `.col--3` continua no DOM entre 997 e 1279 — `DocItemTOCDesktop` é montado
+   sempre que `windowSize` do React é `'desktop'`, que cobre TUDO acima de
+   996/997, não só acima de 1280 (ver a nota sobre o `!important` de
+   `docItemCol` acima, mesma família de acoplamento). Por isso a largura da
+   prosa em §1 verifica `:has()` E este limiar juntos: TOC no DOM sem estar
+   visível não deve estreitar o texto.
+
+   A SIDEBAR NÃO GANHOU limiar próprio, e a explicação é medida, não
+   preguiça: o toggle de hambúrguer só MONTA o `<aside>` de gaveta quando o
+   MESMO `windowSize` do React está em `'mobile'` — `shouldRender = !disabled
+   && windowSize === 'mobile'`, em
+   `@docusaurus/theme-common/lib/contexts/navbarMobileSidebar.js`. Esse
+   estado lê um limiar de 996, HARDCODED, e o próprio comentário-fonte diz
+   *"this value is also hardcoded in Infima... Updating this JS value alone
+   is not enough"* — não é ponto de swizzle, é lógica de contexto React sem
+   opção pública. Esconder a sidebar embutida antes de 1024 sem mover ESSE
+   limiar junto criaria uma faixa morta entre 997 e 1023 — sidebar
+   invisível, gaveta que não monta, sem rota nenhuma até o menu. A #96 não
+   compra essa perda: ver `chrome.md` §10, perda nova.
+
+   O QUE SE ESCONDE é `.col--3`, o SLOT inteiro — não
+   `.theme-doc-toc-desktop`, que é filho dele. Esconder só o filho deixaria o
+   slot vazio ainda reservando `--sd-toc-width` no `flex`, e a prosa não
+   ganharia o espaço de volta — o mesmo cuidado do `:has()` acima, agora do
+   lado do CSS que decide o `display`. */
+html.docs-doc-page main > .container > .row > .col--3 {
+  display: none;
+}
+
+@media (min-width: 1280px) {
+  html.docs-doc-page main > .container > .row > .col--3 {
+    display: block;
+  }
+}
+
+/* -----------------------------------------------------------------------------
+   5. A eyebrow — o breadcrumb POR SUBTRAÇÃO
+
+   Escondendo o item de home, o item ativo e o separador que sobra, resta
+   exatamente o nome da categoria — e ele já está no lugar onde a eyebrow da
+   âncora fica, acima do título. Tudo classe do Infima, degrau 1, zero swizzle e
+   zero nó novo no DOM.
+
+   O `BreadcrumbsStructuredData` continua emitido intacto: ele é um `<script
+   type="application/ld+json">` irmão do `<nav>`, e nada aqui o alcança. O que
+   sai é pixel, não dado — o JSON-LD segue com a trilha inteira.
+
+   A METADE REAL DA PERDA 2 FICA DE PÉ, e vale escrita porque a subtração é
+   fácil de confundir com alcance: não dá para pôr eyebrow em página SEM
+   categoria, não dá para alterar a ordem, e não dá para inserir texto novo.
+   O que a subtração alcança é o caso comum, não o mecanismo.
+
+   O separador escondido é o do último item VISÍVEL, e não todos: `:nth-last-
+   child(2)` é o vizinho do ativo. Numa trilha de três níveis os separadores
+   entre categorias sobrevivem, que é o que se quer — o teto de profundidade é
+   2 hoje, e a regra não quebra no dia em que ele subir.
+   ----------------------------------------------------------------------------- */
+
+html.docs-doc-page .theme-doc-breadcrumbs {
+  font-size: var(--sd-type-sm);
+}
+
+/* O item de home — o `<li>` do ícone de casa. Ele é o primeiro sempre que a
+   rota `/` existe, e ela existe: aqui não por uma landing em `src/pages/`, que
+   não veio no transplante, mas pela própria visão geral, que leva `slug: /`. */
+html.docs-doc-page .breadcrumbs__item:first-child,
+html.docs-doc-page .breadcrumbs__item--active {
+  display: none;
+}
+
+html.docs-doc-page .breadcrumbs__item:nth-last-child(2)::after {
+  display: none;
+}
+
+/* O que resta deixa de ler como pastilha e passa a ler como eyebrow: sem
+   preenchimento, sem realce de fundo, corpo maior, peso forte, na cor de
+   acento — a leitura da âncora, `chrome.md` §12.
+
+   `font-size` É NECESSÁRIO aqui, e não redundante com `.theme-doc-breadcrumbs`
+   duas regras acima: o Infima declara `.breadcrumbs__link { font-size: calc(1rem
+   * var(--ifm-breadcrumb-size-multiplier)) }` DIRETO no link, e essa
+   declaração bate na frente da herança do `<nav>` — mesma família de defeito
+   do `h1`/`h2`, ver acima. Medido: sem esta linha o link renderiza 12,8px
+   (`--breadcrumb-size-multiplier` em 0,8 de fábrica) contra os 14 que
+   `chrome.md` §12 pede. */
+html.docs-doc-page .breadcrumbs__link {
+  padding: 0;
+  background: none;
+  color: var(--sd-accent);
+  font-size: var(--sd-type-sm);
+  font-weight: var(--sd-weight-heading);
+}
+
+/* -----------------------------------------------------------------------------
+   A paginação — plana
+
+   Sem borda, sem fundo, sem preenchimento e sem nenhuma classe responsiva: os
+   dois cartões de paginação eram a última superfície levantada do corpo da
+   página, e o cartão que os justificava morreu.
+
+   PERDA NOMEADA, e ela é mais funda do que a spec do ticket supunha. A decisão
+   era *"rótulo anterior/próximo só em `aria-label`"* — mover a palavra do texto
+   para o atributo. Isso não é alcançável: `PaginatorNavLink`, `DocPaginator` e
+   `DocItem/Paginator` são os TRÊS `Unsafe` nas duas ações no artefato congelado
+   do portão 7, e não há opção pública, classe nem variável que acrescente
+   atributo a um nó.
+
+   O que sobra, e vale medido em vez de suposto: o nome acessível do link é o
+   TÍTULO da página vizinha, que é descritivo por si; a direção continua no `«` e
+   no `»` que o Infima desenha por pseudo-elemento e que o navegador expõe na
+   árvore de acessibilidade; e a região tem `aria-label` do `DocPaginator`. O
+   critério de propósito de link continua satisfeito — o que se perde é a palavra
+   redundante, não a orientação.
+   ----------------------------------------------------------------------------- */
+
+html.docs-doc-page .pagination-nav__link {
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+html.docs-doc-page .pagination-nav__sublabel {
+  display: none;
+}
+
+html.docs-doc-page .pagination-nav__label {
+  font-size: var(--sd-type-base);
+  font-weight: var(--sd-weight-ui);
+}
+
+/* -----------------------------------------------------------------------------
+   6. Footer
+
+   **Uma linha.** Links à esquerda, copyright à direita, fio de ponta a ponta,
+   sem preenchimento próprio, sem ícone, sem coluna, sem elevação — e sem uma
+   única linha no ledger de swizzle. As oito peças de `Footer` são `safe` nas
+   duas ações e nenhuma é exercida.
+
+   Três divergências obrigatórias contra o Infima, e nenhuma é gosto:
+
+   · **preenchimento** — o Infima pinta o rodapé com `--ifm-color-emphasis-100`,
+     que seria um TERCEIRO nível de superfície contra os dois do sistema;
+   · **peso do título de coluna** — 700, que não existe na escala de três pesos
+     (a porta fica fechada na spec: `links` é lista plana e o schema recusa
+     misturar);
+   · **entrelinha de link** — 2, contra a entrelinha de UI.
+
+   Sem sombra, e é decisão: a escada de elevação é para superfície que sobe. O
+   footer não sobe — ele **é** a página. A separação é o fio.
+   ----------------------------------------------------------------------------- */
+
+.footer {
+  border-top: var(--sd-border-width) solid var(--sd-border-subtle);
+  /* O horizontal é declarado aqui, e não deixado para a variável do Infima que o
+     adaptador alimenta. Motivo: no estreito o Infima **zera** essa variável
+     dentro do próprio `.footer`, que é mais perto do elemento que o `:root` do
+     adaptador — e reescrevê-la aqui abriria uma SEXTA exceção com escopo, contra
+     a lista fechada de cinco do ADR 1 do shinydoc. Declarar a propriedade em vez da variável
+     mantém a regra de mão única intacta: o projeto nunca lê nem escreve
+     `--ifm-*` fora do adaptador. */
+  padding-inline: var(--sd-gutter);
+  padding-bottom: var(--sd-space-16);
+  font-size: var(--sd-type-sm);
+}
+
+/* O `.container` do footer perde o preenchimento e ele sobe para o `<footer>`.
+   Sem isso a compensação de alinhamento erra por 16px: a coluna de conteúdo fica
+   rente à borda do container, e o texto do rodapé começaria 16 depois dela.
+
+   O ALINHAMENTO COM A COLUNA DE DOC mudou de mecanismo na #96, não de meta.
+   `<Footer/>` continua irmão do `main-wrapper` — ver a nota abaixo —, mas
+   agora o `.container` da doc não centra mais em `100% − sidebar`: centra num
+   grupo com `margin-inline: auto` próprio, cujo inset esquerdo VARIA com a
+   viewport. Dar ao `.container` do footer o MESMO quadro — mesmo
+   `max-width`, mesmo `margin-inline: auto` — faz os dois insets esquerdos
+   coincidirem SEMPRE, não só numa largura medida; o que falta depois disso é
+   só a largura da sidebar mais o gutter, que é exatamente o texto de conteúdo
+   entra depois dela. */
+.footer .container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-inline: 0;
+}
+
+/* O ALINHAMENTO ESTAVA ERRADO POR UM GUTTER, E A PROMESSA ERA MAIS FORTE QUE O
+   RESULTADO — S3-8.
+
+   O texto acima dizia que os dois insets esquerdos *"coincidem SEMPRE, não só
+   numa largura medida"*. Medido em sete larguras, o rodapé fica à DIREITA da
+   prosa abaixo do congelamento e à ESQUERDA dela acima, e o sinal cruza o zero
+   em 1440 por coincidência aritmética:
+
+     largura | prosa | rodapé |   Δ
+        997  |  288  |  352   | +64
+       1300  |  288  |  352   | +64
+       1360  |  312  |  352   | +40
+       1408  |  336  |  352   | +16
+       1440  |  352  |  352   |   0
+       1512  |  388  |  372   | −16
+       1920  |  592  |  576   | −16
+
+   DUAS causas, e as duas são consertadas aqui:
+
+   1. **O termo estava errado.** O que separa a sidebar da PROSA não é o gutter
+      (32) — é a metade da folga da caixa invisível, `(--sd-doc-width −
+      --sd-prose-width) / 2` = 48. O `<article>` é centralizado dentro da coluna
+      de doc (§2), e o rodapé compensava com o número de antes da #96.
+   2. **O `<footer>` paga um preenchimento lateral que o grupo de doc não paga.**
+      `padding-inline: var(--sd-gutter)` no `<footer>` empurra o container 32
+      para dentro em toda largura abaixo de 1472, enquanto a sidebar cola em 0.
+      Acima do congelamento o `margin-inline: auto` do container ultrapassa os 32
+      e o defeito some sozinho — que é por que ele nunca apareceu na largura de
+      referência.
+
+   O eixo esquerdo passa para o container, e o direito FICA no `<footer>`: é ele
+   que impede o copyright de encostar na borda, e o fio de ponta a ponta continua
+   no `<footer>`, fora de qualquer preenchimento.
+
+   QUAL BORDA É O ALVO: a prosa. É a única que o leitor vê — a coluna de doc é
+   caixa invisível por construção (§2), e alinhar com ela seria alinhar com uma
+   borda que não existe na tela.
+
+   O QUE NÃO FECHA, e fica escrito: entre 997 e o congelamento a coluna
+   encolhe, a folga de centralização da prosa vai de 48 a 0, e nenhum
+   preenchimento CONSTANTE acompanha um alvo que varia. Medido depois deste
+   conserto: **zero de 1408 para cima**, +24 a 1360, +48 a 997 — e **zero de
+   novo abaixo de 997**, onde não há sidebar nem coluna e os dois voltam a
+   partir da mesma borda. A faixa que não fecha é a de uma media query só.
+   Reproduzir a cadeia inteira num `calc()` acoplaria o rodapé ao container, ao
+   TOC e ao limiar do TOC — três acoplamentos para um regime em que a página já
+   não está na proporção que a spec publica. */
+@media (min-width: 997px) {
+  html.docs-doc-page .footer {
+    padding-inline: 0;
+  }
+
+  html.docs-doc-page .footer .container {
+    max-width: var(--sd-congelamento);
+    margin-inline: auto;
+    padding-inline: calc(var(--sd-sidebar-width) + (var(--sd-doc-width) - var(--sd-prose-width)) / 2)
+      var(--sd-gutter);
+  }
+}
+
+/* O `Footer/Layout` cola `text--center` nos dois filhos. Numa linha
+   `space-between` isso não tem leitura. */
+.footer .text--center {
+  text-align: start;
+}
+
+.footer__links {
+  margin-bottom: 0;
+}
+
+.footer__link-item {
+  line-height: var(--sd-leading-ui);
+  font-weight: var(--sd-weight-ui);
+}
+
+/* O ícone de link externo sai, e o motivo não é estética: `Icon/ExternalLink`
+   não está no `getSwizzleConfig` (logo é `unsafe`) e vem de um sprite injetado.
+   Ele ficaria com o desenho do Docusaurus, de outra família, em dois dos três
+   links. E não há perda de acessibilidade — nenhum link do footer leva `target`,
+   então o rótulo dele ("abre em nova aba") seria uma afirmação falsa. */
+.footer__link-item > svg {
+  display: none;
+}
+
+.footer__copyright {
+  color: var(--sd-text-muted);
+}
+
+/* `docs-doc-page` vem do `DocRoot`, então a regra de alinhamento acima vale
+   para as TRÊS instâncias de sidebar — é a mesma classe nas três.
+
+   PERDA NOMEADA, e sobrevive à #96 sem mudar: com a sidebar recolhida pelo
+   leitor (o botão de esconder, não a gaveta do estreito), `Main` troca para
+   `docMainContainerEnhanced` e ocupa a largura toda — mas o padding do
+   footer continua supondo a sidebar visível. O estado mora em classe de CSS
+   Module hasheada; alcançá-la por `html:has(…)` é o mesmo custo que já se
+   recusou ao desistir da proporção 56/44 em `chrome.md` §1.2. */
+
+/* -----------------------------------------------------------------------------
+   7. Tela estreita
+
+   Abaixo de 997px — o mesmo limiar em que a sidebar vira gaveta, em que a faixa
+   de tabs some e em que o gutter volta a 16.
+
+   Três dos quatro comportamentos se resolvem por construção, e a única peça de
+   navegação que custa declaração é a que SAI:
+
+   · **o cartão não está mais lá para encolher.** A história inteira dele no
+     estreito era uma declaração de meio preenchimento, e ela morre junto com a
+     superfície que a consumia;
+   · o **breakout já resolveu para zero** — não há mais lista de escape em lugar
+     nenhum, nem no largo;
+   · o **gutter de 16 se preserva sozinho**, porque o token só dobra a partir de
+     997. A faixa de tabs some sozinha pelo mesmo mecanismo, do outro lado do
+     mesmo limiar;
+   · **o TOC móvel sai.** É o único lugar onde o critério *"mais perto da
+     âncora"* REMOVE uma peça de navegação, e por isso ele é uma declaração e
+     não uma omissão: se um dia doer, é uma linha que se apaga. O leitor no
+     estreito troca o índice colapsado pela rolagem, e o que ele ganha é a
+     página começando no conteúdo.
+   ----------------------------------------------------------------------------- */
+
+@media (max-width: 996px) {
+  html.docs-doc-page .theme-doc-toc-mobile {
+    display: none;
+  }
+
+  /* O `.col` RECUPERA o preenchimento, e a razão é que a regra (b) da cadeia só
+     vale onde a cadeia existe.
+
+     Ela zera o preenchimento de coluna porque, no largo, os dois lados são
+     cobrados por dentro da largura pretendida e sem isso a coluna não fecha em
+     `--sd-doc-width` (816, hoje). Abaixo do limiar não há essa largura a
+     fechar, nem cadeia — e a compensação vira defeito: a margem negativa da
+     `.row` cancela o preenchimento do `.container`, e sem preenchimento em
+     nenhum outro lugar (o `<main>` não tem mais preenchimento horizontal
+     próprio desde a #96 — ver §1) o texto encosta na borda da viewport.
+
+     Medido a 390 antes desta regra: `x=0` no eyebrow, no título e em cada
+     parágrafo. É o gutter do estreito que precisa aparecer aqui, e ele aparece
+     pelo token — nunca pelo valor que o Infima por acaso também usa. */
+  html.docs-doc-page main > .container > .row > .col {
+    padding-inline: var(--sd-gutter);
+  }
+
+  /* A linha **quebra e não empilha**, revertendo deliberadamente o Infima. Ele
+     transforma cada link em `display: block`, o que faz uma linha virar cinco —
+     e "uma linha" é a decisão inteira do rodapé. Os rótulos com separador cabem
+     numa linha em 375px e quebram para duas em 320px. */
+  .footer .container {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--sd-space-6);
+  }
+
+  /* `inline-flex` e não `inline`: a caixa continua participando da linha e
+     quebrando com ela, e ganha altura própria — que é o que faz o piso de alvo
+     de toque do contrato de entrada alcançar o link do rodapé, onde `inline`
+     ignoraria `min-height` em silêncio. */
+  .footer__link-item {
+    display: inline-flex;
+    align-items: center;
+    width: auto;
+  }
+
+  .footer__link-separator {
+    display: inline;
+  }
+}
+
+/* -----------------------------------------------------------------------------
+   O chrome flutuante — as duas superfícies que o adaptador NÃO alcança
+
+   `.dropdown__menu` (o seletor de idioma) e `.navbar-sidebar` (o menu do
+   estreito) leem `--ifm-global-shadow-md`, e nada mais: o Infima não declara
+   `border` nem `--ifm-*-border-color` para nenhuma das duas. Elas carregavam o
+   anel `0 0 0 1px` de dentro da sombra, e o perderam quando ele saiu da
+   composição.
+
+   É aqui que a frase *"o adaptador alcança o fio inteiro"* encontra o limite
+   dela, e por isso o limite está escrito em vez de suposto: onde o Infima não
+   tem variável de borda, o fio custa uma regra. Uma linha por superfície contra
+   a sombra inteira redeclarada — que é a conta que decidiu a troca.
+   ----------------------------------------------------------------------------- */
+
+.dropdown__menu,
+.navbar-sidebar {
+  border: var(--sd-border-width) solid var(--sd-border-subtle);
+}
+
+/* -----------------------------------------------------------------------------
+   O botão de voltar ao topo — a terceira superfície flutuante, e ela recupera
+   a sombra que a saída da profundidade do CONTEÚDO levou junto
+
+   `--ifm-global-shadow-lw` passou a valer `none` porque a profundidade sai do
+   conteúdo. O leitor que essa mudança tinha em mente é `CodeBlock/Container`;
+   medido no fonte da 3.10.2, quem mais a lê neste site é `BackToTopButton` — um
+   botão `position: fixed` de 3rem sobre `--ifm-color-emphasis-200`, que é o fio
+   translúcido. Sem sombra ele fica quase invisível sobre a página.
+
+   Ele é chrome flutuante pela mesma definição que põe o dropdown e a gaveta
+   aqui, então recebe o mesmo papel. O gancho é `ThemeClassNames` e não classe
+   hasheada, então isto não abre exceção nenhuma no adaptador.
+
+   `button.theme-back-to-top-button` e não `.theme-back-to-top-button`: o
+   upstream pinta a sombra numa classe de CSS Module, que é (0,1,0) — o mesmo
+   peso da classe estável. Empate resolvido por ORDEM DE CARGA, e o módulo do
+   theme-classic carrega depois: a forma nua perde, em silêncio e sem sintoma.
+   Somar o tipo do elemento leva o seletor a (0,1,1) e o tira da ordem. É o
+   mesmo mecanismo que `div.theme-code-block` usa em `componentes.css`, e a
+   primeira redação desta regra caiu exatamente na armadilha que aquele
+   comentário descreve.
+   ----------------------------------------------------------------------------- */
+
+button.theme-back-to-top-button {
+  box-shadow: var(--sd-shadow-float);
+}

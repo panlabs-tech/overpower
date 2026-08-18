@@ -1,0 +1,1424 @@
+/* =============================================================================
+   shinydoc — tokens
+
+   Este é o ÚNICO arquivo do repositório com valor literal. Cor, comprimento,
+   tempo e curva nascem aqui e em nenhum outro lugar; o portão 1 reprova qualquer
+   um dos quatro fora daqui (`npm run portao:1`).
+
+   Três camadas, e o nome diz de que camada é:
+
+     1 — raiz         --sd-<coisa> · --sd-<escala>-<degrau>
+                      o único lugar com literal. Duas regiões: o bloco de troca
+                      delimitado por SKIN … /SKIN (o que o corporativo edita) e a
+                      base (escalas e a forma da rampa).
+     2 — semântica    --sd-<papel>-<qualificador>, papel de LISTA FECHADA de oito:
+                      surface · text · border · accent · shadow · focus · state · code
+                      Só cor. É o ÚNICO ponto do sistema onde os modos divergem.
+     3 — componente   --sd-<componente>-<parte>, declarada no escopo do componente
+                      e nunca em :root.
+
+   Cor sempre desce pela camada 2. Dimensão vem direto da camada 1.
+
+   O Infima fica do outro lado de um adaptador de MÃO ÚNICA (fim do arquivo):
+   o adaptador escreve --ifm-*, e nenhuma regra do projeto lê --ifm-*.
+
+   Procedência das decisões: shinydoc-docusaurus/docs/design/tokens.md.
+   Doutrina de CSS (por que :root[data-theme='light'] e por que @layer está fora):
+   shinydoc-docusaurus/docs/adr/0001-doutrina-de-css.md.
+   ============================================================================= */
+
+/* -----------------------------------------------------------------------------
+   @property — as duas raízes registráveis do bloco de troca
+
+   Propriedade registrada com valor inválido cai para o initial-value, não para
+   `unset`. Colagem errada degrada para o valor entregue de fábrica em vez de
+   apagar fundos em silêncio.
+
+   Registra-se exatamente as linhas do bloco de troca cuja entrega é literal E
+   computacionalmente independente — é o que `initial-value` sabe expressar.
+   As outras cinco entregam referência (`var()`, `oklch(from …)`) ou pilha de
+   fonte, e `initial-value` não aceita nenhuma das duas.
+
+   (As duas contagens acima diziam TRÊS e SETE, contra um bloco de troca de
+   sete linhas com duas registradas. O comentário do bloco SKIN, no `:root`
+   abaixo, sempre disse *"as duas linhas"* e *"as outras cinco"* — eram os
+   números daqui que estavam soltos. Contagem em comentário não tem portão,
+   e é por isso que ela vale a errata em vez da reescrita silenciosa.)
+
+   ---------------------------------------------------------------------------
+   A TIPAGEM `<color>` DE --sd-brand É CARGA ESTRUTURAL, NÃO DECORAÇÃO.
+
+   E o mecanismo é mais estreito do que a leitura fácil sugere. Medido em
+   Chrome 148, arquivo a arquivo:
+
+     · SEM o registro e com marca VÁLIDA, a cadeia
+       `brand → on-dark → accent → text-inverse` resolve inteira e byte a byte
+       igual. Custom property não registrada é token stream, e o texto
+       `oklch(from … )` aninhado é CSS legal — a substituição atravessa;
+     · SEM o registro e com marca INVÁLIDA, a cadeia inteira cai de uma vez:
+       marca, as onze paradas da rampa, os dois acentos, TODA superfície e o
+       rótulo do botão primário viram a cor herdada. Sem aviso, sem erro;
+     · COM o registro e com marca inválida, tudo isso cai para o `initial-value`
+       desta linha e o site continua de pé, numa skin de fábrica.
+
+   Ou seja: o que a tipagem compra não é a cadeia funcionar — é ela **não
+   evaporar inteira** na única edição que a superfície de troca convida a fazer.
+   O raio de dano de uma linha errada é o site inteiro, e este registro é o que
+   o contém.
+
+   Consequência para quem edita: tirar esta linha não é aliviar tipagem. É
+   trocar uma skin de fábrica por uma página sem cor nenhuma no dia em que
+   alguém colar um valor torto.
+   --------------------------------------------------------------------------- */
+
+@property --sd-brand  { syntax: '<color>';  inherits: true; initial-value: #8156C0; }
+@property --sd-radius { syntax: '<length>'; inherits: true; initial-value: 16px; }
+
+/* =============================================================================
+   CAMADA 1 — raiz
+   ============================================================================= */
+
+:root {
+  /* SKIN — o que o corporativo edita para re-marcar. Nada além disto.
+     Tipadas com @property: --sd-brand, --sd-radius.
+     São as duas linhas cuja entrega é literal — colagem inválida nelas cai no valor
+     de fábrica. As outras cinco entregam referência ou pilha de fonte, que
+     initial-value não sabe expressar: colagem inválida ali apaga o que a linha
+     alimenta, à vista. */
+  /* A marca DIVERGE do gabarito, e diverge por decisão travada: a #129 §11
+     diz `--sd-brand` continua `#8156C0`, que era o valor do shinydoc quando a
+     spec foi escrita. O gabarito passou para `#BC461D` depois; o overpower
+     ficou com o roxo, que é o que o favicon também usa. */
+  --sd-brand:          #8156C0;
+  --sd-brand-on-dark:  oklch(from var(--sd-brand) max(l, 0.72) c h);
+  --sd-brand-on-light: oklch(from var(--sd-brand) min(l, 0.50) c h);
+  --sd-font-body:      'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --sd-font-heading:   var(--sd-font-body);
+  --sd-font-mono:      'Paper Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --sd-radius:         16px;
+  /* /SKIN */
+
+  /* O `L` do hex da marca é INERTE: as duas travas de acento reescrevem `L` e
+     consomem só `c` e `h` (`max(l, 0.72)` e `min(l, 0.50)`). Dois hexes do
+     mesmo matiz e cromaticidade produzem os dois acentos byte a byte
+     idênticos — só o ÂNGULO do matiz importa.
+
+     A rampa NÃO lê `--sd-brand` mais. Issue #95: a tinta que ela herdava da
+     marca era mecanismo copiado de onde ele não se aplica — a âncora não
+     pinta superfície com a rampa tingida, pinta com um cinza neutro à parte
+     (ver o bloco `--sd-neutral-*`, abaixo). `--sd-brand-tint` e o pin
+     `c × tint = 0,0120` que o mantinham não têm mais o que travar, e saíram
+     do sistema. Ver shinydoc-docusaurus/docs/design/tokens.md §5. */
+
+  /* ---------------------------------------------------------------------------
+     Cinza neutro puro — o chão, fora da rampa
+
+     A superfície de página, nos dois modos, e a elevada no claro não são
+     parada de rampa nenhuma: são cinza neutro medido direto na âncora
+     (issue #95). A elevada no escuro não tem literal próprio aqui — ela
+     referencia a própria página, porque a âncora eleva cartão por borda, não
+     por fundo (ver o bloco escuro, mais abaixo).
+     --------------------------------------------------------------------------- */
+  --sd-neutral-page-dark:    #141414;
+  --sd-neutral-page-light:   #FCFCFC;
+  --sd-neutral-raised-light: #FFFFFF;
+
+  /* ---------------------------------------------------------------------------
+     A rampa de onze cinzas — medida na âncora, fria, e não deriva de nada
+
+     Até a issue #95, as onze paradas eram tingidas pelo matiz da marca. Agora
+     valem os hex medidos na âncora, fixos qualquer que seja `--sd-brand`: a
+     FORMA da rampa continua geometria herdada, só que por valor copiado em
+     vez de fórmula reaplicada — trocar a marca não move mais nenhum neutro do
+     sistema.
+
+     A rampa é declarada INTEIRA, e hoje TRÊS paradas estão sem consumidor: a
+     100, a 200 e a 800. Eram declaradas como "só a 200" aqui, e a contagem
+     nasceu errada no próprio commit que a escreveu — a issue #95, que
+     desacoplou a rampa da marca, é onde `git log -S` põe a perda dos
+     consumidores da 100 e da 800. Nenhuma CI tinha como ver: órfão não quebra
+     build.
+
+     As três ficam pelo mesmo argumento que sustenta a família de `-edge` mais
+     abaixo: uma rampa de onze com buraco no meio é pior de ler do que a parada
+     a mais. Parada é geometria, não consumidor — e o argumento não muda com o
+     número de buracos.
+     --------------------------------------------------------------------------- */
+  --sd-gray-50:  #F4F6FA;
+  --sd-gray-100: #EFF1F5;
+  --sd-gray-200: #DFE2E6;
+  --sd-gray-300: #CFD1D5;
+  --sd-gray-400: #A0A2A6;
+  --sd-gray-500: #717377;
+  --sd-gray-600: #515357;
+  --sd-gray-700: #404246;
+  --sd-gray-800: #26292D;
+  --sd-gray-900: #181A1E;
+  --sd-gray-950: #0B0D11;
+
+  /* ---------------------------------------------------------------------------
+     Matizes de estado — camada 1, fora do bloco de troca.
+
+     Livre — skin corporativa (redesenho): move-se o ÂNGULO, dentro da família.
+     Azul continua azul, verde continua verde. Não se movem L, C, nem as fórmulas
+     de alfa — são elas que garantem AA sobre as duas superfícies em qualquer
+     ângulo. Editar aqui é redesenhar, não re-marcar.
+
+     São literais porque não há raiz no sistema de onde derivar um verde a partir
+     de uma marca fúcsia.
+
+     Medidos contra a âncora (issue #83): ícone dos callouts `Note`/`Warning`/
+     `Tip`/`Danger` em mintlify.com/docs, convertido de sRGB para o H de OKLCH.
+     `success` (151,3°) e `danger` (26,9°) já batiam com o ângulo anterior a
+     menos de 1,5° — ficaram como estavam. `info` (265,6°) e `warn` (61,9°)
+     divergiam ~20°; os dois passam a ser o ângulo medido.
+     --------------------------------------------------------------------------- */
+  --sd-hue-info:    266;
+  --sd-hue-success: 150;
+  --sd-hue-warn:     62;
+  --sd-hue-danger:   27;
+
+  /* ---------------------------------------------------------------------------
+     Tipografia — camada 1. Os degraus levam o nome do alvo (text-xs … text-4xl)
+     para a procedência ficar legível no próprio token.
+
+     NÃO HÁ DEGRAU DE DISPLAY, e a escala termina no `4xl`. Ela já terminou no
+     `4xl` uma vez: o `5xl` saiu quando o título do hero passou a caber numa
+     linha em 60, e a lápide dele dizia que deixá-lo declarado seria variável sem
+     consumidor — o defeito do Infima que este arquivo nomeia para não copiar.
+
+     O `6xl` SAIU AGORA, pela mesma régua e pelo motivo inverso: ele tinha um
+     consumidor no site inteiro — o título do hero da landing, de 997px —, e a
+     landing saiu. Ver shinydoc-docusaurus/docs/design/README.md §5.1 e a issue #94.
+
+     A régua que decide isto está em shinydoc-docusaurus/docs/design/README.md, no fecho da
+     varredura: o que se remove é órfão SEM MOTIVO, não órfão. `--sd-gray-200`
+     fica porque é parada de uma rampa declarada inteira, e rampa com buraco é
+     pior de ler; `--sd-state-danger-edge` fica porque família de quatro não tem
+     buraco no meio. (O exemplo daqui ERA `--sd-toc-width`, e ele deixou de
+     servir: a #96 lhe deu três consumidores — ver o bloco de chrome abaixo.
+     Órfão que ganha consumidor sai da lista.) Um degrau de display não é elo de
+     nada — ele já saltava o `5xl`
+     por não ter o que preencher no meio —, então sem o hero não sobra motivo, e
+     manter o `6xl` repetiria exatamente o defeito que matou o `5xl`.
+
+     Consequência declarada: o degrau de display do projeto foi decidido três
+     vezes, com três respostas — 48, 60, e nenhum.
+     --------------------------------------------------------------------------- */
+  --sd-type-xs:    12px;
+  --sd-type-sm:    14px;    /* densidade de UI — o número mais unânime da amostra */
+  --sd-type-base:  16px;    /* prosa */
+  --sd-type-lg:    18px;
+  --sd-type-xl:    20px;
+  --sd-type-2xl:   24px;
+  --sd-type-3xl:   30px;    /* título de página, até 996px */
+  --sd-type-4xl:   36px;    /* título de página, de 997px — o topo da escala */
+
+  /* Peso — três, nomeados por intenção. Nome de intenção não colide com o
+     `semibold: 500` do Infima, que é a mesma palavra sobre outro número. */
+  --sd-weight-body:    400;
+  --sd-weight-ui:      500;
+  --sd-weight-heading: 600;
+
+  /* Entrelinha. h4 repete o valor de ui e mantém nome próprio: mesmo número
+     hoje, intenções diferentes. */
+  --sd-leading-prose: 1.75;
+  --sd-leading-ui:    1.5;
+  --sd-leading-code:  1.7143;
+  --sd-leading-h1:    1.111;
+  --sd-leading-h2:    1.333;
+  --sd-leading-h3:    1.4;
+  --sd-leading-h4:    1.5;
+
+  /* Letter-spacing — um só. O corpo usa o `normal` do navegador, que é keyword
+     e não valor, então não precisa de token. */
+  --sd-tracking-tight: -0.025em;
+
+  /* Falso-negrito — o realce do item ativo da sidebar, e ele não é enfeite.
+     Trocar `font-weight` reflui o texto e o item PULA de largura no instante em
+     que o leitor navega; meio pixel de sombra engrossa sem mexer na métrica.
+     `currentColor` resolve no elemento, então o realce acompanha o acento sem
+     par declarado e sem segundo valor para o modo claro. */
+  --sd-negrito-optico: 0 0 0.4px currentColor;
+
+  /* ---------------------------------------------------------------------------
+     Espaço — base 4px, escada por calc(). Um literal só.
+     Toda dimensão que o projeto travou é múltiplo de 8; a base fica em 4 para o
+     meio-passo que a densidade de 14px exige em chip, badge e ícone.
+     --------------------------------------------------------------------------- */
+  --sd-space-1:  4px;   /* único literal da escala */
+  --sd-space-2:  calc(var(--sd-space-1) *  2);
+  --sd-space-3:  calc(var(--sd-space-1) *  3);
+  --sd-space-4:  calc(var(--sd-space-1) *  4);
+  --sd-space-5:  calc(var(--sd-space-1) *  5);
+  --sd-space-6:  calc(var(--sd-space-1) *  6);
+  --sd-space-8:  calc(var(--sd-space-1) *  8);
+  --sd-space-10: calc(var(--sd-space-1) * 10);
+  --sd-space-12: calc(var(--sd-space-1) * 12);
+  --sd-space-16: calc(var(--sd-space-1) * 16);
+
+  /* ---------------------------------------------------------------------------
+     Forma — base 16px (a sétima e última linha do bloco de troca), escada por
+     múltiplo.
+     Um número entra, a escada sai: trocar --sd-radius re-forma o site inteiro
+     sem incoerência possível.
+     --------------------------------------------------------------------------- */
+  --sd-radius-lg:   calc(var(--sd-radius) * 1.25);  /* painel da busca */
+  --sd-radius-md:   calc(var(--sd-radius) * 0.75);  /* bloco de código, callout, imagem, frame, controle e linha de resultado da busca */
+  --sd-radius-sm:   calc(var(--sd-radius) * 0.5);   /* botão, campo, aba, chip */
+  --sd-radius-xs:   calc(var(--sd-radius) * 0.25);  /* código inline, badge, pílula de verbo */
+  --sd-radius-full: 999px;                          /* marcador de Step, avatar, pílula */
+
+  /* O fio. Um só, e agora ele é a separação de TODA superfície levantada — o
+     anel `0 0 0 1px` saiu da composição da sombra e virou borda de verdade.
+
+     A troca é decisão de ALCANCE, não de estética: o Infima declara
+     `--ifm-*-border-color` em todo componente, então o adaptador pinta o fio
+     inteiro com o vocabulário que já existe. Anel dentro de `box-shadow`
+     obrigaria a sobrescrever a sombra de cada componente para desenhar uma
+     linha. */
+  --sd-border-width: 1px;
+
+  /* ---------------------------------------------------------------------------
+     Motion — escala de duração e vocabulário de easing. Camada 1, fora do bloco
+     de troca.
+
+     Livre — skin corporativa (redesenho): nenhum manual de marca especifica
+     duração. Quem edita aqui está redesenhando, não re-marcando.
+
+     Os números são medidos, não escolhidos: 200ms é o valor mais aplicado de
+     toda a amostra; 300ms é a banda de mudança grande; 500ms é a banda de
+     entrada grande; 5s é o único loop ambiente medido em qualquer uma das sete.
+     --------------------------------------------------------------------------- */
+  --sd-dur-1: 200ms;
+  --sd-dur-2: 300ms;
+  --sd-dur-3: 500ms;
+  --sd-dur-ambient: 5s;     /* período do loop; não é parada da escala — ver reduced-motion */
+
+  /* Duas curvas, nomeadas por intenção. Não há `ease-in`: nada neste site sai da
+     tela, e variável sem consumidor é o defeito do Infima que não se copia. */
+  --sd-ease-settle: cubic-bezier(0, 0, 0.2, 1);   /* responde ao leitor e assenta */
+  --sd-ease-inout:  cubic-bezier(0.4, 0, 0.2, 1); /* tem início e fim na tela */
+
+  /* Os seis movimentos. Cada um é um token COMPLETO — <duração> <easing> — que
+     compõe da escala em vez de cravar número. É isso que faz reduced-motion
+     alcançar o Infima que não escrevemos: o adaptador escreve
+     --ifm-transition-fast a partir de --sd-dur-1, e a redefinição atravessa.
+
+     Os quatro primeiros terminam sozinhos e ENCURTAM sob reduced-motion.
+     Os dois últimos não terminam sozinhos — `reveal` é dirigido por rolagem,
+     `ambient` é infinito — e são REMOVIDOS, não encurtados; quem os consome
+     acrescenta timeline / `infinite`.
+
+     OS TRÊS ÚLTIMOS ESTÃO SEM CONSUMIDOR desde que a landing saiu (issue #94), e
+     ficam declarados de propósito. O motivo é o que a régua de órfãos pede — e
+     não é o mesmo do `--sd-type-6xl`, que saiu no mesmo movimento. O vocabulário
+     de motion é FECHADO por portão: `scripts/portao-2-motion.sh` reprova toda
+     duração ou curva cravada e manda usar um destes seis nomes. Remover três
+     deixaria o portão apontando para um vocabulário que não cobre `showcase`,
+     `reveal` nem `ambient` — e a próxima faixa que precisasse de um deles
+     escreveria o número cravado que o portão existe para impedir. É uma escala
+     declarada inteira, como a rampa de cinza, e o buraco no meio custa mais do
+     que a parada a mais. */
+  --sd-move-state:    var(--sd-dur-1) var(--sd-ease-settle);
+  --sd-move-enter:    var(--sd-dur-1) var(--sd-ease-settle);
+  --sd-move-expand:   var(--sd-dur-2) var(--sd-ease-inout);
+  --sd-move-showcase: var(--sd-dur-3) var(--sd-ease-settle);
+  --sd-move-reveal:   var(--sd-dur-3) var(--sd-ease-settle);
+  --sd-move-ambient:  var(--sd-dur-ambient) var(--sd-ease-inout);
+
+  /* Habilita <details> a transicionar para height: auto. Mora aqui, junto do
+     vocabulário, e não dentro do componente que a consome. */
+  interpolate-size: allow-keywords;
+
+  /* ---------------------------------------------------------------------------
+     Estado de entrada — camada 1, FORA do bloco de troca.
+
+     Espessura de anel não é identidade de marca; a cor já é, e ela segue o
+     acento pela camada 2 (`--sd-focus-ring`).
+
+     Estes são o segundo e o terceiro literal do sistema, e não vão disfarçados.
+     `calc(var(--sd-space-1) / 2)` daria 2px e passaria em qualquer varredura —
+     seria derivação FALSA: espessura de anel não tem relação com escala de
+     espaço, e a régua deste projeto existe justamente para impedir número que
+     só parece derivado. A procedência honesta é origem própria com âncora em
+     norma: 2px é o limiar de perímetro da SC 2.4.13, 44px é a SC 2.5.5.
+
+     Contrato completo: shinydoc-docusaurus/docs/design/foco.md e ADR 4 do shinydoc.
+     --------------------------------------------------------------------------- */
+  --sd-focus-width:  2px;
+  --sd-focus-offset: 2px;
+  --sd-target-min:   44px;
+
+  /* ---------------------------------------------------------------------------
+     Dimensões do chrome — camada 1.
+     A anatomia completa é de shinydoc-docusaurus/docs/design/chrome.md; aqui ficam só os valores
+     que o adaptador precisa escrever, porque ele não pode escrever de lugar
+     nenhum.
+
+     `--sd-tabs-height` é LITERAL, e não `var(--sd-space-12)`, ainda que os dois
+     entreguem 48. Altura de chrome não tem relação com escala de espaço, e
+     derivar por coincidência de número é a derivação FALSA que o bloco de foco
+     recusa em voz alta trinta linhas acima. A procedência honesta é a mesma dos
+     outros comprimentos deste bloco: medida na âncora.
+
+     `--sd-toc-width` GANHOU consumidor na #96, e o valor mudou de 288 para
+     304. A premissa que travava em 288 — *"a coluna é o quarto restante do
+     grid 75/25 do upstream, alcançar 304 custaria `unsafe` em
+     DocItem/Layout"* — era fato errado, não decisão: o grid de doze morreu
+     nesta issue, substituído por `flex` com largura explícita em
+     `chrome.css` §1, e uma largura explícita não tem 75/25 a quebrar. A
+     correção está em shinydoc-docusaurus/docs/design/chrome.md §1.2, sem apagar o texto
+     original — ver o bloco de errata lá.
+     --------------------------------------------------------------------------- */
+  --sd-container-width: 1120px;  /* as DUAS variáveis de container do Infima recebem este — era 1152, ver nota abaixo */
+  --sd-sidebar-width:    288px;
+  --sd-navbar-height:     64px;  /* a LINHA 1 do topo, não o topo inteiro */
+  --sd-tabs-height:       48px;
+  --sd-toc-width:        304px;  /* bate com a âncora — §11 de chrome.md */
+  --sd-prose-width:      720px;
+
+  /* A prosa da página de referência é MAIS ESTREITA que a prosa comum — a
+     âncora troca a coluna do TOC (304) por um trilho de amostras bem mais
+     largo, e reduz o texto para abrir espaço. Medido em
+     `research/paridade-devin` §10 (576,81, arredondado), citado pela #99.
+     O trilho continua sendo o RESTO da conta — ver `referencia.md` §1 —, e
+     não um segundo literal: só a prosa é `origem própria`. */
+  --sd-api-prosa-width:  577px;
+
+  /* `--sd-container-width` MUDOU de 1152 para 1120 na #96, e não por conta
+     própria — é consequência do congelamento abaixo perder o termo do
+     gutter. As DUAS medições de margem simétrica da âncora (§11: 52px a
+     1512, 256px a 1920) só fecham com `sidebar + container = 1408`; com
+     container em 1152 sobravam 32px que nenhuma distribuição de padding
+     resolve — provado por álgebra e conferido depois em navegador. A
+     coluna de conteúdo (`--sd-doc-width`) cai de 848 para 816 como
+     consequência direta; a prosa não muda, porque desde a #96 ela é
+     `--sd-prose-width` fixo com TOC (ver `chrome.md` §1.5), não a coluna
+     inteira.
+
+     O CONGELAMENTO — a largura a partir da qual o grupo sidebar + conteúdo +
+     TOC para de crescer e passa a centralizar, com a folga indo IGUAL para
+     os dois lados. Até a #96 ele levava um termo de gutter —
+     `sidebar + container + 2 × (gutter − 16)` —, porque o `<main>` precisava
+     do próprio preenchimento horizontal para fechar a distância até a borda
+     da viewport, que ele MESMO era. Com o wrapper centralizando o grupo
+     (`chrome.css` §1), essa distância virou trabalho do `margin-inline: auto`
+     do wrapper, e `<main>` perdeu o preenchimento horizontal que fazia esse
+     papel — ele soma zero agora, só o `padding-top` fica. O termo do gutter
+     sai da fórmula porque o gutter não tem mais nada a completar aqui:
+     `sidebar + container`, e mais nada. */
+  --sd-congelamento: calc(var(--sd-sidebar-width) + var(--sd-container-width));
+
+  /* O recuo do subtítulo sob o título. LITERAL pelo mesmo motivo da altura da
+     faixa: é medida de chrome, não parada da escala de espaço, e escrevê-lo como
+     `--sd-space-2` mais meio passo daria o número sem comprar a derivação.
+
+     Na âncora ele sai de um `mt-2` de 8 colapsando contra o `space-y-2.5` do
+     contêiner. O que se copia é o RESULTADO medido, não a aritmética de um
+     framework de utilitários que este projeto não tem. */
+  --sd-subtitulo-recuo:   10px;
+
+  /* A ENTRELINHA do subtítulo. Ela existe porque sem ela o subtítulo herdava
+     `--sd-leading-prose` (1,75) sobre 18px = 31,5px, contra os 28 que
+     `chrome.md` §12 publica com tolerância `exato`.
+
+     COMPRIMENTO e não razão, de propósito: 28/18 é 1,5555…, que resolve para
+     27,999… e nasceria vermelho permanente contra um alvo `exato` — é o mesmo
+     defeito que a entrelinha subpixel do §13 de `tokens.md` já cataloga. Um
+     comprimento entrega o número medido sem resíduo.
+
+     LITERAL pelo mesmo motivo do recuo acima: é medida de chrome, e a escala de
+     espaço não tem parada em 28 — ela pula de 24 (`--sd-space-6`) para 32
+     (`--sd-space-8`). */
+  --sd-subtitulo-entrelinha: 28px;
+
+  /* O TOPO GRUDADO — a altura que o navbar de fato ocupa, e o offset de tudo o
+     que gruda abaixo dele. Uma linha no estreito; duas de 997 para cima.
+
+     Ele é o único ponto onde a faixa de tabs vira número, e mora aqui porque
+     tem DOIS consumidores fora do adaptador — o `--ifm-navbar-height`, que
+     propaga para os nove pontos do theme-classic que grudam, e o painel da
+     referência gerada, que gruda por conta própria num CSS Module.
+
+     O escopo por media query é OBRIGATÓRIO, e é a armadilha mais cara desta
+     faixa: `.navbar-sidebar__brand` e `.navbar-sidebar__items` leem o mesmo
+     `--ifm-navbar-height`. Sem o escopo, o cabeçalho do drawer do estreito
+     infla para a altura de duas linhas que ali não existem. */
+  --sd-topo-grudado: var(--sd-navbar-height);
+
+  /* O TOPO DO CONTEÚDO — a linha em que o `<article>` abre, e o offset de tudo
+     o que gruda ALINHADO com ele em vez de com a barra.
+
+     Ele não é um número novo: `--sd-topo-grudado` mais `--sd-space-10` já era
+     calculado à mão em três lugares — o `padding-top` do `<main>`
+     (`chrome.css` §1), o `max-height` do painel da referência e o comentário
+     que o justifica (*"a mesma respiração que o topo do conteúdo já usa"*).
+     Nomeá-lo é o que faz os três pararem de repetir a soma.
+
+     O NÚMERO É ALVO DA ÂNCORA, e ele fecha por duas medições publicadas
+     independentemente: `chrome.md` §11 mede o navbar da âncora em 112, e §12
+     mede o ritmo vertical dela em *"40 do navbar ao cabeçalho"*. 112 + 40 = 152,
+     que é o que §11 e `referencia.md` §8 cobram na linha `grudado em`.
+
+     Medido aqui, a 1512: `article.getBoundingClientRect().top` = 152. */
+  --sd-topo-conteudo: calc(var(--sd-topo-grudado) + var(--sd-space-10));
+
+  /* A coluna de conteúdo. Até a #96 ela era `.col--9` do grid de doze — 1152 ×
+     0,75 = 864 —, e a #96 matou o grid: não há mais 75/25 a manter, só o
+     container inteiro menos o que o TOC leva. A conta muda de forma
+     (container − toc em vez de container × 0,75), e o número se move DUAS
+     vezes na mesma issue: primeiro para 848 (`--sd-toc-width` foi a 304, com
+     container ainda em 1152), depois para 816 (`--sd-container-width` foi a
+     1120 — ver a nota dele, acima).
+
+     Sem cartão, ela continua CAIXA INVISÍVEL na configuração sem TOC: o
+     `max-width` da coluna segura a página no mesmo pixel quando `.col--3`
+     não existe. Ver `chrome.css` §1. */
+  --sd-doc-width: calc(var(--sd-container-width) - var(--sd-toc-width));
+
+  /* A MEDIDA DO CÓDIGO morreu aqui, e vale a linha de lápide. A derivação dela
+     era uma frase só — *"o interior do cartão de doc"* —, e o cartão está de
+     saída. Cartão fora, derivação fora: sobraria o número 768 sem raiz, que é a
+     derivação FALSA que este arquivo recusa em voz alta no bloco de foco.
+
+     Os consumidores reais passam a citar `--sd-prose-width`, pelo MESMO
+     argumento que já estava escrito: *a medida que o leitor estava lendo quando
+     apertou a tecla*. O argumento não enfraquece; ele fica verdadeiro, porque
+     hoje ele erra por 96px.
+
+     Eram DOIS na redação original — a largura do modal de busca e a laje de
+     código da landing. A segunda saiu com a página na issue #94; quem cita o
+     token hoje é `chrome.css`, o `SearchBar` e o `ApiDocItem`. */
+
+  /* A folga lateral do shell, de cada lado. Ela dobra a partir de 997px — o
+     mesmo limiar em que a sidebar aparece. O par 16/32 é herdado da âncora; o
+     ponto onde ele troca, não.
+
+     O par ANTIGO era 32/64, e ele caiu junto com o cartão: a folga de lá era a
+     do shell em volta de uma superfície levantada, e não há mais superfície
+     levantada. O par novo é o do `mint`.
+
+     ATÉ A #96 este token também fechava o congelamento — `sidebar + container
+     + 2 × (gutter − 16)` — porque o `<main>` completava com ele a distância
+     até a borda da viewport. Essa distância virou trabalho do
+     `margin-inline: auto` do wrapper de `chrome.css` §1, o `<main>` perdeu o
+     preenchimento horizontal, e o congelamento perdeu o termo do gutter — ver
+     `--sd-congelamento` acima. O que sobra para este token: o preenchimento
+     próprio do `<footer>`, o recuo do `.container` dele até a coluna de doc
+     (`chrome.css`, alinhamento do rodapé), e o preenchimento do `.col` que
+     volta no estreito. */
+  --sd-gutter: var(--sd-space-4);
+
+  /* A altura máxima do modal de busca — o SEGUNDO token novo do slice 7.
+
+     Ele está aqui, e não inline no CSS Module, porque a alternativa seria
+     escrever `60dvh` num arquivo que não é este. `dvh` não está no padrão do
+     portão 1 — `px|rem|em|ms|s` —, então o literal PASSARIA, e passar por buraco
+     de varredura é a única forma de literal que este projeto não admite: a
+     saída correta seria fechar o buraco, e fechá-lo aqui custa uma linha em vez
+     de uma perna nova de portão.
+
+     **Correção — a nota abaixo sobre a largura morreu na #98.** Ela dizia que a
+     largura não virava token porque era `--sd-prose-width`, citada por nome: o
+     painel abria com a medida que o leitor já estava lendo. A #98 mede a âncora
+     centralizada em `640px` — um número que não coincide com `--sd-prose-width`
+     (720px), então citar por nome pararia de ser "o mesmo número" e viraria
+     derivação falsa. Os quatro tokens abaixo saem daí: nenhum deriva da escala
+     de espaço pelo mesmo motivo que `--sd-tabs-height` não deriva dela — a
+     medida da âncora não tem relação com a escala, e coincidir por acidente é a
+     derivação que este arquivo já recusa por escrito (ver a Forma, acima). Todos
+     de consumidor único, como este. Procedência: shinydoc-docusaurus/docs/design/busca.md §10. */
+  --sd-busca-height: 60dvh;
+  --sd-busca-panel-width:      640px;
+  --sd-busca-panel-top:        54px;
+  --sd-busca-controle-width:   300.75px;
+  --sd-busca-controle-height:  36px;
+
+  /* O TERCEIRO token medido contra a viewport, não o único — a nota acima
+     mentia por omissão assim que este entrou. Mesmo buraco de portão 1, mesma
+     saída: `100vh` cravado em `estilos.module.css` (#99, painel da
+     referência) passaria a varredura calada, porque `vh` também não está no
+     padrão `px|rem|em|ms|s`. `dvh`, e não `vh`, pela mesma razão do token
+     acima — nunca pior, e a diferença só aparece em navegador móvel, onde
+     esta rota não monta o trilho (`--sd-api-prosa-width` some abaixo de
+     997px). */
+  --sd-viewport-altura: 100dvh;
+
+  /* ---------------------------------------------------------------------------
+     Grade de cartões — camada 1, e a declaração serve o MDX.
+
+     A frase que justificava a posição era *"UMA declaração serve a landing e o
+     MDX"*, e ela perdeu metade na issue #94: sobra o `card-group` do MDX. Ver a
+     lápide da lista de faixas mais abaixo, e `componentes/card-group.md`.
+
+     O piso de faixa da grade de `card-group`, derivado do limiar da âncora A
+     TRÊS COLUNAS: o `Columns` dela colapsa em 42rem, com gap de 16. Descontados
+     os dois gaps e dividido por três, sai o menor cartão que a âncora admite
+     numa fila de três.
+
+     A CITAÇÃO A `--sd-prose-width` MORREU AQUI, e a lápide vale a linha. Ela
+     valia enquanto a prosa media 672: os dois eram o MESMO `max-w-2xl` do
+     framework de utilitários da âncora, aparecendo duas vezes, e citar o token
+     era honesto. Sob o `mint` a prosa é 720 e o limiar de colapso continua 672
+     — continuar citando faria o piso derivar de um número que deixou de ser o
+     medido, que é a derivação FALSA que este arquivo recusa em voz alta no
+     bloco de foco. O limiar volta a ser o que sempre foi: um literal medido,
+     com nome próprio.
+
+     Com este piso, a contagem de cartões faz o trabalho sozinha — zero media
+     query, zero container query, zero prop de colunas.
+
+     A LISTA DE FAIXAS mora aqui junto, e não só o piso. O motivo tinha dois
+     consumidores — a grade de `card-group` dentro do MDX e a grade da landing
+     —, e "uma declaração serve as duas" só era verdade se a declaração
+     existisse num lugar que as duas citassem por nome. A escada de elevação
+     abriu o precedente: `--sd-shadow-raised` também é valor composto, e pelo
+     mesmo motivo.
+
+     A GRADE DA LANDING SAIU na issue #94, e a lista fica onde está. O argumento
+     que a trouxe para cá perdeu metade, mas o que sobra basta: ela continua
+     sendo valor composto, e valor composto citado por nome é o que impede a
+     próxima grade de recompor a lista à mão. O mesmo vale para
+     `--sd-shadow-raised`, que perdeu um dos dois consumidores no mesmo commit.
+     --------------------------------------------------------------------------- */
+  --sd-card-colapso: 672px;   /* o `max-w-2xl` em que o `Columns` da âncora colapsa */
+  --sd-card-min: calc((var(--sd-card-colapso) - 2 * var(--sd-space-4)) / 3);
+  --sd-card-grid: repeat(auto-fit, minmax(min(var(--sd-card-min), 100%), 1fr));
+}
+
+/* O gutter dobra no limiar único do projeto, que é o literal compilado do
+   Infima. Não são os 1024px da âncora: dois limiares brigando no mesmo eixo
+   custam mais do que a fidelidade compra.
+
+   A SEGUNDA LINHA DO TOPO nasce no mesmo limiar, e pelo mesmo motivo: um evento
+   visual em vez de dois. A faixa de tabs aparece exatamente quando a sidebar
+   aparece, e some exatamente quando ela vira gaveta. */
+@media (min-width: 997px) {
+  :root {
+    --sd-gutter: var(--sd-space-8);
+    --sd-topo-grudado: calc(var(--sd-navbar-height) + var(--sd-tabs-height));
+  }
+}
+
+/* =============================================================================
+   CAMADA 2 — semântica. Só cor, e o único ponto do sistema onde o modo diverge.
+
+   Escuro mora em :root porque o modo canônico é o FALLBACK; claro é override.
+   Consequência: nunca escrevemos um seletor de modo escuro, então a armadilha
+   de especificidade do `[data-theme='dark']` (0,1,0) contra o
+   `html[data-theme='dark']` (0,1,1) do Infima fica fora de alcance por
+   construção, não por disciplina. Ver ADR 1 do shinydoc.
+
+   Os dois blocos declaram a MESMA lista de tokens, na mesma ordem: token que
+   aparece num e não no outro é um buraco visível.
+   ============================================================================= */
+
+/* ESCURO — canônico.
+
+   O bloco teve um SEGUNDO seletor, `[data-sd-showcase]`, e ele saiu com a
+   landing (issue #94). A ilha de espetáculo carregava o próprio substrato
+   porque glow é emissão, e emissão só é legível contra escuridão; ela era um
+   seletor a mais neste bloco, e não um bloco novo, e é isso que a fazia inerte
+   na troca de tema. Sem a faixa não há o que manter escuro fora do modo.
+
+   Se ela voltar, o seletor volta AQUI e não num bloco próprio — e
+   O `scripts/contraste.mjs` do gabarito — que não veio — casa este seletor em
+   início de linha, então voltar
+   com ele exige acertar o casamento lá junto. */
+:root {
+  color-scheme: dark;
+
+  /* surface — `scrim` é o véu do `::backdrop` do modal de busca, e ele é o
+     ÚNICO papel semântico novo do slice 7. Ele deriva do extremo escuro da
+     rampa, que é o mesmo nos dois modos; o que bifurca é a opacidade, e ela
+     bifurca por um motivo mecânico: no escuro a página já está perto da 950, e
+     um véu leve não se distinguiria dela. No claro, a mesma opacidade
+     transformaria a página num buraco preto em vez de empurrá-la para trás.
+
+     `code` SUBIU para a 900, e a regra passou a ser simétrica: a superfície do
+     código é um passo acima da página nos DOIS modos. Ela era a 950 aqui — o
+     mesmo valor de `page`, dois nomes para uma cor —, e isso só se sustentava
+     com o cartão no meio, que dava ao bloco um fundo contra o qual se destacar.
+     Sem o cartão, o bloco de código tinha a cor exata da página no modo
+     canônico: é literalmente o defeito do Infima que este projeto nomeou.
+
+     Dissenso registrado: a 900 é o degrau imediatamente acima na rampa, e é a
+     única derivação honesta disponível — NÃO é uma medida. O berço que morreu
+     era anatomia medida da âncora. */
+  --sd-surface-page:   var(--sd-neutral-page-dark);
+  --sd-surface-raised: var(--sd-surface-page);
+  --sd-surface-code:   var(--sd-gray-900);
+  --sd-surface-wash:   rgb(from var(--sd-accent) r g b / 12%);
+  --sd-surface-scrim:  rgb(from var(--sd-gray-950) r g b / 72%);
+
+  /* text — `faint` é a parada 500, o meio matemático da rampa. É a única
+     reprovação deliberada de AA do sistema (3,04:1 aqui) e é PROIBIDA para
+     texto de leitura: serve separador, placeholder e controle desabilitado.
+     Texto secundário legítimo usa `muted`. */
+  --sd-text-strong:  var(--sd-gray-50);
+  --sd-text-body:    var(--sd-gray-300);
+  --sd-text-muted:   var(--sd-gray-400);
+  --sd-text-faint:   var(--sd-gray-500);
+  --sd-text-inverse: oklch(from var(--sd-accent) clamp(0, (0.62 - l) * 1000, 1) 0 h);
+
+  /* border — a tinta a 7%. Uma fórmula, dois modos, e ela reproduz os DOIS
+     valores medidos no alvo, que lá saem de dois mecanismos diferentes. */
+  --sd-border-subtle:  rgb(from var(--sd-text-strong) r g b / 7%);
+  --sd-border-default: rgb(from var(--sd-text-strong) r g b / 12%);
+  --sd-border-strong:  rgb(from var(--sd-text-strong) r g b / 20%);
+
+  /* accent.
+
+     `contrast` está SEM CONSUMIDOR desde que a landing saiu (issue #94) — o
+     único era o texto do botão primário dela. Fica declarado, e o motivo é o
+     mesmo que mantém `--sd-gray-200`: papel semântico é família declarada
+     inteira. Os dois blocos de modo declaram a MESMA lista, na mesma ordem, e
+     papel que aparece num e não no outro é buraco visível; tirar o par do
+     accent deixaria a camada 2 sem resposta para *que cor vai o texto sobre o
+     accent*, e o próximo botão a nascer escreveria a cor à mão. */
+  --sd-accent:          var(--sd-brand-on-dark);
+  --sd-accent-hover:    oklch(from var(--sd-accent) calc(l + 0.06) c h);
+  --sd-accent-contrast: var(--sd-text-inverse);
+
+  /* shadow — `lip` não mora aqui: realce é sempre luz, e luz não bifurca.
+     Ver o bloco de valor único mais abaixo.
+
+     Sobrou UM papel. O anel `0 0 0 1px` saiu da composição e virou borda de
+     verdade, então o papel que o pintava deixou de existir — a família `border`
+     logo acima é quem pinta o fio agora.
+
+     O ALCANCE, dito com precisão, porque a versão curta engana: onde o Infima
+     declara um `--ifm-*-border-color`, o adaptador pinta o fio de `:root`, sem
+     regra nova. Onde ele NÃO declara, o fio é escrito no componente — uma
+     declaração de uma linha. O que a troca compra é que a alternativa custava
+     mais nos dois casos: anel dentro de `box-shadow` obrigaria a REDECLARAR a
+     sombra inteira de cada componente, porque `box-shadow` não se acrescenta.
+     Uma linha de `border` contra três camadas de sombra repetidas. */
+  --sd-shadow-cast: rgb(from var(--sd-gray-950) r g b / 60%);
+
+  /* focus */
+  --sd-focus-ring: var(--sd-accent);
+
+  /* state */
+  --sd-state-info:    oklch(80% 0.14 var(--sd-hue-info));
+  --sd-state-success: oklch(80% 0.14 var(--sd-hue-success));
+  --sd-state-warn:    oklch(80% 0.14 var(--sd-hue-warn));
+  --sd-state-danger:  oklch(80% 0.14 var(--sd-hue-danger));
+
+  --sd-state-info-fill:    rgb(from var(--sd-state-info)    r g b / 18%);
+  --sd-state-success-fill: rgb(from var(--sd-state-success) r g b / 18%);
+  --sd-state-warn-fill:    rgb(from var(--sd-state-warn)    r g b / 18%);
+  --sd-state-danger-fill:  rgb(from var(--sd-state-danger)  r g b / 18%);
+
+  /* A aresta do preenchimento — o par do `-fill`, com o alfa mais alto que a
+     medição do callout registrou. Ela mora aqui e não na camada 3 porque o alfa
+     BIFURCA por modo, e a camada 2 é o único lugar do sistema onde modo diverge:
+     escrito no escopo do componente, o callout passaria a saber em que modo
+     está, que é exatamente o que o catálogo fechou.
+
+     A família é declarada inteira, como a de `-fill`. `danger-edge` não tem
+     consumidor — o chip de obrigatório do campo usa preenchimento e texto, não
+     aresta —, e uma família de quatro com um buraco no meio é pior de ler do que
+     a quarta linha.
+
+     A justificativa trocou de dono junto com o vermelho: ela nomeava a pílula de
+     verbo, que morreu com o contrato HTTP. O consumidor de `danger` no catálogo
+     hoje é o chip, e ele usa as mesmas duas linhas de sempre. */
+  --sd-state-info-edge:    rgb(from var(--sd-state-info)    r g b / 30%);
+  --sd-state-success-edge: rgb(from var(--sd-state-success) r g b / 30%);
+  --sd-state-warn-edge:    rgb(from var(--sd-state-warn)    r g b / 30%);
+  --sd-state-danger-edge:  rgb(from var(--sd-state-danger)  r g b / 30%);
+
+  /* code — o oitavo papel. Existe na camada 2 porque a paleta de sintaxe
+     bifurca por modo, e a camada 2 é o único lugar onde modo diverge.
+
+     ---------------------------------------------------------------------
+     O CYAN MORA NO IDENTIFICADOR, e a paleta é `origem própria (medição)`.
+
+     A âncora foi medida e NÃO seguida — a primeira vez no mapa. O
+     `"codeblocks":"system"` do Devin resolve para `github-light-default` +
+     `dark-plus`, e o que a medição revela é que a âncora DECLINA de tematizar
+     código: ela entrega o par padrão da plataforma. Herdar isso seria herdar
+     uma ausência, e herdar uma ausência não é herdar. É a posição mais frágil
+     do projeto, e está escrita como tal em shinydoc-docusaurus/docs/design/principios.md §3.
+
+     As duas razões medidas cortam contra adotá-lo: ele regride os pisos de
+     contraste deste projeto (para 5,87 escuro e 4,55 claro, que encosta em AA)
+     e fica MAIS berrante no claro (croma máx 0,207 contra 0,113).
+
+     A paleta anterior caiu por doutrina, não por gosto: ela era semeada do
+     Neon, e o Neon não é âncora — os três não-âncora doam mecanismo e nunca
+     valor.
+
+     `parameter` é o identificador e leva o cyan; `constant` é o vizinho. Os
+     outros cinco ficam sob teto de croma 0,095, e `string` fica QUENTE de
+     propósito: ela leva a maior fatia dos tokens de qualquer bloco, e sem o
+     contrapeso o código vira monocromático.
+
+     O cyan é SKIN FIXA — camada 2 aqui, e fora da superfície de troca, no
+     precedente dos quatro `--sd-hue-*`. O corporativo redesenha; não re-marca.
+
+     Piso conferível por comando, e não só registrado:
+     `node scripts/contraste.mjs --verificar`, no gabarito.
+     --------------------------------------------------------------------- */
+  --sd-code-fg:        var(--sd-text-body);
+  --sd-code-parameter: #7FE4E9;   /* oklch(85.9% 0.095 200) — o cyan, o identificador */
+  --sd-code-constant:  #7FD3E4;   /* oklch(81.9% 0.085 212) — o vizinho */
+  --sd-code-keyword:   #95BCE4;   /* oklch(78.1% 0.071 249) */
+  --sd-code-string:    #E9B999;   /* oklch(82.1% 0.070  55) — o contrapeso quente */
+  --sd-code-function:  #DDDAAE;   /* oklch(88.0% 0.058 104) */
+  --sd-code-operator:  #CBC9CF;   /* oklch(83.9% 0.009 301) */
+  --sd-code-comment:   #B2B0B8;   /* oklch(76.0% 0.012 298) — reto p/ #181A1E (issue #95) */
+}
+
+/* CLARO — legítimo. */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  /* surface — a página desce para a parada 100 e a levantada sobe para a 50: se
+     a página ficasse na 50, a levantada teria que ser branco puro para subir, e
+     aí o tint da marca sumiria da maior superfície do modo claro. A pastilha de
+     código toma o extremo do modo, que aqui é branco.
+
+     Aqui a superfície do código JÁ estava acima da página, e é o escuro que veio
+     ao encontro dela. A assimetria — igual à página no escuro, acima dela no
+     claro — era o que o cartão escondia. */
+  --sd-surface-page:   var(--sd-neutral-page-light);
+  --sd-surface-raised: var(--sd-neutral-raised-light);
+  --sd-surface-code:   oklch(from var(--sd-gray-50) 100% 0 h);
+  --sd-surface-wash:   rgb(from var(--sd-accent) r g b / 12%);
+  --sd-surface-scrim:  rgb(from var(--sd-gray-950) r g b / 40%);
+
+  /* text */
+  --sd-text-strong:  var(--sd-gray-950);
+  --sd-text-body:    var(--sd-gray-700);
+  --sd-text-muted:   var(--sd-gray-600);
+  --sd-text-faint:   var(--sd-gray-500);
+  --sd-text-inverse: oklch(from var(--sd-accent) clamp(0, (0.62 - l) * 1000, 1) 0 h);
+
+  /* border */
+  --sd-border-subtle:  rgb(from var(--sd-text-strong) r g b / 7%);
+  --sd-border-default: rgb(from var(--sd-text-strong) r g b / 12%);
+  --sd-border-strong:  rgb(from var(--sd-text-strong) r g b / 20%);
+
+  /* accent */
+  --sd-accent:          var(--sd-brand-on-light);
+  --sd-accent-hover:    oklch(from var(--sd-accent) calc(l - 0.06) c h);
+  --sd-accent-contrast: var(--sd-text-inverse);
+
+  /* shadow */
+  --sd-shadow-cast: rgb(from var(--sd-gray-950) r g b / 8%);
+
+  /* focus */
+  --sd-focus-ring: var(--sd-accent);
+
+  /* state */
+  --sd-state-info:    oklch(45% 0.13 var(--sd-hue-info));
+  --sd-state-success: oklch(45% 0.13 var(--sd-hue-success));
+  --sd-state-warn:    oklch(45% 0.13 var(--sd-hue-warn));
+  --sd-state-danger:  oklch(45% 0.13 var(--sd-hue-danger));
+
+  --sd-state-info-fill:    rgb(from var(--sd-state-info)    r g b / 10%);
+  --sd-state-success-fill: rgb(from var(--sd-state-success) r g b / 10%);
+  --sd-state-warn-fill:    rgb(from var(--sd-state-warn)    r g b / 10%);
+  --sd-state-danger-fill:  rgb(from var(--sd-state-danger)  r g b / 10%);
+
+  --sd-state-info-edge:    rgb(from var(--sd-state-info)    r g b / 25%);
+  --sd-state-success-edge: rgb(from var(--sd-state-success) r g b / 25%);
+  --sd-state-warn-edge:    rgb(from var(--sd-state-warn)    r g b / 25%);
+  --sd-state-danger-edge:  rgb(from var(--sd-state-danger)  r g b / 25%);
+
+  /* code — os CINCO papéis cromáticos do claro ficam na mesma luminosidade, L
+     48%. É a propriedade que a paleta anterior tinha e o par medido na âncora
+     não tem, e é ela que segura o piso em 6,29 sobre a pastilha branca. Os dois
+     acromáticos saem da faixa de propósito: `operator` desce para não competir
+     com o identificador, e `comment` sobe para recuar. */
+  --sd-code-fg:        var(--sd-text-body);
+  --sd-code-parameter: #006B70;   /* oklch(48.0% 0.082 200) — o cyan, o identificador */
+  --sd-code-constant:  #1C6589;   /* oklch(48.0% 0.090 235) — o vizinho */
+  --sd-code-keyword:   #475C8B;   /* oklch(47.9% 0.081 265) */
+  --sd-code-string:    #82502B;   /* oklch(48.1% 0.085  56) — o contrapeso quente */
+  --sd-code-function:  #60612C;   /* oklch(47.9% 0.074 110) */
+  --sd-code-operator:  #535157;   /* oklch(43.9% 0.010 301) */
+  --sd-code-comment:   #615F66;   /* oklch(49.0% 0.011 299) */
+}
+
+/* -----------------------------------------------------------------------------
+   Camada 2 que NÃO bifurca por modo — fora dos dois blocos, de propósito.
+
+   A regra que decide: token que referencia camada 2 bifurca e mora nos dois
+   blocos; token que referencia só camada 1 não bifurca e mora aqui.
+
+   --sd-shadow-lip é o único papel nessa situação. Realce é luz, e luz é o topo
+   da rampa — não "a tinta do modo". Ancorado no topo da rampa, ele some sozinho
+   no claro por IDENTIDADE MATEMÁTICA (o cartão claro É --sd-gray-50, e gray-50 a
+   6% sobre gray-50 é gray-50), e volta a ser visível dentro da ilha escura sem
+   redeclarar nada.
+
+   A SOMBRA DEIXOU DE SER ESCADA, e os dois que sobraram moram aqui pelo mesmo
+   motivo: a composição é a mesma nos dois modos, e o modo entra por `cast`, que
+   é par declarado. Os comprimentos inline são a única exceção declarada à regra
+   de que a camada 2 é só cor — box-shadow é valor atômico, e separar geometria
+   de cor exigiria seis tokens de comprimento para compor duas sombras.
+
+   Eram quatro degraus numerados com o anel embutido. Sobraram DOIS papéis,
+   nomeados por intenção, porque uma escala de dois não é escala e numeração com
+   buraco é pior que nome — e porque o resto do arquivo já nomeia por intenção.
+
+   A defesa não é mais *"é um sistema"*. É **dois papéis medidos que compartilham
+   dois ingredientes** — `lip` e `cast` —, e isso é menos do que o arquivo
+   prometia. Está escrito porque quem abrir sem contexto vai ler over-engineering
+   e merece a resposta curta.
+
+   `--sd-shadow-sunken` MORREU aqui, e a morte vale a linha: ele era o
+   contra-exemplo declarado da elevação — o único lugar do site que afundava —,
+   e afundar era relativo ao cartão. Sem cartão, o contra-exemplo perde contra o
+   quê ser exemplo, e o único consumidor dele era o berço do bloco de código,
+   que morreu no mesmo commit.
+
+   Sobraram DOIS papéis, e nenhum deles é consumido por conteúdo. `float` é o
+   chrome flutuante — dropdown, gaveta, modal de busca, botão de voltar ao topo.
+   `raised` NÃO flutua: o consumidor dele é o painel da Referência da API, que é
+   superfície levantada. Eram DOIS — o segundo era o botão primário da landing,
+   e saiu com a página na issue #94. O token fica porque continua consumido, e é
+   essa a diferença entre ele e `--sd-type-6xl`, que saiu na mesma remoção.
+   A profundidade saiu do CONTEÚDO, não do site — a #50 mediu zero componente de
+   conteúdo com sombra em seis páginas da âncora, e o único portador de sombra
+   medido lá é um chip de 24px no hover de heading.
+   ----------------------------------------------------------------------------- */
+
+:root {
+  --sd-shadow-lip: rgb(from var(--sd-gray-50) r g b / 6%);
+
+  --sd-shadow-raised: inset 0 1px 0 0 var(--sd-shadow-lip),
+                      0 1px 2px -1px var(--sd-shadow-cast);
+  --sd-shadow-float:  inset 0 1px 0 0 var(--sd-shadow-lip),
+                      0 20px 48px -12px var(--sd-shadow-cast);
+}
+
+/* =============================================================================
+   CAMADA 3 — VAZIA, e a ausência tem endereço.
+
+   Havia aqui uma regra `[data-sd-showcase]` com os cinco tokens de brilho da
+   ilha de espetáculo: os dois gradientes (`--sd-glow` e `--sd-glow-2`), a caixa
+   quadrada da luz (`--sd-glow-tamanho`) e o par de amplitude da respiração
+   (`--sd-glow-vale` e `--sd-glow-crista`). Ela era SEPARADA de propósito:
+   entrar no bloco escuro acima poria --sd-glow em :root, e o glow vazaria para
+   o site inteiro. A confinação não era regra que alguém precisava lembrar — era
+   fato de escopo.
+
+   Saiu inteira com a landing, na issue #94. A camada 3 é declarada no escopo do
+   próprio componente e nunca em :root, e hoje nenhum componente do projeto
+   declara token próprio: a única ilha que havia era esta.
+
+   Este cabeçalho fica porque a camada é uma das três, e a regra de referência
+   do §1 de shinydoc-docusaurus/docs/design/tokens.md se lê pelas três. Camada sem membro é
+   diferente de camada que não existe.
+   ============================================================================= */
+
+/* =============================================================================
+   Reduced-motion — propriedade da CAMADA DE TOKEN, não dos componentes.
+
+   Nenhum componente escreve `@media (prefers-reduced-motion)` próprio, para
+   sempre. Ver ADR 3 do shinydoc.
+
+   1ms e não 0s: transição de duração zero é onde o `useCollapsible` do
+   theme-common, que anima altura em JS, trava — `transitionend` precisa
+   continuar disparando.
+
+   Como o adaptador escreve --ifm-transition-fast a partir de --sd-dur-1, o
+   Infima e o theme-classic ficam parados junto, sem martelo
+   `* { animation: none !important }` e sem um único !important.
+   ============================================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --sd-dur-1: 1ms;
+    --sd-dur-2: 1ms;
+    --sd-dur-3: 1ms;
+  }
+
+  /* Os dois que NÃO terminam sozinhos seriam removidos aqui, não encurtados — e
+     hoje não há nenhum dos dois no site.
+
+     Havia uma regra `[data-sd-showcase] [data-sd-part='glow'] { animation:
+     none; }`, e ela saiu com a landing (issue #94). A respiração do glow saía
+     por aqui porque encurtá-la para 1ms produziria estroboscópio, que é o oposto
+     exato do que `reduce` pede. Era a única regra de ELEMENTO do arquivo fora do
+     adaptador, e existia porque `animation: none` não tem como ser entregue por
+     token: o nome do `@keyframes` precisa aparecer LITERALMENTE numa declaração
+     `animation` para sobreviver ao minificador (ver a nota em `custom.css`).
+
+     O reveal nunca apareceu aqui, e por outro motivo: a regra dele morava dentro
+     de `@media (prefers-reduced-motion: no-preference)`, no CSS Module da
+     própria página, e simplesmente não entrava. Ver ADR 3 do shinydoc — a errata dele
+     registra que os dois exemplos vivos da regra (d) saíram juntos.
+
+     Se um loop ambiente voltar, ele volta por aqui, com `data-sd-part` como
+     gancho: é contrato publicado do projeto, e o par de seletores dá (0,2,0)
+     contra a (0,1,0) da classe do módulo — vence sem `!important` e sem depender
+     de ordem de carga. */
+}
+
+/* =============================================================================
+   O ADAPTADOR — mão única
+
+   O sistema nunca lê --ifm-*. Só escreve.
+
+   Seletor `:root, :root[data-theme]`: (0,2,0) quando o atributo existe, o que
+   vence o `html[data-theme='dark']` (0,1,1) do Infima. O script inline do
+   Docusaurus escreve data-theme antes da primeira pintura, então o seletor com
+   atributo é o que vale sempre; o `:root` solto fecha o buraco de JavaScript
+   desligado, onde o site degrada para o Infima cru — feio, mas legível.
+
+   O adaptador NÃO bifurca por modo. Ele lê camada 2, que já bifurcou.
+
+   Este é o maior bloco do arquivo e é encanamento inerte: uma atribuição por
+   variável do Infima que o chrome de fato renderiza. Aceito porque é o único
+   bloco puramente mecânico do sistema, e é exatamente o bloco que se pula na
+   leitura.
+
+   Cada linha aqui foi conferida contra a lista de --ifm-* efetivamente
+   consumidas por `var()` no Infima e no theme-classic. Variável declarada e
+   nunca consumida NÃO entra: o adaptador não pode conter linha morta que
+   sugira funcionar.
+   ============================================================================= */
+
+:root,
+:root[data-theme] {
+  /* --- terceiro namespace: nem --ifm-*, nem --sd-*. O adaptador escreve nele
+         como escreve nos --ifm-*. DocRoot/Layout/Main soma
+         --ifm-container-width + --doc-sidebar-width, então os dois se propagam
+         juntos de graça. -------------------------------------------------- */
+  --doc-sidebar-width: var(--sd-sidebar-width);
+
+  /* --- container: AS DUAS. O Infima troca para -xl acima de 1440px, e fixar só
+         a primeira faz o cartão alargar sozinho em tela larga. ------------- */
+  --ifm-container-width:    var(--sd-container-width);
+  --ifm-container-width-xl: var(--sd-container-width);
+
+  /* --- preenchimento e tinta ---------------------------------------------- */
+  --ifm-background-color:         var(--sd-surface-page);
+  --ifm-background-surface-color: var(--sd-surface-raised);
+  --ifm-hover-overlay:            var(--sd-border-subtle);
+  --ifm-color-content:            var(--sd-text-body);
+  --ifm-color-content-secondary:  var(--sd-text-muted);
+  --ifm-color-content-inverse:    var(--sd-text-inverse);
+  --ifm-font-color-base:          var(--sd-text-body);
+  --ifm-font-color-base-inverse:  var(--sd-text-inverse);
+  --ifm-font-color-secondary:     var(--sd-text-muted);
+  --ifm-heading-color:            var(--sd-text-strong);
+  --ifm-color-black:              var(--sd-gray-950);
+  --ifm-color-white:              var(--sd-gray-50);
+
+  /* --- marca e estados.
+         Exceção 4 do adaptador: das seis shades por cor semântica, só as VIVAS
+         são atribuídas — base, -dark, -darker, -contrast-background e
+         -contrast-foreground. As quatro restantes (-light, -lighter, -lightest,
+         -darkest) foram resolvidas em build time pelo color-mod() e não têm
+         consumidor: atribuí-las seria linha morta sugerindo funcionar.
+         Nosso acento tem um degrau de hover, não uma família de shades, então
+         -dark e -darker recebem o mesmo token — e isso é o desenho, não
+         descuido. -------------------------------------------------------- */
+  --ifm-color-primary:                     var(--sd-accent);
+  --ifm-color-primary-dark:                var(--sd-accent-hover);
+  --ifm-color-primary-darker:              var(--sd-accent-hover);
+  --ifm-color-primary-contrast-background: var(--sd-surface-wash);
+  --ifm-color-primary-contrast-foreground: var(--sd-text-strong);
+
+  /* As shades de `secondary` apontam para o papel `border` e não para o papel
+     `text`: `--ifm-color-secondary-dark` é lido por `--ifm-alert-border-color`
+     dentro de `.alert--secondary`, e a tinta do corpo ali desenharia um anel de
+     contraste máximo em volta da caixa.
+
+     Correção de premissa, do slice do catálogo: a redação original dizia que
+     `secondary` é *"o que a admonition `note` consome"*. Deixou de ser. O
+     callout tem DOM próprio desde que `Admonition/Types` passou a apontar para
+     ele, e `note` é a variante AZUL — quem é neutro é `info`. As shades ficam
+     porque o Infima as lê em `.alert--secondary`, `.badge--secondary` e
+     `.button--secondary`, e a regra do adaptador é sobre o que o framework
+     consome, não sobre o que a nossa página hoje renderiza. */
+  --ifm-color-secondary:                     var(--sd-border-strong);
+  --ifm-color-secondary-dark:                var(--sd-border-strong);
+  --ifm-color-secondary-darker:              var(--sd-border-strong);
+  --ifm-color-secondary-contrast-background: var(--sd-surface-raised);
+  --ifm-color-secondary-contrast-foreground: var(--sd-text-body);
+
+  --ifm-color-success:                     var(--sd-state-success);
+  --ifm-color-success-dark:                var(--sd-state-success);
+  --ifm-color-success-darker:              var(--sd-state-success);
+  --ifm-color-success-contrast-background: var(--sd-state-success-fill);
+  --ifm-color-success-contrast-foreground: var(--sd-text-body);
+
+  --ifm-color-info:                     var(--sd-state-info);
+  --ifm-color-info-dark:                var(--sd-state-info);
+  --ifm-color-info-darker:              var(--sd-state-info);
+  --ifm-color-info-contrast-background: var(--sd-state-info-fill);
+  --ifm-color-info-contrast-foreground: var(--sd-text-body);
+
+  --ifm-color-warning:                     var(--sd-state-warn);
+  --ifm-color-warning-dark:                var(--sd-state-warn);
+  --ifm-color-warning-darker:              var(--sd-state-warn);
+  --ifm-color-warning-contrast-background: var(--sd-state-warn-fill);
+  --ifm-color-warning-contrast-foreground: var(--sd-text-body);
+
+  --ifm-color-danger:                     var(--sd-state-danger);
+  --ifm-color-danger-dark:                var(--sd-state-danger);
+  --ifm-color-danger-darker:              var(--sd-state-danger);
+  --ifm-color-danger-contrast-background: var(--sd-state-danger-fill);
+  --ifm-color-danger-contrast-foreground: var(--sd-text-body);
+
+  /* --- escala de ênfase. O Infima a inverte no bloco dark; nós não podemos,
+         porque o adaptador é cego ao modo. A rota correta é apontar cada degrau
+         para um papel da camada 2, que já bifurcou. A escala tem dez degraus
+         consumidos e o nosso texto tem quatro paradas, então alguns degraus
+         repetem — repetir é honesto, inventar parada não seria.
+         (o degrau 600 não é consumido por ninguém e por isso não é atribuído) */
+  --ifm-color-emphasis-0:    var(--sd-surface-page);
+  --ifm-color-emphasis-100:  var(--sd-surface-raised);
+  --ifm-color-emphasis-200:  var(--sd-border-subtle);
+  --ifm-color-emphasis-300:  var(--sd-border-default);
+  --ifm-color-emphasis-400:  var(--sd-border-strong);
+  --ifm-color-emphasis-500:  var(--sd-text-faint);
+  --ifm-color-emphasis-700:  var(--sd-text-muted);
+  --ifm-color-emphasis-800:  var(--sd-text-body);
+  --ifm-color-emphasis-900:  var(--sd-text-body);
+  --ifm-color-emphasis-1000: var(--sd-text-strong);
+
+  /* --- tipografia --------------------------------------------------------- */
+  --ifm-font-family-base:      var(--sd-font-body);
+  --ifm-font-family-monospace: var(--sd-font-mono);
+  --ifm-heading-font-family:   var(--sd-font-heading);
+  --ifm-font-size-base:        var(--sd-type-base);
+  --ifm-line-height-base:      var(--sd-leading-prose);
+  --ifm-heading-line-height:   var(--sd-leading-h2);
+  --ifm-heading-font-weight:   var(--sd-weight-heading);
+  --ifm-font-weight-light:     var(--sd-weight-body);
+  --ifm-font-weight-normal:    var(--sd-weight-body);
+  --ifm-font-weight-semibold:  var(--sd-weight-ui);
+  --ifm-font-weight-bold:      var(--sd-weight-heading);
+
+  --ifm-h1-font-size: var(--sd-type-3xl);
+  --ifm-h2-font-size: var(--sd-type-2xl);
+  --ifm-h3-font-size: var(--sd-type-xl);
+  --ifm-h4-font-size: var(--sd-type-lg);
+  --ifm-h5-font-size: var(--sd-type-base);
+  --ifm-h6-font-size: var(--sd-type-sm);
+
+  /* --- espaço ------------------------------------------------------------- */
+  --ifm-global-spacing:          var(--sd-space-4);
+  --ifm-spacing-horizontal:      var(--sd-space-4);
+  --ifm-spacing-vertical:        var(--sd-space-4);
+  --ifm-paragraph-margin-bottom: var(--sd-space-4);
+  --ifm-leading:                 var(--sd-space-6);
+  --ifm-leading-desktop:         var(--sd-space-6);
+  --ifm-list-margin:             var(--sd-space-4);
+  --ifm-list-item-margin:        var(--sd-space-1);
+  --ifm-list-left-padding:       var(--sd-space-6);
+  --ifm-list-paragraph-margin:   var(--sd-space-2);
+  --ifm-hr-margin-vertical:      var(--sd-space-6);
+
+  /* --- forma -------------------------------------------------------------- */
+  --ifm-global-radius:            var(--sd-radius-sm);
+  --ifm-button-border-radius:     var(--sd-radius-sm);
+  --ifm-badge-border-radius:      var(--sd-radius-xs);
+  --ifm-code-border-radius:       var(--sd-radius-xs);
+  --ifm-pre-border-radius:        var(--sd-radius-md);
+  --ifm-alert-border-radius:      var(--sd-radius-md);
+  --ifm-card-border-radius:       var(--sd-radius);
+  --ifm-breadcrumb-border-radius: var(--sd-radius-xs);
+  --ifm-pagination-border-radius: var(--sd-radius-sm);
+  --ifm-pagination-nav-border-radius: var(--sd-radius-md);
+
+  /* --- elevação. Preenche a lacuna que o Infima tem por desenho: ele não
+         redefine sombra no escuro, e as dele somem sobre fundo escuro.
+
+         A PROFUNDIDADE SAI DO CONTEÚDO, e é medição: a #50 achou zero
+         componente de conteúdo com sombra em seis páginas da âncora — `shadow-md`
+         e maiores existem no CSS dela e nunca são usados. Então `lw` e a sombra
+         de alerta valem `none`, e sobra sombra só onde algo de fato flutua.
+
+         Quem lê `lw` de verdade, medido no fonte da 3.10.2 — e o ticket errava:
+         ele nomeava `.card` do Infima, que ESTE site não renderiza (o nosso
+         cartão é classe de CSS Module, e `.card` nua não a alcança). Os leitores
+         vivos são `CodeBlock/Container`, que é conteúdo, e `BackToTopButton`,
+         que é chrome flutuante. A conclusão não muda para o bloco de código; o
+         botão recupera a sombra por classe estável em `chrome.css`.
+
+         `--ifm-alert-shadow` fica em `none` pela mesma regra, e ela é a linha
+         que o Infima lê em `.alert` — o nosso callout tem DOM próprio e não é um
+         `.alert`. O adaptador escreve o que o FRAMEWORK consome, não o que a
+         nossa página hoje renderiza.
+
+         `md` e `tl` recebem o MESMO token, e isso não é duplicação nossa: o
+         Infima tem três nomes para o que aqui tem dois papéis, e o adaptador
+         existe para traduzir. O precedente está neste arquivo —
+         --ifm-container-width e -xl recebem os dois o mesmo token.
+         Verificado no Infima: `md` é lida por `.dropdown__menu` e
+         `.navbar-sidebar`, que são chrome flutuante; `tl` só por `.shadow--tl`,
+         que ninguém usa. ---------------------------------------------------- */
+  --ifm-global-shadow-lw: none;
+  --ifm-global-shadow-md: var(--sd-shadow-float);
+  --ifm-global-shadow-tl: var(--sd-shadow-float);
+  --ifm-alert-shadow:      none;
+  --ifm-blockquote-shadow: none;
+  --ifm-navbar-shadow:     none;
+
+  /* --- link --------------------------------------------------------------- */
+  --ifm-link-color:            var(--sd-accent);
+  --ifm-link-hover-color:      var(--sd-accent-hover);
+  --ifm-link-decoration:       none;
+  --ifm-link-hover-decoration: underline;
+
+  /* --- código. --ifm-pre-background é sobrescrita dentro do bloco de código
+         por --prism-background-color; ver a exceção 3 no fim do arquivo. ---- */
+  --ifm-code-background:  var(--sd-surface-code);
+  --ifm-pre-background:   var(--sd-surface-code);
+  --ifm-pre-color:        var(--sd-code-fg);
+  --ifm-pre-line-height:  var(--sd-leading-code);
+  --ifm-pre-padding:      var(--sd-space-4);
+  --ifm-code-padding-horizontal: var(--sd-space-1);
+  --ifm-code-padding-vertical:   var(--sd-space-1);
+
+  /* --- régua, citação e tabela ------------------------------------------- */
+  --ifm-hr-background-color:      var(--sd-border-default);
+  --ifm-hr-margin-vertical:       var(--sd-space-12);
+  --ifm-blockquote-color:         var(--sd-text-body);
+  --ifm-blockquote-border-color:  var(--sd-border-strong);
+  --ifm-blockquote-border-left-width: calc(var(--sd-border-width) * 4);
+  --ifm-blockquote-padding-horizontal: var(--sd-space-6);
+  --ifm-blockquote-font-size:     var(--sd-type-base);
+  --ifm-table-border-color:       var(--sd-border-subtle);
+  --ifm-table-background:         transparent;
+  --ifm-table-head-background:    transparent;
+  --ifm-table-stripe-background:  transparent;
+  --ifm-table-cell-color:         var(--sd-text-body);
+  --ifm-table-head-color:         var(--sd-text-strong);
+  --ifm-table-head-font-weight:   var(--sd-weight-ui);
+  --ifm-table-cell-padding:       var(--sd-space-3);
+
+  /* --- navbar ------------------------------------------------------------- */
+  /* O TOPO INTEIRO, não a linha 1: são os nove pontos do theme-classic que
+     grudam abaixo do navbar — o `top` do TOC, o do próprio `<nav>`, o
+     `scroll-margin` das âncoras — e todos se realinham de graça quando a
+     segunda linha entra. Ver `--sd-topo-grudado`. */
+  --ifm-navbar-height:                 var(--sd-topo-grudado);
+  --ifm-navbar-background-color:       var(--sd-surface-page);
+  --ifm-navbar-link-color:             var(--sd-text-muted);
+  --ifm-navbar-link-hover-color:       var(--sd-text-strong);
+  --ifm-navbar-padding-horizontal:     var(--sd-space-6);
+  --ifm-navbar-padding-vertical:       var(--sd-space-2);
+  --ifm-navbar-item-padding-horizontal: var(--sd-space-3);
+  --ifm-navbar-item-padding-vertical:   var(--sd-space-2);
+  --ifm-navbar-search-input-background-color:  var(--sd-surface-raised);
+  --ifm-navbar-search-input-color:             var(--sd-text-body);
+  --ifm-navbar-search-input-placeholder-color: var(--sd-text-faint);
+
+  /* --- sidebar ------------------------------------------------------------ */
+  --ifm-menu-color:                   var(--sd-text-muted);
+  --ifm-menu-color-active:            var(--sd-accent);
+  --ifm-menu-color-background-active: var(--sd-surface-wash);
+  --ifm-menu-color-background-hover:  var(--sd-border-subtle);
+  /* 16 e não 12: somado ao preenchimento de 8 que o `DocSidebar/Desktop` põe na
+     lista, o item da sidebar começa em 24 — que é exatamente o preenchimento
+     horizontal do navbar. A marca e o primeiro ícone de seção ficam na mesma
+     vertical, e o alinhamento deixa de depender de coincidência. */
+  --ifm-menu-link-padding-horizontal: var(--sd-space-4);
+  /* Issue #97: altura de item alvo é 36px, e a entrelinha (24px, ver
+     chrome.css) já ocupa a maior parte disso — sobra 12px para os dois
+     paddings verticais, 6 cada. `--sd-space-1` é o único literal da escada, e
+     a razão dela ser 4 (não 8) já é o meio-passo que a densidade de 14px pede
+     em chip, badge e ícone — mas nenhum consumidor até aqui multiplicava por
+     um fator fracionário. Este é o primeiro: `1,5×` de `--sd-space-1` chega
+     nos 6px sem literal novo, reaproveitando a base fina que já existe, por
+     uma técnica nova que a escada ainda não tinha precisado. */
+  --ifm-menu-link-padding-vertical:   calc(var(--sd-space-1) * 1.5);
+
+  /* --- TOC ---------------------------------------------------------------- */
+  --ifm-toc-border-color:      var(--sd-border-subtle);
+  --ifm-toc-link-color:        var(--sd-text-muted);
+  --ifm-toc-padding-horizontal: var(--sd-space-3);
+  --ifm-toc-padding-vertical:   var(--sd-space-2);
+
+  /* --- breadcrumb e paginação -------------------------------------------- */
+  --ifm-breadcrumb-color-active:           var(--sd-accent);
+  --ifm-breadcrumb-item-background-active: var(--sd-surface-wash);
+  --ifm-breadcrumb-padding-horizontal:     var(--sd-space-2);
+  --ifm-breadcrumb-padding-vertical:       var(--sd-space-1);
+  --ifm-breadcrumb-spacing:                var(--sd-space-1);
+  --ifm-pagination-color-active:           var(--sd-accent);
+  --ifm-pagination-item-active-background: var(--sd-surface-wash);
+  --ifm-pagination-nav-color-hover:        var(--sd-accent);
+
+  /* --- cartão, dropdown, abas, badge -------------------------------------- */
+  --ifm-card-background-color:        var(--sd-surface-raised);
+  --ifm-card-horizontal-spacing:      var(--sd-space-6);
+  --ifm-card-vertical-spacing:        var(--sd-space-6);
+  --ifm-dropdown-background-color:    var(--sd-surface-raised);
+  --ifm-dropdown-link-color:          var(--sd-text-body);
+  --ifm-dropdown-hover-background-color: var(--sd-border-subtle);
+  --ifm-dropdown-font-weight:         var(--sd-weight-body);
+  --ifm-tabs-color:                   var(--sd-text-muted);
+  --ifm-tabs-color-active:            var(--sd-accent);
+  --ifm-tabs-color-active-border:     var(--sd-accent);
+  --ifm-badge-background-color:       var(--sd-surface-wash);
+  --ifm-badge-border-color:           var(--sd-border-default);
+  --ifm-badge-color:                  var(--sd-text-strong);
+
+  /* --- footer ------------------------------------------------------------- */
+  --ifm-footer-background-color: var(--sd-surface-page);
+  --ifm-footer-color:            var(--sd-text-muted);
+  --ifm-footer-link-color:       var(--sd-text-muted);
+  --ifm-footer-link-hover-color: var(--sd-accent);
+  --ifm-footer-title-color:      var(--sd-text-strong);
+  /* O horizontal é o gutter do shell, e o `.container` do footer perde o
+     preenchimento dele em `chrome.css` — sem isso o conteúdo do rodapé erra por
+     16px contra a borda do cartão. O vertical é o ar de cima; o de baixo é
+     maior e mora na regra do footer. */
+  --ifm-footer-padding-horizontal: var(--sd-gutter);
+  --ifm-footer-padding-vertical:   var(--sd-space-10);
+
+  /* --- barra de rolagem --------------------------------------------------- */
+  --ifm-scrollbar-track-background-color:      var(--sd-surface-page);
+  --ifm-scrollbar-thumb-background-color:      var(--sd-border-strong);
+  --ifm-scrollbar-thumb-hover-background-color: var(--sd-text-faint);
+
+  /* --- motion. É por aqui que reduced-motion alcança o framework que não
+         escrevemos. --ifm-transition-slow NÃO entra: o Infima a declara e
+         ninguém a consome — atribuí-la seria linha morta. ------------------- */
+  --ifm-transition-fast:            var(--sd-dur-1);
+  --ifm-transition-timing-default:  var(--sd-ease-settle);
+  --ifm-button-transition-duration: var(--sd-dur-1);
+}
+
+/* O título de página cresce no mesmo instante em que a sidebar aparece — um
+   evento visual em vez de dois. 997px é o literal compilado do Infima; o projeto
+   inteiro tem um limiar só. O par 30/36 é herdado; o ponto onde ele troca, não.
+   Perda nomeada: entre 640 e 996px o título fica em 30px onde o alvo dá 36. */
+@media (min-width: 997px) {
+  :root,
+  :root[data-theme] {
+    --ifm-h1-font-size: var(--sd-type-4xl);
+
+    /* O preenchimento vertical do navbar vai a ZERO no dia em que ele carrega
+       duas linhas, e é peça da faixa, não afinação. Com ele, as duas linhas
+       ficam dentro de uma caixa de conteúdo mais curta que o `<nav>` e
+       desalinham da faixa PINTADA, que é desenhada contra a borda do elemento.
+       Zerado, quem manda na altura são as duas linhas.
+
+       Abaixo de 997 ele não é tocado: lá o navbar tem uma linha só, e o mesmo
+       token preenche o cabeçalho do drawer.
+
+       O par de seletores repete o do adaptador de propósito — `:root` sozinho
+       é (0,1,0) e PERDE para o `:root[data-theme]` (0,2,0) que escreveu o
+       valor de base. É a armadilha de especificidade do ADR 1 do shinydoc, reencontrada em
+       campo ao montar a faixa. */
+    --ifm-navbar-padding-vertical: 0;
+  }
+}
+
+/* Hover — a outra metade do mecanismo de `(pointer: coarse)`, e ela atravessa
+   pelo adaptador exatamente como o reduced-motion.
+
+   A regra do projeto é que hover inteiro vive sob `@media (hover: hover)`.
+   Medido nesta implementação: o Infima tem **zero** ocorrência de
+   `(hover: hover)` em todo o framework, e o theme-classic tem uma. Ou seja, o
+   hover que NÓS não escrevemos gruda depois do tap — o fundo do item de sidebar
+   e a cor do link de navbar ficam marcados até o dedo tocar noutro lugar.
+
+   Brigar seletor a seletor com o framework custaria uma lista de alvos, que é
+   exatamente a forma que o contrato de foco recusou. Neutralizar os tokens de
+   hover dele alcança de uma vez tudo que TEM token, sem um único `!important`. O
+   fundo do item ATIVO vem de outra variável e não é tocado.
+
+   Perda nomeada, e ela é o limite do mecanismo: o hover do link de TOC e o do
+   breadcrumb não são alcançáveis por aqui. O Infima os escreve contra
+   `--ifm-color-primary` e `--ifm-breadcrumb-item-background-active`, que são o
+   acento e o realce do item ativo — neutralizá-los apagaria o estado ativo
+   junto. Os dois continuam grudando depois do tap, e o `:active` do contrato de
+   entrada é o que dá retorno neles. Ver `shinydoc-docusaurus/docs/design/foco.md` §8.3. */
+@media (hover: none) {
+  :root,
+  :root[data-theme] {
+    --ifm-menu-color-background-hover: transparent;
+    --ifm-navbar-link-hover-color: var(--sd-text-muted);
+    --ifm-footer-link-hover-color: var(--sd-text-muted);
+    --ifm-pagination-nav-color-hover: var(--sd-border-default);
+  }
+}
+
+/* =============================================================================
+   ADAPTADOR — as exceções com escopo
+
+   TRÊS pontos do Docusaurus não são alcançáveis de :root. A lista é FECHADA, e
+   os números que sobram são 2, 3 e 4 — ver a lápide da 1, logo abaixo.
+
+   Eram cinco, depois quatro. A do `--docusaurus-tag-list-border` saiu porque não tinha
+   superfície viva: nenhuma página deste site declara `tags:`, e o front matter
+   da âncora — `title`, `description`, `icon`, `sidebarTitle`, `hidden`,
+   `noindex`, `searchable`, `deprecated`, `groups` — não tem o campo. O valor
+   de uma lista fechada é ser conferível membro a membro, e linha
+   permanentemente infalsificável é o oposto disso.
+
+   Dissenso registrado: a exceção custava uma linha e defendia contra um
+   descuido; o modo de falhar que a saída dela abre é o SILENCIOSO que a spec
+   combate em toda parte. Se a arquitetura de informação criar tag um dia, ela
+   volta no mesmo commit, por uma linha.
+   ============================================================================= */
+
+/* --- Exceção 1 — --ifm-alert-background-color-highlight — REMOVIDA ------------
+   Ela pintava as seis variantes de `.alert--*`, e `.alert` NÃO TEM SUPERFÍCIE
+   neste site: `src/theme/Admonition/Types.js` mapeia `note`, `info`, `tip` e
+   `warning` direto para o nosso `Callout`, que tem DOM próprio, e o `Admonition`
+   raiz cai em `info` — isto é, no mesmo `Callout` — para qualquer tipo ausente.
+   Não sobra caminho que renderize um `.alert`.
+
+   Medido no build, e não deduzido: `alert--` aparece em ZERO dos 108 HTML
+   publicados, e `class="… alert …"` também em zero.
+
+   Sai pelo MESMO precedente que já matou a 5ª (a do
+   `--docusaurus-tag-list-border`): o valor de uma lista fechada é ser conferível
+   membro a membro, e linha permanentemente infalsificável é o oposto disso —
+   ninguém consegue mostrar que ela funciona, porque não há página onde ela
+   apareça. Aqui é ainda mais fechado que lá: a de tag dependia de o front matter
+   nunca ganhar `tags:`, e esta depende de um mapa de swizzle que é nosso.
+
+   Dissenso registrado, e é o mesmo: a exceção custava seis linhas e defendia
+   contra o dia em que alguém desfizesse o mapa da admonition. Esse dia teria de
+   passar por `Types.js`, que é arquivo versionado com o motivo escrito dentro.
+
+   A NUMERAÇÃO NÃO É REMENDADA. `tokens.md` §7 cita a *exceção 3* pelo número, e
+   é o mesmo precedente que congela a numeração dos portões (ADR 5 do shinydoc). O 1 fica
+   vago; as que ficam continuam 2, 3 e 4. */
+
+/* --- Exceção 2 — os três --docusaurus-details-* ------------------------------
+   Declaradas dentro de classe de CSS Module (`.details` em theme-common e em
+   theme-classic), nunca em :root. Um seletor de elemento (0,0,1) perderia para
+   a classe hasheada (0,1,0); `details[class]` é (0,1,1) e vence sem depender do
+   hash, que muda a cada build.
+
+   A curva `ease` do upstream fica fora do alcance de qualquer variável — o
+   valor dele é `transform var(--ifm-transition-fast) ease`. Aqui trocamos o
+   valor inteiro pelo movimento nomeado, então a curva também passa a ser nossa. */
+details[class] {
+  --docusaurus-details-decoration-color: var(--sd-border-strong);
+  --docusaurus-details-summary-arrow-size: var(--sd-space-2);
+  --docusaurus-details-transition: transform var(--sd-move-expand);
+}
+
+/* --- Exceção 3 — --prism-background-color ------------------------------------
+   Ela não vem de CSS nenhum: `CodeBlock/Container` a injeta no atributo `style`
+   INLINE, a partir de `themeConfig.prism.theme.plain`, via
+   `getPrismCssVariables`. Nenhum seletor de folha de estilo vence estilo inline.
+
+   Correção registrada: a arquitetura previa alcançá-la "por seletor na classe
+   do bloco de código". Não é alcançável assim — medido no fonte da 3.10.2. O
+   ponto de escrita é o shim de `themeConfig.prism.theme` em
+   `docusaurus.config.js`, que só referencia token e não carrega um único hex.
+   Escrever aqui uma regra `.theme-code-block { --prism-background-color: … }`
+   seria exatamente a linha morta que sugere funcionar. */
+
+/* --- Exceção 4 — as shades de cor semântica ---------------------------------
+   Não é seletor, é regra de conteúdo do adaptador: só as shades VIVAS são
+   atribuídas. Escrita no bloco do adaptador, acima. */

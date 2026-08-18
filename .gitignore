@@ -238,3 +238,10 @@ __marimo__/
 .claude/agent-memory-local
 .claude/first-run
 .claude/assistant-daemon-state.json
+
+# O site de documentação (`website/`) é um projeto Node dentro de um repositório
+# Python. `build/` e `lib/` acima já casam em qualquer nível e pegam a saída do
+# Docusaurus; o cache incremental e as dependências não estavam cobertos.
+# https://github.com/panlabs-tech/overpower/issues/130
+node_modules/
+website/.docusaurus/

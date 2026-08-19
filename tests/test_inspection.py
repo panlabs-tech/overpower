@@ -539,6 +539,55 @@ def test_both_scopes_are_read_in_one_output(
     assert "2 artifacts · 2 places" in joined(output)
 
 
+def test_a_graft_counts_as_an_artifact_and_its_document_as_the_place(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """A repository whose only installation is a graft used to read *"0 artifacts"*.
+
+    Under a block headed *"what is installed"*, and with the server sitting in
+    `.mcp.json` two lines below. The count was fed from `_landed_in` alone,
+    which walks skill trees, so the graft class never reached it.
+
+    Counting it is the consistent answer rather than the generous one: neither
+    class carries provenance. `_landed_in` counts every tree sitting in a
+    runtime path — including one a user made by hand — so a `doctor` that
+    declined to count a server it could not prove it wrote would be applying to
+    the graft class a rule the copy class never had.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": MCP_URL})
+    root, _ = workspace(tmp_path, monkeypatch)
+    run(capsys, "install", "--mcp", "cloudflare", "--runtime", "claude-code")
+    approve(root, "cloudflare")
+
+    code, output = run(capsys, "doctor")
+
+    assert code == 0
+    assert "1 artifact · 1 place" in joined(output)
+
+
+def test_a_copy_and_a_graft_are_summed_into_one_pair_of_numbers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """One line of counting over two landing classes, which is what the block promises.
+
+    The classes are counted apart and added, never merged into one set: a skill
+    and a server may share a name — the pool namespaces by type — and a union
+    over `(scope, name)` would silently answer one where the disk holds two.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, "alpha", mcps={"cloudflare": MCP_URL})
+    root, _ = workspace(tmp_path, monkeypatch)
+    run(capsys, "install", "--skill", "alpha", "--runtime", "claude-code", "--yes")
+    run(capsys, "install", "--mcp", "cloudflare", "--runtime", "claude-code")
+    approve(root, "cloudflare")
+
+    code, output = run(capsys, "doctor")
+
+    assert code == 0
+    assert "2 artifacts · 2 places" in joined(output)
+
+
 # --------------------------------------------------------------------------- #
 # MCP grafts: unapproved, a vanished clone, an unset slot, an orphan clone
 # --------------------------------------------------------------------------- #
@@ -556,6 +605,23 @@ url = "https://github.com/example/homegrown-mcp"
 command = "uv"
 args = ["run", "--project", "{source}", "server.py"]
 """
+
+
+def approve(root: Path, *names: str) -> None:
+    """Write the registry Claude Code writes once a human passes the trust dialog.
+
+    The graft is born switched off (ADR 0014), so a test that wants to assert
+    anything *else* about a written server has to get the pending-approval
+    finding out of the way first — otherwise every one of them reads exit 3 and
+    says nothing about what it was written to check.
+    """
+    settings = root / ".claude" / "settings.local.json"
+    settings.parent.mkdir(parents=True, exist_ok=True)
+    enabled = ", ".join(f'"{name}"' for name in names)
+    settings.write_text(
+        f'{{"hasTrustDialogAccepted": true, "enabledMcpjsonServers": [{enabled}]}}\n',
+        encoding="utf-8",
+    )
 
 
 def test_a_written_mcp_server_claude_code_has_not_approved_exits_three(

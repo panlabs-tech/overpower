@@ -191,6 +191,22 @@ class Landed:
 
 
 @dataclass(frozen=True)
+class Grafted:
+    """One MCP server read back off a document: what it is called, and where it sits.
+
+    The graft-class twin of `Landed`, and it carries no fingerprint on purpose.
+    A copy can be compared against the catalog tree it came from; a graft is a
+    **rendering** of a recipe into the dialect of one runtime, so the bytes on
+    disk are not the bytes of anything this product stores — the four checks
+    below ask their questions of the config itself instead.
+    """
+
+    name: str
+    scope: Scope
+    destination: DocumentKey
+
+
+@dataclass(frozen=True)
 class DanglingLink:
     """A landed write that points at something that is not there."""
 
@@ -277,6 +293,15 @@ class Diagnosis:
 
     home: Path
     landed: tuple[Landed, ...]
+    grafted: tuple[Grafted, ...]
+    """The graft class of the same question `landed` answers for the copy class.
+
+    Two fields and not one list of a union type, because the two are found by
+    different walks over different roots — a tree in a runtime path against a
+    key inside a document a user also edits — and the checks below take one or
+    the other, never both.
+    """
+
     findings: tuple[Finding, ...]
     notices: tuple[Notice, ...]
     """What is worth saying and never worth exit 3 over. See the module docstring."""
@@ -290,10 +315,36 @@ class Diagnosis:
     def artifacts(self) -> int:
         """How many distinct artifacts are installed, counted once per scope.
 
-        Distinct from `len(self.landed)` on purpose: one artifact in four runtime
+        Distinct from `self.places` on purpose: one artifact in four runtime
         paths is **one** artifact and **four** places, and the screen says both.
+
+        **Both landing classes count**, because neither carries provenance and
+        the copy class never pretended to: `_landed_in` counts every tree
+        sitting in a runtime path, including one a user made by hand. Leaving
+        grafts out made a repository whose only installation is an MCP server
+        read `0 artifacts · 0 places` under a block headed *"what is
+        installed"* — the audit of the graft spec named that number and could
+        not point at a story that asked for it either way.
+
+        The two classes are counted apart and **added**, never merged into one
+        set: the pool namespaces by type, so a skill and a server may share a
+        name, and a union over `(scope, name)` would answer one where the disk
+        holds two.
         """
-        return len({(item.scope, item.name) for item in self.landed})
+        copies = {(item.scope, item.name) for item in self.landed}
+        grafts = {(item.scope, item.name) for item in self.grafted}
+        return len(copies) + len(grafts)
+
+    @property
+    def places(self) -> int:
+        """How many writes are on disk — a tree in a runtime path, or a key in a document.
+
+        The second number of the count line. It is a property rather than
+        `len(self.landed)` at the call site for the reason the docstring above
+        gives: once the graft class counts, *place* is a sum over two fields and
+        a screen reaching for one of them would print half of it.
+        """
+        return len(self.landed) + len(self.grafted)
 
 
 def diagnose(terminal: Terminal, root: Path | None, environment: Environment) -> Diagnosis:
@@ -312,6 +363,10 @@ def diagnose(terminal: Terminal, root: Path | None, environment: Environment) ->
         *_landed_in(Scope.GLOBAL, environment.home, environment),
     )
     places = _mcp_documents(root, environment)
+    grafted = tuple(
+        Grafted(name=name, scope=scope, destination=_document_key(place, name))
+        for scope, place, name, _ in _servers_of(places)
+    )
     findings: tuple[Finding, ...] = (
         *_dangling(landed),
         *(() if root is None else _links_turned_text(root, landed, environment)),
@@ -328,6 +383,7 @@ def diagnose(terminal: Terminal, root: Path | None, environment: Environment) ->
         root=root,
         home=environment.home,
         landed=landed,
+        grafted=grafted,
         findings=findings,
         notices=notices,
     )

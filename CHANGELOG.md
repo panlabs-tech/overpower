@@ -23,6 +23,13 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.23.0] - 2026-08-19
+
+### Changed
+
+- **The documentation site is now canonical, and `README.md` shrinks to point at it.** The `Contributing` sidebar's six pages carry real prose — the development loop and local hooks, the testing doctrine, how a screen is snapshot-tested, the module map and the two sibling content roots, how vendored content is curated, and how a release ships. `README.md` shrinks to the pitch, the install line, one screen showing the catalog format, and a link to the site; `pyproject.toml [project.urls]` gains `Homepage` and `Documentation`, both pointing at [panlabs-tech.github.io/overpower](https://panlabs-tech.github.io/overpower/). ([#132](https://github.com/panlabs-tech/overpower/issues/132))
+
+
 ## [0.22.0] - 2026-08-18
 
 ### Added

@@ -68,6 +68,7 @@ from overpower.rendering import Fragment, Target, targets_of
 from overpower.runtimes import Scope
 from overpower.screens import (
     BANNER,
+    PROGRAM,
     RAIL,
     THEME,
     artifact_screen,
@@ -1086,6 +1087,117 @@ def test_the_catalog_screen_matches_its_snapshot(
     rendered = render(catalog_screen(recorded()), width)
 
     assert_matches_snapshot(request, f"list-{width}", rendered)
+
+
+# --------------------------------------------------------------------------- #
+# the showcase: the same screen, of a repository rather than of the wheel
+# --------------------------------------------------------------------------- #
+
+SHOWCASE_URL = "https://github.com/owner/repo"
+"""The search root the showcase was obtained from, and therefore the tail of
+every line it prints. It is a plausible length rather than a short one on
+purpose: `overpower install --skill <name> --from <url>` is the longest line the
+product prints anywhere, and 60 columns is where that has to be proven."""
+
+
+def recorded_showcase() -> Catalog:
+    """The catalog a `--from` obtention builds: two of the four units, and no others.
+
+    A remote catalog carries no framework and no bundle — `--from` never reaches
+    either — so this fixture is the shape the anchored walk actually returns,
+    not `recorded()` with fields blanked. That is what makes the snapshot able
+    to record the block omission at all: with `recorded()` there would be
+    nothing empty to drop.
+    """
+    return Catalog(
+        frameworks=(),
+        pool=(
+            artifact("grilling", "Grills a decision until it gets sharp.", files=1, size=948),
+            artifact("heavy-reference", "A reference big enough to read in MiB.", 3, 2_097_152),
+        ),
+        bundles=(),
+        mcps=(recorded_recipe(),),
+    )
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_showcase_matches_its_snapshot(request: pytest.FixtureRequest, width: int) -> None:
+    """A screen of its own, because it is one: blocks drop out and every line grows a flag."""
+    rendered = render(catalog_screen(recorded_showcase(), SHOWCASE_URL), width)
+
+    assert_matches_snapshot(request, f"showcase-{width}", rendered)
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_no_showcase_line_exceeds_the_terminal_width(width: int) -> None:
+    """The one property the origin could break, measured where it is longest.
+
+    Every printed command on this screen carries `--from <url>` that the catalog
+    screen's does not, so the showcase is where a line first has room to run off
+    the right edge — and at 60 columns it is the whole budget.
+    """
+    rendered = render(catalog_screen(recorded_showcase(), SHOWCASE_URL), width)
+
+    assert [line for line in rendered.splitlines() if len(line) > width] == []
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_no_showcase_description_is_truncated(width: int) -> None:
+    """The property that chose the variant, held under the longer lines."""
+    catalog = recorded_showcase()
+
+    rendered = render(catalog_screen(catalog, SHOWCASE_URL), width)
+
+    joined = unwrapped(rendered)
+    for description in descriptions_of(catalog):
+        assert " ".join(description.split()) in joined
+    assert "…" not in rendered
+
+
+def test_the_showcase_drops_the_blocks_a_repository_has_no_category_for() -> None:
+    """Off the wheel an empty bundle list is a real shape and its heading tells the truth;
+    a third-party repository has no such category, and a heading over nothing would be
+    the screen inventing one."""
+    joined = unwrapped(render(catalog_screen(recorded_showcase(), SHOWCASE_URL), 80))
+
+    assert "AI Frameworks" not in joined
+    assert "Bundles" not in joined
+    assert "Pool skills" in joined
+    assert "MCP servers" in joined
+
+
+def test_the_catalog_screen_keeps_every_block_it_always_had() -> None:
+    """The other half: the omission is the showcase's, and it may not leak onto the wheel."""
+    catalog = Catalog(frameworks=(), pool=(artifact("grilling", "Only this."),), bundles=())
+
+    joined = unwrapped(render(catalog_screen(catalog), 80))
+
+    assert "AI Frameworks" in joined
+    assert "Bundles" in joined
+    assert "MCP servers" in joined
+
+
+def test_every_showcase_line_carries_the_origin_it_came_from() -> None:
+    """An item read through `--from` is not in the catalog, so the line without it exits 2.
+
+    Asserted over **every** command the screen prints rather than over one,
+    because the failure mode is a block that was missed while its siblings were
+    threaded. Read off `unwrapped`, which is where a line that the frame broke in
+    two is a line again — the same reading `test_no_showcase_line_exceeds_the
+    _terminal_width` deliberately does *not* do.
+    """
+    catalog = recorded_showcase()
+
+    joined = unwrapped(render(catalog_screen(catalog, SHOWCASE_URL), 80))
+
+    for artifact_offered in catalog.pool:
+        assert f"{PROGRAM} install --skill {artifact_offered.name} --from {SHOWCASE_URL}" in joined
+    for recipe in catalog.mcps:
+        assert f"{PROGRAM} install --mcp {recipe.name} --from {SHOWCASE_URL}" in joined
+        assert f"{PROGRAM} list --mcp {recipe.name} --from {SHOWCASE_URL}" in joined
+    # And not one command more than the origins: a line the threading missed
+    # would raise the first count without raising the second.
+    assert joined.count(f"{PROGRAM} ") == joined.count(f"--from {SHOWCASE_URL}")
 
 
 def test_a_bundle_says_what_it_names() -> None:

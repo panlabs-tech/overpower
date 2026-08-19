@@ -320,6 +320,7 @@ and what comes out is the same request the equivalent flag line would build.
 | `install --runtime cursor` | artifacts · plan |
 | `install --bundle api-python --runtime cursor` | the plan, straight away |
 | `install --from <url> --skill <name>` | scope · runtimes · plan |
+| `install --from <url>` | artifacts, **of that repository** · scope · runtimes · plan |
 | no TTY, no `--runtime` | none — exit 2 |
 
 Giving `--runtime` takes the scope question with it, because the set `--runtime`
@@ -327,10 +328,11 @@ accepts is a function of the scope, so the scope step exists to scope the runtim
 step. `--global` answers it outright; its *absence* is "did not say", never
 "chose the project". The wizard is one gesture, not a question per absent flag.
 
-`--from` no longer keeps the whole wizard away: only the **artifacts** step
-consults a catalog, and a `--from` line names `--skill` before anything is
-fetched, so that step never opens and the embedded catalog is never read.
-`--yes` skips no step at all — it skips the final confirmation and nothing else.
+`--from` keeps no step away. Only the **artifacts** step consults a catalog, and
+what `--from` decides is *which* — a line that names `--skill` answers that step
+before it opens, and a bare `--from <url>` opens it on the showcase of the
+repository the URL names. The embedded catalog is never read on either. `--yes`
+skips no step at all — it skips the final confirmation and nothing else.
 
 ### Scope
 
@@ -376,22 +378,39 @@ leaves nothing behind, not even an empty directory.
 ### `--from` — any GitHub repository
 
 ```bash
+uvx overpower@latest list --from https://github.com/owner/repo
 uvx overpower@latest install --from https://github.com/owner/repo --skill some-skill --runtime codex
 ```
 
 The vendored catalog ages by construction, and `--from` is the escape hatch that
-does not wait for a curation refresh. It points `--skill` at **any GitHub
-repository, with no registration**, and it is **exclusive**: with it, only the
-remote is consulted, which extinguishes the question of precedence rather than
-answering it. It holds for `--skill` alone — a skill is the one unit that exists
-in the market, while a bundle and an AI Framework only exist in a repository that
-already knows the overpower — and a line naming either of them alongside `--from`
-is refused by name before anything is fetched.
+does not wait for a curation refresh. It points at **any GitHub repository, with
+no registration**, and it is **exclusive**: with it, only the remote is
+consulted, which extinguishes the question of precedence rather than answering
+it. It holds for `--skill` and `--mcp` — those two are the units that exist
+outside a repository that already knows the overpower, while a bundle and an AI
+Framework only exist in one — and a line naming either of the other two alongside
+`--from` is refused by name before anything is fetched.
+
+**Bare, it answers the question before the name.** `list --from <url>` prints
+that repository's showcase — its skills with name and description, and the MCP
+recipes it federates — and `install --from <url>` opens the same wizard you
+already know, with that showcase in place of the embedded catalog. A repository
+with nothing installable is refused, naming the URL, rather than opening a wizard
+with no choices in it.
 
 **The URL is a search root, not an address.** The repository root, a subfolder,
 or the skill's own folder all give the same result. `tree/<ref>/<path>` pins a
 branch, a tag **or a full SHA**, so reproducibility comes free with the address
 someone pasted.
+
+**The showcase ignores the subpath entirely**, and that is the one place the two
+questions part company. What a repository offers is a property of the repository,
+so the root URL and a subfolder's return the same list: the showcase walks
+`skills/**` and `.overpower/mcp/*.toml` from the repository root. Naming a unit
+is what makes the URL narrow the walk again. Two consequences, both deliberate: a
+skill filed outside `skills/` is not on the showcase and is still installable by
+name, and a copy a runtime install left behind — `.claude/skills/<name>/` and its
+siblings — is neither shown nor mistaken for a second skill of the same name.
 
 Obtention uses the local `git` as transport and reuses whatever credential it
 already has, falling back to the anonymous tarball — standard library only — so

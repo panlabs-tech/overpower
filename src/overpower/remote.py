@@ -14,6 +14,23 @@ and the artifact's own folder give the *same* result, and the deepest one only
 buys a shorter walk. `tree/<ref>/<path>` pins a branch, a tag **or a SHA** with
 no field of our own — reproducibility for free.
 
+**Two questions, and the URL means something different to each**
+(https://github.com/panlabs-tech/overpower/issues/135). Named a unit, the URL is
+that search root and the walk is free-depth: *reach*. Named none, the question is
+the one before the name — *what does this repository offer?* — and the answer is
+**anchored** at `skills/` and `.overpower/mcp/` as direct children of the
+repository, with the URL's subpath ignored entirely. An offer is a property of
+the repository, so the root URL and a subfolder's have to answer the same.
+
+**A runtime destination is not an offer.** A repository already equipped with the
+overpower carries its skill twice — at `skills/<name>/` and at the runtime's own
+`<project_dir>/<name>/` — and the second is where an install put it. Each half
+answers that in the way its own rule allows: the showcase by the **anchor**,
+which leaves the copy outside the walk with no predicate needed, and the reach by
+a **tie-break** — a copy never wins against an offer, and never hides what would
+otherwise be the only answer. That unmakes an ambiguity the reach used to refuse
+falsely, and costs nothing where the copy is all there is.
+
 **A skill is found by its own `SKILL.md`; a recipe, by the fixed convention
 path `.overpower/mcp/<slug>.toml`** (`docs/agents/domain.md` § Vocabulário) —
 the one half of that convention the MCP spec's tracer bullet fixed without
@@ -80,10 +97,10 @@ from urllib.request import urlopen
 from overpower.discovery import SKILL_FILE, ArtifactType, Catalog, artifact_at
 from overpower.errors import BadInvocationError, OverpowerError, RefusedError
 from overpower.recipes import RECIPE_SUFFIX, read_recipe
-from overpower.runtimes import Scope
+from overpower.runtimes import RUNTIMES, Scope
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Mapping, Sequence
+    from collections.abc import Generator, Iterable, Mapping, Sequence
 
     from overpower.discovery import Artifact
     from overpower.recipes import Recipe
@@ -130,6 +147,43 @@ match's parent rather than as a prefix of `root`, which is what makes the same
 check pass at any of the three depths: the suffix is there whether `root` is
 the repository, `.overpower`, or `.overpower/mcp` itself."""
 
+OFFER_DIR = "skills"
+"""The one folder a repository's **offer** lives in, as a direct child of its root.
+
+The anchor of the showcase, and the one place the two searches part company.
+The *reach* — `--skill <name>` — walks the search root at any depth, because
+the caller already knows the name and the URL is theirs to narrow. The
+*showcase* answers a question nobody has narrowed, so it cannot walk a whole
+third-party repository and call whatever carries a `SKILL.md` an offer: a
+vendored dependency's skills are not what that repository offers.
+
+The anchor was chosen against measurement and the price is declared: **2 of the
+75 `SKILL.md` measured fall outside it**, and stay installable by name. The
+sentence is *"`list` shows the showcase; `--skill` reaches what you can name"*.
+
+`commands/` and `agents/` are not enumerated — 0 of the 75 live in them — and
+admitting them later is additive."""
+
+_RUNTIME_DESTINATIONS: frozenset[tuple[str, ...]] = frozenset(
+    tuple(runtime.project_dir.relative.split("/"))
+    for runtime in RUNTIMES
+    if runtime.project_dir is not None and runtime.project_dir.relative != OFFER_DIR
+)
+"""Every place inside a repository an install writes skills to, as path segments.
+
+Derived from the table rather than listed, so a runtime added to `RUNTIMES`
+arrives here without a second edit — a hand-kept copy of a 100-row table is a
+copy that goes stale silently.
+
+**`openclaw`'s row is excluded, and that exclusion is the rule and not an
+exception.** Its `project_dir` is `skills` — the offer anchor itself — so a
+deny-list that kept it would deny every offer in the product. Where a
+destination and the anchor are the same path, the anchor wins: a repository's
+own `skills/` is what it offers, whoever else also reads it.
+
+Global destinations are absent for a different reason: they hang off the home
+directory, and what `--from` walks is a repository."""
+
 
 class BadRemoteUrlError(BadInvocationError):
     """A `--from` value that is not a GitHub repository URL.
@@ -170,6 +224,26 @@ class MissingSubpathError(RefusedError):
         self.source = source
         super().__init__(
             f"`{source.subpath}` is not in {source.owner}/{source.repo} at `{source.ref}`"
+        )
+
+
+class NothingOfferedError(RefusedError):
+    """The repository has no `skills/` and no `.overpower/mcp/` to show.
+
+    Exit **3**, on the same axis every other refusal on this path sits: the URL
+    parsed, the repository was obtained, the walk ran, and the answer is no. The
+    defect named is the **URL's**, which is the whole point of refusing here
+    rather than opening a wizard on an empty catalog — that would put the
+    question *"what should this install bring?"* to someone whose only honest
+    answer is *"nothing, and not because of anything I typed"*.
+    """
+
+    def __init__(self, source: Source) -> None:
+        """Name the repository, and both folders that would have made it an offer."""
+        self.source = source
+        super().__init__(
+            f"{source.shown} offers nothing to install: "
+            f"no `{OFFER_DIR}/` and no `{'/'.join(_FEDERATED_MCP_DIR)}/` at its root"
         )
 
 
@@ -334,21 +408,152 @@ def catalog_from(
     framework and no bundle, which is the same statement the invocation guard
     makes on the command line, said again in the data.
 
+    **Naming nothing is a question, not an empty selection.** With no `skills`
+    and no `mcps`, this answers *"what does this repository offer?"* — the
+    showcase — instead of building a catalog of nothing. The two questions read
+    the tree by different rules and it is worth saying which is which:
+
+    | | walks from | matches |
+    | --- | --- | --- |
+    | reach, `--skill`/`--mcp` | the **search root**, so the URL narrows it | any depth |
+    | showcase, no selector | the **repository**, so the URL narrows nothing | the anchors |
+
+    The showcase ignoring the subpath is not an oversight of the search-root
+    doctrine but its complement: an offer is a property of the repository, so
+    pasting the root URL and pasting a subfolder's have to answer the same.
+
     The scratch is removed in the `finally`, so it goes whether the search
     answered, refused or the caller declined the confirmation inside the block.
     """
     source = parse(url)
     scratch = Path(tempfile.mkdtemp(prefix=SCRATCH_PREFIX))
     try:
-        root = search_root(obtain(source, scratch), source)
+        tree = obtain(source, scratch)
+        if not skills and not mcps:
+            yield _offered_by(tree, source)
+            return
+        root = search_root(tree, source)
         yield Catalog(
             frameworks=(),
-            pool=tuple(_skill_called(name, root, source) for name in dict.fromkeys(skills)),
+            pool=tuple(_skill_called(name, root, tree, source) for name in dict.fromkeys(skills)),
             bundles=(),
             mcps=tuple(_mcp_called(name, root, source) for name in dict.fromkeys(mcps)),
         )
     finally:
         discard(scratch)
+
+
+def _offered_by(tree: Path, source: Source) -> Catalog:
+    """The showcase: every skill under `skills/` and every recipe under `.overpower/mcp/`.
+
+    Both halves anchored at `tree` — the repository — and not at the search
+    root, which is what makes the URL's subpath irrelevant here.
+
+    An empty result is refused rather than returned. A `Catalog` with nothing in
+    it renders as a screen with no rows and opens a wizard with no choices, and
+    both of those describe the invocation as the problem when the problem is the
+    URL (`NothingOfferedError`).
+    """
+    catalog = Catalog(
+        frameworks=(), pool=_skills_offered(tree), bundles=(), mcps=_mcps_offered(tree)
+    )
+    if not catalog.pool and not catalog.mcps:
+        raise NothingOfferedError(source)
+    return catalog
+
+
+def _skills_offered(tree: Path) -> tuple[Artifact, ...]:
+    """Every skill folder under `<tree>/skills/`, at any depth below it.
+
+    `skills/` has to be a direct child of the repository root; below it the
+    depth is free, so `skills/<category>/<name>/` is offered exactly the way
+    `skills/<name>/` is — categories are how a large repository files its own
+    offer, and refusing to see them would make the anchor a rule about
+    two levels rather than about one.
+
+    **No deny-list runs here, and the anchor is why** (ADR 0019). Measured, the
+    anchor beats `rglob` plus a deny-list on this half — 73 of 73 against 74 with
+    a false positive — and no runtime writes skills to a path under `skills/`, so
+    an installed copy is outside the walk before any predicate could see it. The
+    deny-list belongs to the reach, where the anchor has nothing to say.
+
+    Described through `artifact_at`, the same function the embedded walk uses,
+    which is what makes the two paths describe an artifact identically.
+    """
+    offers = tree / OFFER_DIR
+    if not offers.is_dir():
+        return ()
+    found = {
+        match.parent
+        for match in offers.rglob(SKILL_FILE)
+        # `match.parent != offers` because a `SKILL.md` lying loose in `skills/`
+        # names no folder of its own, and rule 8 (ADR 0006) has nothing to read
+        # a name off there.
+        if match.is_file() and match.parent != offers
+    }
+    return tuple(artifact_at(folder, ArtifactType.SKILL) for folder in sorted(found))
+
+
+def _mcps_offered(tree: Path) -> tuple[Recipe, ...]:
+    """Every recipe in `<tree>/.overpower/mcp/`, and in no other copy of that path.
+
+    Anchored where the skills half is anchored, and for the same reason: the
+    *reach* accepts the convention path at any depth — a vendored dependency's
+    `.overpower/mcp/` answers `--mcp <slug>` — while the showcase speaks only
+    for the repository the URL names.
+
+    Read through `read_recipe`, the same reader the embedded catalog uses, so a
+    recipe that reaches the screen is a recipe that renders.
+    """
+    folder = tree.joinpath(*_FEDERATED_MCP_DIR)
+    if not folder.is_dir():
+        return ()
+    return tuple(
+        read_recipe(match) for match in sorted(folder.glob(f"*{RECIPE_SUFFIX}")) if match.is_file()
+    )
+
+
+def _is_a_runtime_destination(folder: Path, tree: Path) -> bool:
+    """Whether `folder` is a skill an install wrote, rather than one the repository offers.
+
+    An install writes a project-scope skill at exactly
+    `<repository>/<project_dir>/<name>/`, so the test is an **exact** path from
+    the repository root and not a suffix or a substring of one: `skills/` is a
+    destination for `openclaw` and the offer anchor for everyone, and only the
+    distance from the root tells `skills/alpha` apart from `.claude/skills/alpha`.
+
+    The measured defect this answers: a repository equipped with the overpower
+    carries its own skill twice, and before this the reach refused it as
+    ambiguous — a refusal that was **false**, since there is one skill there and
+    the second path is where an install put it.
+    """
+    return folder.parent.relative_to(tree).parts in _RUNTIME_DESTINATIONS
+
+
+def _offers_among(matches: Iterable[Path], tree: Path) -> list[Path]:
+    """`matches` with installed copies dropped — unless dropping them leaves nothing.
+
+    **A tie-break, not a filter**, and the difference is the whole correctness of
+    it. What the deny-list exists to stop is a copy *competing* with the offer it
+    was copied from; what it must never do is answer *not found* about the only
+    thing there. Both cases fall out of one rule:
+
+    | under the root | filtered | answered |
+    | --- | --- | --- |
+    | `skills/alpha` + `.claude/skills/alpha` | `skills/alpha` | one, no ambiguity |
+    | `.claude/skills/alpha` alone | *empty* | the copy, because it is all there is |
+    | `skills/alpha` + `vendor/skills/alpha` | both | still ambiguous, as before |
+
+    The second row is the one a filter gets wrong, and it is not a corner: a URL
+    pointed at `.claude` names that copy on purpose, and two destinations in the
+    table — `agent/skills` (`eve`) and `data/skills` (`astrbot`) — are ordinary
+    folder names a repository could be genuinely offering out of. Neither cost
+    was measured in ADR 0019, which weighed the deny-list on the enumeration
+    only; the tie-break is what makes the reach's half cost nothing at all.
+    """
+    found = sorted(matches)
+    offers = [match for match in found if not _is_a_runtime_destination(match, tree)]
+    return offers or found
 
 
 @contextmanager
@@ -609,20 +814,26 @@ def search_root(tree: Path, source: Source) -> Path:
     raise MissingSubpathError(source)
 
 
-def _skill_called(name: str, root: Path, source: Source) -> Artifact:
+def _skill_called(name: str, root: Path, tree: Path, source: Source) -> Artifact:
     """The one skill folder called `name` under `root`, described by its own `SKILL.md`.
 
     The folder name is the artifact's name, exactly as it is for the embedded
     tree (rule 8, ADR 0006) — and the description comes out of `SKILL.md` through
     the same function the embedded walk uses, which is what makes the two paths
     describe an artifact identically.
+
+    `root` is where the walk starts and `tree` is the repository the deny-list is
+    measured from, and they differ exactly when the URL named a subpath. Both are
+    needed: the walk is the caller's to narrow, while whether a hit is an
+    installed copy is a fact about its distance from the repository root.
     """
-    matches = sorted(
+    matches = _offers_among(
         {
             found.parent
             for found in root.rglob(SKILL_FILE)
             if found.is_file() and found.parent.name == name
-        }
+        },
+        tree,
     )
     if not matches:
         raise RemoteSkillNotFoundError(name, source)

@@ -498,7 +498,14 @@ def catalog_from(
         if not skills and not mcps and not bundles:
             yield _offered_by(tree, source)
             return
-        root = search_root(tree, source)
+        # Resolved **only** where it is read, and that is not a micro-optimisation.
+        # `search_root` refuses a subpath the repository does not have, and a line
+        # whose only selector is `--bundle` must never meet that refusal: the
+        # manifest is anchored at the repository, so the URL's subpath narrows
+        # nothing for it — and a rule that narrows nothing cannot be allowed to
+        # fail anything either. The `tree` fallback is never read: without one of
+        # those two selectors, both comprehensions below are empty.
+        root = search_root(tree, source) if skills or mcps else tree
         yield Catalog(
             frameworks=(),
             pool=tuple(_skill_called(name, root, tree, source) for name in dict.fromkeys(skills)),

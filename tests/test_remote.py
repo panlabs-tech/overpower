@@ -42,7 +42,7 @@ from tests.support import git_remote
 from tests.support.gates import needs_network
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
+    from collections.abc import Callable, Mapping
 
 ROOT_URL = "https://github.com/owner/repo"
 _TARBALL = "https://codeload.github.com/owner/repo/tar.gz/HEAD"
@@ -803,19 +803,13 @@ def test_an_obtention_failure_is_not_a_refusal() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def _offering(*skills: str, bundles: Mapping[str, Sequence[str]] | None = None) -> dict[str, str]:
-    """A repository that offers `skills` under `skills/` and declares `bundles` over them."""
-    planted = dict(git_remote.skill_files(*skills))
-    if bundles is not None:
-        planted.update(git_remote.bundle_catalog_file(bundles))
-    return planted
-
-
 def test_the_showcase_carries_the_bundles_the_repository_declares(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The composition is the unit a homemade repository most wants to distribute."""
-    _planting(monkeypatch, _offering("alpha", "beta", bundles={"api-python": ["alpha", "beta"]}))
+    _planting(
+        monkeypatch, git_remote.offering("alpha", "beta", bundles={"api-python": ["alpha", "beta"]})
+    )
 
     with remote.catalog_from(ROOT_URL) as catalog:
         assert [bundle.name for bundle in catalog.bundles] == ["api-python"]
@@ -825,7 +819,9 @@ def test_the_showcase_carries_the_bundles_the_repository_declares(
 
 def test_a_bundle_keeps_the_order_its_manifest_wrote(monkeypatch: pytest.MonkeyPatch) -> None:
     """A bundle is a curated composition, and the order is part of what was curated."""
-    _planting(monkeypatch, _offering("alpha", "beta", bundles={"api-python": ["beta", "alpha"]}))
+    _planting(
+        monkeypatch, git_remote.offering("alpha", "beta", bundles={"api-python": ["beta", "alpha"]})
+    )
 
     with remote.catalog_from(ROOT_URL) as catalog:
         assert [item.name for item in catalog.bundles[0].artifacts] == ["beta", "alpha"]
@@ -835,7 +831,7 @@ def test_a_repository_with_no_manifest_still_offers_its_skills(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The manifest is optional: the showcase omits the section rather than refusing."""
-    _planting(monkeypatch, _offering("alpha"))
+    _planting(monkeypatch, git_remote.offering("alpha"))
 
     with remote.catalog_from(ROOT_URL) as catalog:
         assert [item.name for item in catalog.pool] == ["alpha"]
@@ -856,7 +852,7 @@ def test_the_three_depths_of_url_find_the_same_bundle(
     """The manifest is anchored at the repository, so the URL's subpath narrows nothing."""
     # given
     local = git_remote.build(
-        tmp_path / "origin", _offering("alpha", "beta", bundles={"api-python": ["alpha"]})
+        tmp_path / "origin", git_remote.offering("alpha", "beta", bundles={"api-python": ["alpha"]})
     )
     monkeypatch.setattr(remote, "fetch_with_git", git_remote.instead_of_github(local))
 
@@ -865,6 +861,39 @@ def test_the_three_depths_of_url_find_the_same_bundle(
     ) as catalog:
         assert [bundle.name for bundle in catalog.bundles] == ["api-python"]
         assert [item.name for item in catalog.bundles[0].artifacts] == ["alpha"]
+
+
+def test_a_url_subfolder_the_repository_does_not_have_cannot_fail_a_bundle_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The anchor has to hold in the corner, or it is not an anchor.
+
+    A subpath that does not exist is a refusal the *reach* owes its caller: the
+    walk has nowhere to start. A bundle line has no walk — the manifest is read
+    at the repository root — so meeting that refusal would be the URL's subpath
+    deciding a question it was declared not to touch. The bare showcase already
+    answers normally on this very URL, and the two have to agree.
+    """
+    _planting(monkeypatch, git_remote.offering("alpha", bundles={"api-python": ["alpha"]}))
+    url = f"{ROOT_URL}/tree/main/does-not-exist"
+
+    with remote.catalog_from(url, bundles=["api-python"]) as catalog:
+        assert [bundle.name for bundle in catalog.bundles] == ["api-python"]
+    with remote.catalog_from(url) as showcase:
+        assert [bundle.name for bundle in showcase.bundles] == ["api-python"]
+
+
+def test_a_skill_line_still_refuses_a_url_subfolder_that_does_not_exist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other half: the reach keeps the refusal, because the reach has a walk to start."""
+    _planting(monkeypatch, git_remote.offering("alpha"))
+
+    with (
+        pytest.raises(remote.MissingSubpathError),
+        remote.catalog_from(f"{ROOT_URL}/tree/main/does-not-exist", ["alpha"]),
+    ):
+        pass  # unreachable: the search raises before the block is entered
 
 
 def test_a_manifest_below_the_root_is_not_the_repository_s_manifest(
@@ -879,7 +908,7 @@ def test_a_manifest_below_the_root_is_not_the_repository_s_manifest(
     _planting(
         monkeypatch,
         {
-            **_offering("alpha"),
+            **git_remote.offering("alpha"),
             **git_remote.bundle_catalog_file(
                 {"vendored": ["alpha"]}, at="vendor/.overpower/catalog.yaml"
             ),
@@ -894,7 +923,7 @@ def test_a_bundle_that_the_repository_does_not_declare_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Obtained, read, and the answer is no — the same axis every remote miss sits on."""
-    _planting(monkeypatch, _offering("alpha", bundles={"api-python": ["alpha"]}))
+    _planting(monkeypatch, git_remote.offering("alpha", bundles={"api-python": ["alpha"]}))
 
     with pytest.raises(RefusedError), remote.catalog_from(ROOT_URL, bundles=["web-node"]):
         pass  # unreachable: the search raises before the block is entered
@@ -904,7 +933,7 @@ def test_a_bundle_item_the_repository_does_not_offer_is_refused_naming_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Exit 3 naming which item, so the user reports it to the author instead of guessing."""
-    _planting(monkeypatch, _offering("alpha", bundles={"api-python": ["alpha", "ghost"]}))
+    _planting(monkeypatch, git_remote.offering("alpha", bundles={"api-python": ["alpha", "ghost"]}))
 
     with (
         pytest.raises(RefusedError) as raised,
@@ -928,7 +957,7 @@ def test_a_bundle_item_never_reaches_a_skill_outside_the_offer_anchor(
     _planting(
         monkeypatch,
         {
-            **_offering("alpha", bundles={"api-python": ["alpha", "vendored"]}),
+            **git_remote.offering("alpha", bundles={"api-python": ["alpha", "vendored"]}),
             **git_remote.skill_files("vendored", under="vendor/skills"),
         },
     )
@@ -948,7 +977,7 @@ def test_a_malformed_federated_manifest_is_refused_the_way_the_embedded_one_is(
     """
     # given
     malformed = "bundles:\n  api-python:\n    description: 12\n    items: [alpha]\n"
-    _planting(monkeypatch, {**_offering("alpha"), ".overpower/catalog.yaml": malformed})
+    _planting(monkeypatch, {**git_remote.offering("alpha"), ".overpower/catalog.yaml": malformed})
     beside = tmp_path / "catalog.yaml"
     beside.write_text(malformed, encoding="utf-8")
 
@@ -967,7 +996,9 @@ def test_a_federated_manifest_that_is_not_yaml_is_refused_before_the_shape(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """*Did not parse* and *parsed into the wrong shape* are two defects, and stay two."""
-    _planting(monkeypatch, {**_offering("alpha"), ".overpower/catalog.yaml": "bundles: [oops\n"})
+    _planting(
+        monkeypatch, {**git_remote.offering("alpha"), ".overpower/catalog.yaml": "bundles: [oops\n"}
+    )
 
     with pytest.raises(UnreadableWrittenCatalogError), remote.catalog_from(ROOT_URL):
         pass  # unreachable: the read raises before the block is entered
@@ -980,7 +1011,7 @@ def test_the_manifest_and_the_recipe_carry_two_formats_under_one_namespace(
     _planting(
         monkeypatch,
         {
-            **_offering("alpha", bundles={"api-python": ["alpha"]}),
+            **git_remote.offering("alpha", bundles={"api-python": ["alpha"]}),
             **git_remote.mcp_recipe_files("acme"),
         },
     )

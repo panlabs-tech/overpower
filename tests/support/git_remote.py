@@ -225,6 +225,21 @@ def bundle_catalog_file(
     return {at: "\n".join(lines) + "\n"}
 
 
+def offering(*skills: str, bundles: Mapping[str, Sequence[str]] | None = None) -> dict[str, str]:
+    """A repository that offers `skills` under `skills/` and composes them in `bundles`.
+
+    The two halves a federated bundle needs, in the one shape `build` and
+    `planting` take. It exists because `items` resolve against the **enumerated**
+    skills of the same repository, so a manifest and the skills it names are not
+    two independent fixtures — a test that planted only one of them would be
+    describing a repository the product refuses.
+    """
+    planted = dict(skill_files(*skills))
+    if bundles is not None:
+        planted.update(bundle_catalog_file(bundles))
+    return planted
+
+
 def instead_of_github(local: LocalRemote) -> Callable[[str, str, Path], Path]:
     """The product's own primary obtention, aimed at `local` instead of GitHub.
 

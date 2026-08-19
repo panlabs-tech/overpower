@@ -414,6 +414,190 @@ def test_two_skills_with_the_same_name_under_one_root_are_refused(
         pass  # unreachable: the search raises before the block is entered
 
 
+# --------------------------------------------------------------------------- #
+# the showcase: what a repository offers, with no name asked for
+# --------------------------------------------------------------------------- #
+
+
+def test_a_url_with_no_selector_offers_the_skills_and_the_recipes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The question before the name: *what does this repository offer?*
+
+    Both classes in one catalog, because that is what a single `list --from`
+    has to answer. The catalog is the same type the embedded walk builds, so
+    the screen and the wizard downstream cannot tell the two apart.
+    """
+    # given
+    planted = {
+        **git_remote.skill_files("alpha", "beta"),
+        **git_remote.mcp_recipe_files("cloudflare"),
+    }
+    _planting(monkeypatch, planted)
+
+    with remote.catalog_from(ROOT_URL) as catalog:
+        assert [artifact.name for artifact in catalog.pool] == ["alpha", "beta"]
+        assert catalog.pool[0].description == "The alpha skill."
+        assert [recipe.name for recipe in catalog.mcps] == ["cloudflare"]
+
+
+@pytest.mark.parametrize(
+    "depth",
+    [
+        pytest.param("", id="repository root"),
+        pytest.param("/skills", id="a subfolder"),
+        pytest.param("/skills/alpha", id="the artifact's own folder"),
+    ],
+)
+def test_the_offer_is_the_repositorys_and_not_the_subpaths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, depth: str
+) -> None:
+    """The enumeration ignores the subpath entirely: the offer belongs to the repository.
+
+    The opposite of the rule the *reach* obeys, and on purpose. `--skill` walks
+    from the search root, so a deeper URL narrows it; the showcase answers about
+    the repository, so a deeper URL narrows nothing at all. Against a **real
+    local remote**, through the real `git` subprocess.
+    """
+    # given
+    local = git_remote.build(tmp_path / "origin", git_remote.skill_files("alpha", "beta"))
+    monkeypatch.setattr(remote, "fetch_with_git", git_remote.instead_of_github(local))
+
+    with remote.catalog_from(f"{ROOT_URL}/tree/{local.branch}{depth}") as catalog:
+        assert [artifact.name for artifact in catalog.pool] == ["alpha", "beta"]
+
+
+def test_the_offer_reaches_a_skill_filed_under_a_category(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`skills/` is a direct child of the root; below it the depth is free."""
+    # given
+    _planting(monkeypatch, git_remote.skill_files("alpha", under="skills/writing"))
+
+    with remote.catalog_from(ROOT_URL) as catalog:
+        assert [artifact.name for artifact in catalog.pool] == ["alpha"]
+
+
+def test_a_skill_outside_the_anchor_is_not_offered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The showcase is anchored, and the price is declared: two of the 75 measured
+    `SKILL.md` fall outside it and stay reachable by name.
+
+    `list` shows the showcase; `--skill` reaches what you can name.
+    """
+    # given
+    planted = {
+        **git_remote.skill_files("alpha"),
+        **git_remote.skill_files("beta", under="vendor/skills"),
+    }
+    _planting(monkeypatch, planted)
+
+    with remote.catalog_from(ROOT_URL) as offered:
+        assert [artifact.name for artifact in offered.pool] == ["alpha"]
+    with remote.catalog_from(ROOT_URL, ["beta"]) as reached:
+        assert [artifact.name for artifact in reached.pool] == ["beta"]
+
+
+def test_a_repository_equipped_with_the_overpower_offers_its_skill_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A repository that installed its own skill has it twice on disk, and offers it once.
+
+    `.claude/skills/` is a **destination**, not an offer: what is there was
+    written by an install, and showing it beside the source it was copied from
+    would be the showcase counting one skill as two.
+    """
+    # given
+    planted = {
+        **git_remote.skill_files("alpha"),
+        **git_remote.installed_skill_files("alpha"),
+    }
+    _planting(monkeypatch, planted)
+
+    with remote.catalog_from(ROOT_URL) as catalog:
+        assert [artifact.name for artifact in catalog.pool] == ["alpha"]
+
+
+def test_a_copy_under_a_runtime_destination_is_not_an_ambiguity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The false refusal this ticket fixes, asserted as a regression.
+
+    Before the deny-list, a repository equipped with the overpower could not
+    have its own skill installed from: the reach found `skills/alpha` and
+    `.claude/skills/alpha` and refused both. There is one skill there, and the
+    second path is where an install put it.
+    """
+    # given
+    planted = {
+        **git_remote.skill_files("alpha"),
+        **git_remote.installed_skill_files("alpha"),
+    }
+    _planting(monkeypatch, planted)
+
+    with remote.catalog_from(ROOT_URL, ["alpha"]) as catalog:
+        assert [artifact.name for artifact in catalog.pool] == ["alpha"]
+
+
+def test_a_url_pointed_into_a_runtime_destination_still_reaches_what_is_there(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The deny-list narrows a search; it never overrules the URL that already did.
+
+    Pointing `--from` inside `.claude/skills` is the caller saying *that copy,
+    on purpose* — the same narrowing `AmbiguousRemoteSkillError` tells them to
+    make. Denying it there would answer *not found* about a folder they named.
+    """
+    # given
+    _planting(monkeypatch, git_remote.installed_skill_files("alpha"))
+
+    with remote.catalog_from(f"{ROOT_URL}/tree/main/.claude/skills", ["alpha"]) as catalog:
+        assert [artifact.name for artifact in catalog.pool] == ["alpha"]
+
+
+def test_a_repository_that_offers_nothing_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exit **3**, and the defect named is the URL's: it was obtained, walked, and it
+    offers nothing. A wizard opened on an empty catalog would blame the user instead.
+    """
+    # given
+    _planting(monkeypatch, {"README.md": "# nothing installable here\n"})
+
+    with pytest.raises(RefusedError), remote.catalog_from(ROOT_URL):
+        pass  # unreachable: the walk raises before the block is entered
+
+
+def test_a_repository_that_offers_only_recipes_is_not_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One of the two halves is enough — the refusal is for *nothing*, not for *not both*."""
+    # given
+    _planting(monkeypatch, git_remote.mcp_recipe_files("cloudflare"))
+
+    with remote.catalog_from(ROOT_URL) as catalog:
+        assert catalog.pool == ()
+        assert [recipe.name for recipe in catalog.mcps] == ["cloudflare"]
+
+
+def test_the_offered_recipes_are_the_repositorys_own_federated_folder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`.overpower/mcp/` is a direct child of the root, and the enumeration says so.
+
+    The *reach* finds a recipe at any depth — that convention is checked as the
+    last two segments of the parent. The showcase is anchored instead, for the
+    same reason the skills half is: what a repository offers is what it filed
+    at its own root, not what a vendored copy happens to carry.
+    """
+    # given
+    planted = {
+        **git_remote.mcp_recipe_files("cloudflare"),
+        **git_remote.mcp_recipe_files("vercel", under="vendor/dep/.overpower/mcp"),
+    }
+    _planting(monkeypatch, planted)
+
+    with remote.catalog_from(ROOT_URL) as catalog:
+        assert [recipe.name for recipe in catalog.mcps] == ["cloudflare"]
+
+
 def test_a_subpath_the_repository_does_not_have_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

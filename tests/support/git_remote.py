@@ -165,6 +165,23 @@ def skill_files(*names: str, under: str = "skills") -> dict[str, str]:
     }
 
 
+def installed_skill_files(*names: str, runtime: str = ".claude/skills") -> dict[str, str]:
+    """The *copy* an install leaves behind, at a runtime's own project destination.
+
+    The same shape `skill_files` writes, named apart because the difference is
+    not in the bytes: `skills/<name>/` is what a repository **offers**, and
+    `<runtime destination>/<name>/` is where an install **put** one. A
+    repository equipped with the overpower has both, and telling them apart is
+    what keeps the showcase from counting one skill as two and the reach from
+    refusing it as ambiguous.
+
+    `runtime` defaults to Claude Code's `project_dir` because that is the row
+    the defect was measured on; any other value from `overpower.runtimes`
+    behaves the same way.
+    """
+    return skill_files(*names, under=runtime)
+
+
 def mcp_recipe_files(*names: str, under: str = ".overpower/mcp") -> dict[str, str]:
     """A repository tree carrying one minimal recipe per name, at `<under>/<name>.toml`.
 

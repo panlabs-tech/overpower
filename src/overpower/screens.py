@@ -411,7 +411,7 @@ screens, the way the singular and plural headings are.
 """
 
 
-def catalog_screen(catalog: Catalog) -> RenderableType:
+def catalog_screen(catalog: Catalog, origin: str | None = None) -> RenderableType:
     """The whole catalog: four blocks, with a blank line between them.
 
     Four and not one grid, because the four units are not levels of a
@@ -421,9 +421,21 @@ def catalog_screen(catalog: Catalog) -> RenderableType:
     The MCP block is last and it is not an afterthought: it is the one class
     that does not copy, so it reads as *"and there is a fourth thing"* rather
     than as a variant of the three above it.
+
+    `origin` is the `--from` search root the catalog was obtained from, and it
+    turns this screen into the **showcase of a repository** (#135) — two changes,
+    both of them the same statement:
+
+    - every printed line carries `--from`, because an item read through it is
+      **not in the catalog** and the line without it exits 2 naming the ones
+      that are;
+    - an empty block is dropped instead of drawn. Off the wheel a missing
+      bundle list is a real shape of *this* catalog and the heading tells the
+      truth about it; a third-party repository has no bundles as a *category*,
+      and a heading over nothing there would be the screen inventing one.
     """
-    blocks = (
-        _block(
+    sections = (
+        (
             "AI Frameworks",
             "installs whole",
             [
@@ -439,7 +451,7 @@ def catalog_screen(catalog: Catalog) -> RenderableType:
                 for framework in catalog.frameworks
             ],
         ),
-        _block(
+        (
             "Pool skills",
             "installs alone",
             [
@@ -447,12 +459,12 @@ def catalog_screen(catalog: Catalog) -> RenderableType:
                     artifact.name,
                     _weight(artifact.size, artifact.files),
                     artifact.description,
-                    commands=(_install(SKILL_FLAG, artifact.name),),
+                    commands=(_install(SKILL_FLAG, artifact.name, origin),),
                 )
                 for artifact in catalog.pool
             ],
         ),
-        _block(
+        (
             "Bundles",
             "lists pool artifacts only",
             [
@@ -468,7 +480,7 @@ def catalog_screen(catalog: Catalog) -> RenderableType:
                 for bundle in catalog.bundles
             ],
         ),
-        _block(
+        (
             "MCP servers",
             GRAFTS,
             [
@@ -477,15 +489,23 @@ def catalog_screen(catalog: Catalog) -> RenderableType:
                     str(recipe.transport),
                     recipe.description,
                     commands=(
-                        _install(MCP_FLAG, recipe.name),
-                        _inspect(MCP_FLAG, recipe.name),
+                        _install(MCP_FLAG, recipe.name, origin),
+                        _inspect(MCP_FLAG, recipe.name, origin),
                     ),
                 )
                 for recipe in catalog.mcps
             ],
         ),
     )
-    return Group(*_spaced(blocks))
+    return Group(
+        *_spaced(
+            [
+                _block(title, note, entries)
+                for title, note, entries in sections
+                if entries or origin is None
+            ]
+        )
+    )
 
 
 def framework_screen(framework: Framework) -> RenderableType:
@@ -537,7 +557,7 @@ def bundle_screen(bundle: Bundle) -> RenderableType:
     )
 
 
-def artifact_screen(artifact: Artifact) -> RenderableType:
+def artifact_screen(artifact: Artifact, origin: str | None = None) -> RenderableType:
     """One pool artifact: its description **whole**, which is the whole screen.
 
     It is the extreme case of the rule the catalog screen already obeys — the
@@ -548,6 +568,10 @@ def artifact_screen(artifact: Artifact) -> RenderableType:
     The heading is driven by the artifact's own type, because the pool is not a
     pool of skills by definition: `--skill` is the only selector v0.1.0 ships,
     and the day a command lands in the tree this screen already says so.
+
+    `origin` is the `--from` search root it was obtained from, for the same
+    reason `mcp_screen` takes one: a skill read through `--from` is not in the
+    catalog, so the line the screen prints needs it to work pasted back.
     """
     return _block(
         f"Pool {artifact.type}",
@@ -557,7 +581,7 @@ def artifact_screen(artifact: Artifact) -> RenderableType:
                 artifact.name,
                 _weight(artifact.size, artifact.files),
                 artifact.description,
-                commands=(_install(SKILL_FLAG, artifact.name),),
+                commands=(_install(SKILL_FLAG, artifact.name, origin),),
             )
         ],
     )
@@ -1318,15 +1342,20 @@ def _install(flag: str, name: str, origin: str | None = None) -> str:
     return f"{PROGRAM} install {flag} {name}{origin_flag}"
 
 
-def _inspect(flag: str, name: str) -> str:
+def _inspect(flag: str, name: str, origin: str | None = None) -> str:
     """The line that opens one item — only where opening it shows something new.
 
     An AI Framework and a bundle carry artifacts to list; an MCP server carries
     a recipe, and the catalog entry shows neither its fields nor the targets it
     serves. A pool skill is the one unit whose entry is already the whole of it,
     so printing the line for it would be a dead end.
+
+    `origin` travels for the same reason it travels on `_install`: an item shown
+    by the showcase is not in the catalog, so the line that opens it needs the
+    search root that has it.
     """
-    return f"{PROGRAM} list {flag} {name}"
+    origin_flag = "" if origin is None else f" {FROM_FLAG} {origin}"
+    return f"{PROGRAM} list {flag} {name}{origin_flag}"
 
 
 def _entry(  # noqa: PLR0913 — the three facts of an item plus the three blocks under it.

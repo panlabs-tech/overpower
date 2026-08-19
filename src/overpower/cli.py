@@ -30,6 +30,7 @@ because `-f` belongs to `--force`, plus `--skill`/`-s`, `--bundle`/`-b` and
 
 from __future__ import annotations
 
+from contextlib import ExitStack
 from dataclasses import replace
 from enum import IntEnum
 from importlib import metadata
@@ -249,15 +250,18 @@ class MixedClassesWithoutRuntimeError(BadInvocationError):
 
 
 class UnsupportedRemoteListUnitError(BadInvocationError):
-    """`--from` on a `list` line that also names an AI Framework, a bundle or a skill.
+    """`--from` on a `list` line that also names an AI Framework or a bundle.
 
-    `list --from` shows a federated MCP recipe only, in v0.1.0 — the one unit
-    `install --from` gained a remote channel for alongside skill
-    (https://github.com/panlabs-tech/overpower/issues/83). Without this guard,
-    `list --skill x --from <url>` would print the *embedded* skill named `x`
-    while the line claims to have consulted the URL — the same silent-narrowing
-    defect `UnsupportedRemoteUnitError` refuses on `install`, named again here
-    because the set `list --from` supports is narrower still.
+    The same two units `UnsupportedRemoteUnitError` refuses on `install`, and
+    for the same reason: a skill and an MCP server exist outside a repository
+    that already knows the overpower, while a bundle and an AI Framework only
+    exist in one. Without this guard, `list --bundle x --from <url>` would print
+    the *embedded* bundle named `x` while the line claims to have consulted the
+    URL — a silent narrowing, which is the defect both classes exist to refuse.
+
+    Two classes and not one, because the verb differs: this one says *shows*
+    where `install`'s says *installs*, and a message that names the wrong verb
+    is a message the reader has to translate.
     """
 
     def __init__(self, flags: Sequence[str]) -> None:
@@ -265,21 +269,8 @@ class UnsupportedRemoteListUnitError(BadInvocationError):
         self.flags = tuple(flags)
         given = " and ".join(self.flags)
         super().__init__(
-            f"`--from` on `list` shows an MCP recipe only, and this line also has {given}"
+            f"`--from` on `list` shows skills and MCP servers only, and this line also has {given}"
         )
-
-
-class NothingToListForError(BadInvocationError):
-    """`--from` on `list` with no `--mcp`: a search root, and nothing to look for in it.
-
-    Same reasoning as `install`'s `NothingToSearchForError`: reaching a later
-    refusal would cost a whole repository download first, for a line that could
-    never have shown anything.
-    """
-
-    def __init__(self) -> None:
-        """Say which half of the line is missing."""
-        super().__init__("`--from` names where to look, and no --mcp names what to look for")
 
 
 class McpNameBelongsToAnotherFlagError(BadInvocationError):
@@ -401,9 +392,10 @@ def list_catalog(
         typer.Option(
             FROM_FLAG,
             metavar="URL",
-            help="Take --mcp from any GitHub repository instead of the embedded catalog. "
-            "The URL is a search root: the repository, a subfolder or `.overpower/mcp` "
-            "itself. `tree/<ref>/<path>` pins a branch, a tag or a SHA.",
+            help="Show what any GitHub repository offers, instead of the embedded catalog. "
+            "Bare, it lists that repository's `skills/` and `.overpower/mcp/`; with --skill "
+            "or --mcp, the URL is a search root. `tree/<ref>/<path>` pins a branch, a tag "
+            "or a SHA.",
         ),
     ] = None,
 ) -> None:
@@ -421,7 +413,7 @@ def list_catalog(
         # let a broken tree answer 1 — *could not run* — to a question whose real
         # answer is 2, and the two codes exist to be told apart.
         raise TooManySelectorsError(selected)
-    _refuse_a_list_line_from_cannot_answer(from_, ai_framework, bundle, skill, mcp)
+    _refuse_a_list_line_from_cannot_answer(from_, ai_framework, bundle)
 
     if from_ is None:
         catalog = load_catalog(content_root(), catalog_file())
@@ -431,10 +423,16 @@ def list_catalog(
         _print_banner()
         _out.print(screen)
         return
-    # `mcp` is not `None` here: the guard above already refused every other
-    # shape a `--from` line on `list` could have.
-    with catalog_from(from_, mcps=(mcp,) if mcp else ()) as catalog:
-        screen = _listed(catalog, ai_framework=None, skill=None, bundle=None, mcp=mcp, origin=from_)
+    # Neither `skill` nor `mcp` is an AI Framework or a bundle here: the guard
+    # above already refused those. Both being `None` is not an empty line but a
+    # question — *what does this repository offer?* — which `catalog_from`
+    # answers with the showcase (#135).
+    with catalog_from(
+        from_, skills=(skill,) if skill else (), mcps=(mcp,) if mcp else ()
+    ) as catalog:
+        screen = _listed(
+            catalog, ai_framework=None, skill=skill, bundle=None, mcp=mcp, origin=from_
+        )
         _print_banner()
         _out.print(screen)
 
@@ -443,30 +441,28 @@ def _refuse_a_list_line_from_cannot_answer(
     from_: str | None,
     ai_framework: str | None,
     bundle: str | None,
-    skill: str | None,
-    mcp: str | None,
 ) -> None:
-    """The two ways a `--from` line on `list` has no answer, refused before anything is fetched.
+    """The way a `--from` line on `list` has no answer, refused before anything is fetched.
 
-    Mirrors `_refuse_a_line_from_cannot_answer` on `install`, narrower by one
-    unit: `list --from` reaches `--mcp` only, so a skill named alongside it is
-    refused the same way a bundle or an AI Framework is.
+    Mirrors `_refuse_a_line_from_cannot_answer` on `install`, and since #135 the
+    two refuse the *same* set: a bundle and an AI Framework only exist in a
+    repository that already knows the overpower.
+
+    There is no second half here the way there is on `install`. A `list --from`
+    line with no selector had nothing to look for and now has the showcase to
+    print, so the refusal it used to earn — `NothingToListForError` — is gone
+    rather than moved: `list` opens no wizard, so there is no terminal-shaped
+    condition left for it to hold under.
     """
     if from_ is None:
         return
     given = [
         flag
-        for flag, name in (
-            (AI_FRAMEWORK_FLAG, ai_framework),
-            (BUNDLE_FLAG, bundle),
-            (SKILL_FLAG, skill),
-        )
+        for flag, name in ((AI_FRAMEWORK_FLAG, ai_framework), (BUNDLE_FLAG, bundle))
         if name is not None
     ]
     if given:
         raise UnsupportedRemoteListUnitError(given)
-    if mcp is None:
-        raise NothingToListForError
 
 
 def _listed(  # noqa: PLR0913 — one keyword per selector, plus the catalog and where it came from
@@ -480,15 +476,17 @@ def _listed(  # noqa: PLR0913 — one keyword per selector, plus the catalog and
 ) -> RenderableType:
     """The screen the flags asked for: the whole catalog, or one item of it.
 
-    `origin` is the `--from` search root the catalog was obtained from, and only
-    the MCP screen takes it: it is the one item that can be read from outside
-    the catalog, so it is the only line whose printed command needs to say where
-    it came from to work pasted back.
+    `origin` is the `--from` search root the catalog was obtained from, and the
+    three screens `--from` can reach take it: the showcase, one skill and one
+    recipe. Those are exactly the items that can be read from outside the
+    catalog, so they are the lines whose printed command needs to say where it
+    came from to work pasted back. A framework and a bundle screen never see one
+    because `--from` never reaches them.
     """
     if ai_framework is not None:
         return framework_screen(catalog.framework(ai_framework))
     if skill is not None:
-        return artifact_screen(catalog.artifact(skill))
+        return artifact_screen(catalog.artifact(skill), origin)
     if bundle is not None:
         return bundle_screen(catalog.bundle(bundle))
     if mcp is not None:
@@ -497,7 +495,7 @@ def _listed(  # noqa: PLR0913 — one keyword per selector, plus the catalog and
         # here — where the product's own table is — and handed to the screen.
         recipe = catalog.mcp(mcp)
         return mcp_screen(recipe, targets_of(recipe), origin)
-    return catalog_screen(catalog)
+    return catalog_screen(catalog, origin)
 
 
 @app.command()
@@ -562,8 +560,9 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
         typer.Option(
             FROM_FLAG,
             metavar="URL",
-            help="Take --skill or --mcp from any GitHub repository instead of the embedded "
-            "catalog. The URL is a search root: the repository, a subfolder or the "
+            help="Install from any GitHub repository instead of the embedded catalog. "
+            "Bare, it opens the wizard on what that repository offers; with --skill or "
+            "--mcp, the URL is a search root — the repository, a subfolder or the "
             "artifact's own folder. `tree/<ref>/<path>` pins a branch, a tag or a SHA.",
         ),
     ] = None,
@@ -601,7 +600,7 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
     # Before the scope, before the catalog and before any obtention: a line that
     # `--from` cannot answer is a defect of the *line*, and answering it must not
     # depend on there being a git repository, a readable tree or a network.
-    _refuse_a_line_from_cannot_answer(from_, frameworks, bundles, mcps, skills)
+    _refuse_a_line_from_cannot_answer(from_, frameworks, bundles)
 
     environment = Environment.from_process()
     asked = Request(
@@ -654,70 +653,127 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
     # The accepted consequence is that `--runtime` alone opens the artifacts step
     # and nothing else: the wizard is one gesture, not a question per absent flag.
     asking_scope = wizarding and not asked.runtimes and not global_
+    # A search root and nothing to look for, on a line that cannot open a
+    # wizard. Before #135 that was every such line; now the showcase is what a
+    # bare `--from` means, and the showcase is a *step* — so off a pipe the old
+    # shape is back, and so is the old reason for refusing it here rather than
+    # later: reaching `plan_for`'s refusal would cost a repository download
+    # first, for a line that could never have installed anything.
+    if from_ is not None and not selected and not wizarding:
+        raise NothingToSearchForError
 
-    if wizarding:
-        # Resolved ahead of the banner and of every question: a line with
-        # nowhere legal to write is refused with no screen at all, the same way
-        # the flag path refuses from behind `plan_for`.
-        scoped = None if asking_scope else _scope_and_root(global_=global_, environment=environment)
-        # The banner next: a human about to answer questions reads it as
-        # context, unlike the flag path below, where a screen ahead of a
-        # refusal would be the product answering before it knew.
-        _print_banner()
-        _open_session()
-        # The artifacts step is the only one that consults a catalog, and a line
-        # that already names something never opens it. That is what lets a
-        # `--from` line reach the wizard without the embedded catalog ever being
-        # read — *"only the remote is consulted"* speaks about that one step,
-        # and `--from` requires `--skill`, hence a selection, hence no step.
-        if not selected:
-            already_read = load_catalog(content_root(), catalog_file())
-        outcome = run_wizard(asked, already_read, environment, Path.cwd(), scoped, console=_out)
-        if outcome is None:
-            _stopped("nothing was written")
-            raise typer.Exit(ExitCode.CANNOT_RUN)
-        request, root = outcome
-    else:
-        scope, root = _scope_and_root(global_=global_, environment=environment)
-        request = replace(asked, scope=scope)
+    # One stack for both obtentions, because the showcase and the install are
+    # the same one: a bare `--from` line obtains before the artifacts step and
+    # then writes out of that very tree. Obtaining twice would put two
+    # repositories on one line — the second could have moved, and the scratch
+    # of the first is already gone.
+    with ExitStack() as obtained:
+        if wizarding:
+            # Resolved ahead of the banner and of every question: a line with
+            # nowhere legal to write is refused with no screen at all, the same
+            # way the flag path refuses from behind `plan_for`.
+            scoped = (
+                None if asking_scope else _scope_and_root(global_=global_, environment=environment)
+            )
+            # The banner next: a human about to answer questions reads it as
+            # context, unlike the flag path below, where a screen ahead of a
+            # refusal would be the product answering before it knew.
+            _print_banner()
+            _open_session()
+            # The artifacts step is the only one that consults a catalog, and a
+            # line that already names something never opens it. Which catalog it
+            # opens on is what `--from` decides — *"only the remote is
+            # consulted"* speaks about exactly this step — and the embedded one
+            # is never read on that path.
+            if not selected:
+                already_read = _what_the_artifacts_step_reads(from_, obtained)
+            outcome = run_wizard(asked, already_read, environment, Path.cwd(), scoped, console=_out)
+            if outcome is None:
+                _stopped("nothing was written")
+                raise typer.Exit(ExitCode.CANNOT_RUN)
+            request, root = outcome
+        else:
+            scope, root = _scope_and_root(global_=global_, environment=environment)
+            request = replace(asked, scope=scope)
 
-    if from_ is None:
-        # Read here only when the wizard did not already need it: the tree is
-        # walked and every `SKILL.md` is read, so twice on one invocation is a
-        # real cost and not a tidiness point.
-        if already_read is None:
-            already_read = load_catalog(content_root(), catalog_file())
-        # The scratch lives exactly as long as the block, which has to cover the
-        # write as well as the plan: `execute()` needs a `[source]` recipe's
-        # clone still on disk at the point it copies it to its destination.
-        with sources_for(already_read, request.mcps, request.scope) as sources:
+        if from_ is None:
+            # Read here only when the wizard did not already need it: the tree
+            # is walked and every `SKILL.md` is read, so twice on one invocation
+            # is a real cost and not a tidiness point.
+            if already_read is None:
+                already_read = load_catalog(content_root(), catalog_file())
+            # The scratch lives exactly as long as the block, which has to cover
+            # the write as well as the plan: `execute()` needs a `[source]`
+            # recipe's clone still on disk at the point it copies it to its
+            # destination.
+            sources = obtained.enter_context(sources_for(already_read, request.mcps, request.scope))
             _perform(request, already_read, root, environment, sources, banner=not wizarding)
-        return
-    # The scratch lives exactly as long as the block, which has to cover the
-    # write as well as the plan: the sources of a remote install are inside it.
-    with (
-        catalog_from(from_, request.skills, request.mcps) as catalog,
-        sources_for(catalog, request.mcps, request.scope) as sources,
-    ):
+            return
+        catalog = _what_the_remote_install_writes_from(from_, request, already_read, obtained)
+        sources = obtained.enter_context(sources_for(catalog, request.mcps, request.scope))
         _perform(request, catalog, root, environment, sources, banner=not wizarding)
+
+
+def _what_the_artifacts_step_reads(from_: str | None, obtained: ExitStack) -> Catalog:
+    """The catalog the wizard's one catalog-reading step opens on.
+
+    The artifacts step is the only step that consults a catalog, which is what
+    makes *"with `--from`, only the remote is consulted"* a statement about this
+    one line: the embedded catalog is not read on that path, and the showcase
+    takes its place (#135).
+
+    The obtention is entered on the caller's stack rather than in a `with` of its
+    own, because the scratch it lands has to outlive the wizard by the whole
+    length of the install: the tree the person just chose from is the tree the
+    writer copies out of.
+    """
+    if from_ is None:
+        return load_catalog(content_root(), catalog_file())
+    return obtained.enter_context(catalog_from(from_))
+
+
+def _what_the_remote_install_writes_from(
+    from_: str, request: Request, already_read: Catalog | None, obtained: ExitStack
+) -> Catalog:
+    """The showcase the wizard already read, or the reach the line named.
+
+    `already_read` on a `--from` line can only be the showcase: the embedded
+    catalog is never loaded on that path, so a catalog in hand here is the one
+    `_what_the_artifacts_step_reads` obtained a few lines up. Reusing it is not
+    an optimisation — obtaining a second time would put *two* repositories on
+    one line, since the remote could have moved between the two calls and the
+    person chose from the first.
+
+    With no showcase, the line named what to reach for and the reach is the
+    obtention. Either way the scratch lives as long as the caller's stack, which
+    covers the write as well as the plan: the sources of a remote install are
+    inside it.
+    """
+    if already_read is not None:
+        return already_read
+    return obtained.enter_context(catalog_from(from_, request.skills, request.mcps))
 
 
 def _refuse_a_line_from_cannot_answer(
     from_: str | None,
     frameworks: Sequence[str],
     bundles: Sequence[str],
-    mcps: Sequence[str],
-    skills: Sequence[str],
 ) -> None:
-    """The two ways a `--from` line has no answer, refused before anything is fetched.
+    """The way a `--from` line has no answer, refused before anything is fetched.
 
-    The four sequences are `Request`'s four sibling selectors and would rather
-    travel as one, which is what they do everywhere else in this module. They
+    The two sequences are `Request`'s selectors and would rather travel as a
+    whole `Request`, which is what they do everywhere else in this module. They
     cannot here, and the reason is the *order*: this refusal has to land before
     `_scope_and_root` — a line `--from` cannot answer must not need a git
     repository to be told so — and a `Request` built before the scope is resolved
-    would carry a scope that is not the one it will run under. Four parameters
-    is the smaller lie.
+    would carry a scope that is not the one it will run under.
+
+    Since #135 the *other* refusal this used to make — a search root with
+    nothing to look for — is no longer decidable here, which is what took the
+    other two selectors out of the signature. A bare `--from` line means the
+    showcase where a wizard can open and means nothing where one cannot, so it
+    is answered where the terminal is known, a few lines further down, and still
+    before any obtention.
     """
     if from_ is None:
         return
@@ -731,8 +787,6 @@ def _refuse_a_line_from_cannot_answer(
     ]
     if given:
         raise UnsupportedRemoteUnitError(given)
-    if not skills and not mcps:
-        raise NothingToSearchForError
 
 
 def _refuse_an_mcp_name_from_the_wrong_class(catalog: Catalog, mcps: Sequence[str]) -> None:

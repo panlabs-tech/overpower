@@ -9,7 +9,7 @@ name = "overpower"
 # from the VCS — measured in #2, `hatch-vcs` under `git clone --depth 1` (the
 # default of `actions/checkout`) fails to find the tag, warns, *succeeds*, and
 # publishes an invented version.
-version = "0.22.0"
+version = "0.23.0"
 description = "Installs curated AI Frameworks into a repository or a machine"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -63,6 +63,8 @@ dependencies = [
 ]
 
 [project.urls]
+Homepage = "https://panlabs-tech.github.io/overpower/"
+Documentation = "https://panlabs-tech.github.io/overpower/"
 Repository = "https://github.com/panlabs-tech/overpower"
 Issues = "https://github.com/panlabs-tech/overpower/issues"
 

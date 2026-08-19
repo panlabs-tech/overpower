@@ -33,6 +33,11 @@ from overpower.discovery import Catalog
 from overpower.errors import BadInvocationError, OverpowerError, RefusedError
 from overpower.recipes import Recipe, StdioServer
 from overpower.runtimes import Scope
+from overpower.written import (
+    MalformedWrittenCatalogError,
+    UnreadableWrittenCatalogError,
+    read_written_catalog,
+)
 from tests.support import git_remote
 from tests.support.gates import needs_network
 
@@ -791,6 +796,229 @@ def test_an_obtention_failure_is_not_a_refusal() -> None:
     assert issubclass(remote.ObtentionError, OverpowerError)
     assert not issubclass(remote.ObtentionError, RefusedError)
     assert not issubclass(remote.ObtentionError, BadInvocationError)
+
+
+# --------------------------------------------------------------------------- #
+# #137: the federated bundle, declared in `.overpower/catalog.yaml` at the root
+# --------------------------------------------------------------------------- #
+
+
+def test_the_showcase_carries_the_bundles_the_repository_declares(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The composition is the unit a homemade repository most wants to distribute."""
+    _planting(
+        monkeypatch, git_remote.offering("alpha", "beta", bundles={"api-python": ["alpha", "beta"]})
+    )
+
+    with remote.catalog_from(ROOT_URL) as catalog:
+        assert [bundle.name for bundle in catalog.bundles] == ["api-python"]
+        assert catalog.bundles[0].description == "The api-python bundle."
+        assert [item.name for item in catalog.bundles[0].artifacts] == ["alpha", "beta"]
+
+
+def test_a_bundle_keeps_the_order_its_manifest_wrote(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A bundle is a curated composition, and the order is part of what was curated."""
+    _planting(
+        monkeypatch, git_remote.offering("alpha", "beta", bundles={"api-python": ["beta", "alpha"]})
+    )
+
+    with remote.catalog_from(ROOT_URL) as catalog:
+        assert [item.name for item in catalog.bundles[0].artifacts] == ["beta", "alpha"]
+
+
+def test_a_repository_with_no_manifest_still_offers_its_skills(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The manifest is optional: the showcase omits the section rather than refusing."""
+    _planting(monkeypatch, git_remote.offering("alpha"))
+
+    with remote.catalog_from(ROOT_URL) as catalog:
+        assert [item.name for item in catalog.pool] == ["alpha"]
+        assert catalog.bundles == ()
+
+
+@pytest.mark.parametrize(
+    "depth",
+    [
+        pytest.param("", id="repository root"),
+        pytest.param("/.overpower", id="a subfolder"),
+        pytest.param("/skills", id="the offer's own folder"),
+    ],
+)
+def test_the_three_depths_of_url_find_the_same_bundle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, depth: str
+) -> None:
+    """The manifest is anchored at the repository, so the URL's subpath narrows nothing."""
+    # given
+    local = git_remote.build(
+        tmp_path / "origin", git_remote.offering("alpha", "beta", bundles={"api-python": ["alpha"]})
+    )
+    monkeypatch.setattr(remote, "fetch_with_git", git_remote.instead_of_github(local))
+
+    with remote.catalog_from(
+        f"{ROOT_URL}/tree/{local.branch}{depth}", bundles=["api-python"]
+    ) as catalog:
+        assert [bundle.name for bundle in catalog.bundles] == ["api-python"]
+        assert [item.name for item in catalog.bundles[0].artifacts] == ["alpha"]
+
+
+def test_a_url_subfolder_the_repository_does_not_have_cannot_fail_a_bundle_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The anchor has to hold in the corner, or it is not an anchor.
+
+    A subpath that does not exist is a refusal the *reach* owes its caller: the
+    walk has nowhere to start. A bundle line has no walk — the manifest is read
+    at the repository root — so meeting that refusal would be the URL's subpath
+    deciding a question it was declared not to touch. The bare showcase already
+    answers normally on this very URL, and the two have to agree.
+    """
+    _planting(monkeypatch, git_remote.offering("alpha", bundles={"api-python": ["alpha"]}))
+    url = f"{ROOT_URL}/tree/main/does-not-exist"
+
+    with remote.catalog_from(url, bundles=["api-python"]) as catalog:
+        assert [bundle.name for bundle in catalog.bundles] == ["api-python"]
+    with remote.catalog_from(url) as showcase:
+        assert [bundle.name for bundle in showcase.bundles] == ["api-python"]
+
+
+def test_a_skill_line_still_refuses_a_url_subfolder_that_does_not_exist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other half: the reach keeps the refusal, because the reach has a walk to start."""
+    _planting(monkeypatch, git_remote.offering("alpha"))
+
+    with (
+        pytest.raises(remote.MissingSubpathError),
+        remote.catalog_from(f"{ROOT_URL}/tree/main/does-not-exist", ["alpha"]),
+    ):
+        pass  # unreachable: the search raises before the block is entered
+
+
+def test_a_manifest_below_the_root_is_not_the_repository_s_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A vendored dependency's `.overpower/catalog.yaml` speaks for its own repository.
+
+    The mirror of the anchor the showcase already holds for `skills/`: the
+    reach may walk a whole repository for a name someone typed, but *what this
+    repository composes* is a property of the repository the URL names.
+    """
+    _planting(
+        monkeypatch,
+        {
+            **git_remote.offering("alpha"),
+            **git_remote.bundle_catalog_file(
+                {"vendored": ["alpha"]}, at="vendor/.overpower/catalog.yaml"
+            ),
+        },
+    )
+
+    with remote.catalog_from(ROOT_URL) as catalog:
+        assert catalog.bundles == ()
+
+
+def test_a_bundle_that_the_repository_does_not_declare_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Obtained, read, and the answer is no — the same axis every remote miss sits on."""
+    _planting(monkeypatch, git_remote.offering("alpha", bundles={"api-python": ["alpha"]}))
+
+    with pytest.raises(RefusedError), remote.catalog_from(ROOT_URL, bundles=["web-node"]):
+        pass  # unreachable: the search raises before the block is entered
+
+
+def test_a_bundle_item_the_repository_does_not_offer_is_refused_naming_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exit 3 naming which item, so the user reports it to the author instead of guessing."""
+    _planting(monkeypatch, git_remote.offering("alpha", bundles={"api-python": ["alpha", "ghost"]}))
+
+    with (
+        pytest.raises(RefusedError) as raised,
+        remote.catalog_from(ROOT_URL, bundles=["api-python"]),
+    ):
+        pass  # unreachable: the search raises before the block is entered
+
+    assert "ghost" in str(raised.value)
+
+
+def test_a_bundle_item_never_reaches_a_skill_outside_the_offer_anchor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`items` resolve against the **enumerated** skills, which is the anchored showcase.
+
+    A `SKILL.md` a vendored dependency carries is reachable by `--skill <name>`
+    and is not part of what this repository offers, so a manifest cannot compose
+    it — `items` would otherwise be a carrier of an address, which ADR 0006
+    forbids by name.
+    """
+    _planting(
+        monkeypatch,
+        {
+            **git_remote.offering("alpha", bundles={"api-python": ["alpha", "vendored"]}),
+            **git_remote.skill_files("vendored", under="vendor/skills"),
+        },
+    )
+
+    with pytest.raises(RefusedError), remote.catalog_from(ROOT_URL, bundles=["api-python"]):
+        pass  # unreachable: the search raises before the block is entered
+
+
+def test_a_malformed_federated_manifest_is_refused_the_way_the_embedded_one_is(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The same reader, asserted where it shows: the field named is the same field.
+
+    Not *"a reader that agrees"* but the reader itself — the bytes go to
+    `read_written_catalog` on both sides, so the key in the message is produced
+    once and there is no second validator to drift from the first.
+    """
+    # given
+    malformed = "bundles:\n  api-python:\n    description: 12\n    items: [alpha]\n"
+    _planting(monkeypatch, {**git_remote.offering("alpha"), ".overpower/catalog.yaml": malformed})
+    beside = tmp_path / "catalog.yaml"
+    beside.write_text(malformed, encoding="utf-8")
+
+    with pytest.raises(MalformedWrittenCatalogError) as embedded:
+        read_written_catalog(beside)
+    with (
+        pytest.raises(MalformedWrittenCatalogError) as federated,
+        remote.catalog_from(ROOT_URL),
+    ):
+        pass  # unreachable: the read raises before the block is entered
+
+    assert federated.value.key == embedded.value.key == "bundles.api-python.description"
+
+
+def test_a_federated_manifest_that_is_not_yaml_is_refused_before_the_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """*Did not parse* and *parsed into the wrong shape* are two defects, and stay two."""
+    _planting(
+        monkeypatch, {**git_remote.offering("alpha"), ".overpower/catalog.yaml": "bundles: [oops\n"}
+    )
+
+    with pytest.raises(UnreadableWrittenCatalogError), remote.catalog_from(ROOT_URL):
+        pass  # unreachable: the read raises before the block is entered
+
+
+def test_the_manifest_and_the_recipe_carry_two_formats_under_one_namespace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ADR 0020, asserted rather than written down: `.overpower/` is a namespace."""
+    _planting(
+        monkeypatch,
+        {
+            **git_remote.offering("alpha", bundles={"api-python": ["alpha"]}),
+            **git_remote.mcp_recipe_files("acme"),
+        },
+    )
+
+    with remote.catalog_from(ROOT_URL) as catalog:
+        assert [bundle.name for bundle in catalog.bundles] == ["api-python"]
+        assert [recipe.name for recipe in catalog.mcps] == ["acme"]
 
 
 # --------------------------------------------------------------------------- #

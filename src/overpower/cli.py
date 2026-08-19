@@ -169,29 +169,40 @@ class TooManySelectorsError(BadInvocationError):
         super().__init__(f"`list` shows one item at a time, and got {given}")
 
 
-class UnsupportedRemoteUnitError(BadInvocationError):
-    """`--from` on a line that also names an AI Framework or a bundle.
+REMOTELY_ABSENT = (
+    f"an AI Framework does not exist remotely: it is a folder of the overpower's own "
+    f"wheel, and {AI_FRAMEWORK_FLAG} names one of those"
+)
+"""Why the last unit off `--from` is a decision and not a queue position.
 
-    `--from` is for `--skill` and `--mcp`, and nothing else, and the reason is
-    the same one that separates the four copy units: a **skill and an MCP
-    server are the two that exist outside a repository that already knows the
-    overpower** — a federated recipe is precisely the channel a home-made MCP
-    has none of today (https://github.com/panlabs-tech/overpower/issues/83) —
-    while a bundle and an AI Framework only exist in one. Refusing by name is
-    what keeps the flag from silently meaning less than it says.
+Spelled once and said by both refusals below, because the two differ only in
+their verb and a reason that drifted between them would be two answers to one
+question. **The wording is the decision** (#137): a skill, an MCP recipe and now
+a bundle all cross, so what is left is not *"not yet"* — it is a unit whose
+whole definition is *the equipment this wheel ships*, which nothing in a
+third-party repository can hold. A reader who took this for an adjournment
+would go looking for the ticket that lifts it, and there is none.
+"""
+
+
+class UnsupportedRemoteUnitError(BadInvocationError):
+    """`--from` on an `install` line that also names an AI Framework.
+
+    The list this refuses used to hold two units and now holds one. A federated
+    recipe was the channel a home-made MCP had none of
+    (https://github.com/panlabs-tech/overpower/issues/83), and the federated
+    manifest is the one a home-made **bundle** had none of
+    (https://github.com/panlabs-tech/overpower/issues/137); both crossed. The
+    AI Framework does not follow, and `REMOTELY_ABSENT` is why.
 
     It lives here rather than in `overpower.remote` for the same reason
     `TooManySelectorsError` does: nothing about the URL or the names is wrong —
     it is the *line* that has no single answer, so no obtention is attempted.
     """
 
-    def __init__(self, flags: Sequence[str]) -> None:
-        """Name every unit flag that cannot travel with `--from`."""
-        self.flags = tuple(flags)
-        given = " and ".join(self.flags)
-        super().__init__(
-            f"`--from` installs skills and MCP servers only, and this line also has {given}"
-        )
+    def __init__(self) -> None:
+        """Name what `--from` installs, and why the one flag left out is left out."""
+        super().__init__(f"`--from` installs skills, MCP servers and bundles — {REMOTELY_ABSENT}")
 
 
 class NothingToSearchForError(BadInvocationError):
@@ -257,26 +268,23 @@ class MixedClassesWithoutRuntimeError(BadInvocationError):
 
 
 class UnsupportedRemoteListUnitError(BadInvocationError):
-    """`--from` on a `list` line that also names an AI Framework or a bundle.
+    """`--from` on a `list` line that also names an AI Framework.
 
-    The same two units `UnsupportedRemoteUnitError` refuses on `install`, and
-    for the same reason: a skill and an MCP server exist outside a repository
-    that already knows the overpower, while a bundle and an AI Framework only
-    exist in one. Without this guard, `list --bundle x --from <url>` would print
-    the *embedded* bundle named `x` while the line claims to have consulted the
-    URL — a silent narrowing, which is the defect both classes exist to refuse.
+    The same unit `UnsupportedRemoteUnitError` refuses on `install`, and for the
+    same reason. Without this guard, `list --ai-framework x --from <url>` would
+    print the *embedded* framework named `x` while the line claims to have
+    consulted the URL — a silent narrowing, which is the defect both classes
+    exist to refuse.
 
     Two classes and not one, because the verb differs: this one says *shows*
     where `install`'s says *installs*, and a message that names the wrong verb
     is a message the reader has to translate.
     """
 
-    def __init__(self, flags: Sequence[str]) -> None:
-        """Name every unit flag that cannot travel with `--from` on `list`."""
-        self.flags = tuple(flags)
-        given = " and ".join(self.flags)
+    def __init__(self) -> None:
+        """Name what `--from` shows, and why the one flag left out is left out."""
         super().__init__(
-            f"`--from` on `list` shows skills and MCP servers only, and this line also has {given}"
+            f"`--from` on `list` shows skills, MCP servers and bundles — {REMOTELY_ABSENT}"
         )
 
 
@@ -400,9 +408,9 @@ def list_catalog(
             FROM_FLAG,
             metavar="URL",
             help="Show what any GitHub repository offers, instead of the embedded catalog. "
-            "Bare, it lists that repository's `skills/` and `.overpower/mcp/`; with --skill "
-            "or --mcp, the URL is a search root. `tree/<ref>/<path>` pins a branch, a tag "
-            "or a SHA.",
+            "Bare, it lists that repository's `skills/`, `.overpower/mcp/` and the bundles "
+            "of `.overpower/catalog.yaml`; with --skill or --mcp, the URL is a search root. "
+            "`tree/<ref>/<path>` pins a branch, a tag or a SHA.",
         ),
     ] = None,
 ) -> None:
@@ -420,7 +428,7 @@ def list_catalog(
         # let a broken tree answer 1 — *could not run* — to a question whose real
         # answer is 2, and the two codes exist to be told apart.
         raise TooManySelectorsError(selected)
-    _refuse_a_list_line_from_cannot_answer(from_, ai_framework, bundle)
+    _refuse_a_list_line_from_cannot_answer(from_, ai_framework)
 
     if from_ is None:
         catalog = load_catalog(content_root(), catalog_file())
@@ -430,30 +438,29 @@ def list_catalog(
         _print_banner()
         _out.print(screen)
         return
-    # Neither `skill` nor `mcp` is an AI Framework or a bundle here: the guard
-    # above already refused those. Both being `None` is not an empty line but a
-    # question — *what does this repository offer?* — which `catalog_from`
-    # answers with the showcase (#135).
+    # None of the three is an AI Framework here: the guard above already refused
+    # that one. All three being `None` is not an empty line but a question —
+    # *what does this repository offer?* — which `catalog_from` answers with the
+    # showcase (#135).
     with catalog_from(
-        from_, skills=(skill,) if skill else (), mcps=(mcp,) if mcp else ()
+        from_,
+        skills=(skill,) if skill else (),
+        mcps=(mcp,) if mcp else (),
+        bundles=(bundle,) if bundle else (),
     ) as catalog:
         screen = _listed(
-            catalog, ai_framework=None, skill=skill, bundle=None, mcp=mcp, origin=from_
+            catalog, ai_framework=None, skill=skill, bundle=bundle, mcp=mcp, origin=from_
         )
         _print_banner()
         _out.print(screen)
 
 
-def _refuse_a_list_line_from_cannot_answer(
-    from_: str | None,
-    ai_framework: str | None,
-    bundle: str | None,
-) -> None:
+def _refuse_a_list_line_from_cannot_answer(from_: str | None, ai_framework: str | None) -> None:
     """The way a `--from` line on `list` has no answer, refused before anything is fetched.
 
-    Mirrors `_refuse_a_line_from_cannot_answer` on `install`, and since #135 the
-    two refuse the *same* set: a bundle and an AI Framework only exist in a
-    repository that already knows the overpower.
+    Mirrors `_refuse_a_line_from_cannot_answer` on `install`, and the two refuse
+    the *same* set — one unit since #137, which is what took `--bundle` out of
+    the signature rather than out of the body.
 
     There is no second half here the way there is on `install`. A `list --from`
     line with no selector had nothing to look for and now has the showcase to
@@ -461,15 +468,8 @@ def _refuse_a_list_line_from_cannot_answer(
     rather than moved: `list` opens no wizard, so there is no terminal-shaped
     condition left for it to hold under.
     """
-    if from_ is None:
-        return
-    given = [
-        flag
-        for flag, name in ((AI_FRAMEWORK_FLAG, ai_framework), (BUNDLE_FLAG, bundle))
-        if name is not None
-    ]
-    if given:
-        raise UnsupportedRemoteListUnitError(given)
+    if from_ is not None and ai_framework is not None:
+        raise UnsupportedRemoteListUnitError
 
 
 def _listed(  # noqa: PLR0913 — one keyword per selector, plus the catalog and where it came from
@@ -495,7 +495,7 @@ def _listed(  # noqa: PLR0913 — one keyword per selector, plus the catalog and
     if skill is not None:
         return artifact_screen(catalog.artifact(skill), origin)
     if bundle is not None:
-        return bundle_screen(catalog.bundle(bundle))
+        return bundle_screen(catalog.bundle(bundle), origin)
     if mcp is not None:
         # The one screen that is not read off the item alone: which targets a
         # recipe serves is derived from the table (rule 4), so it is computed
@@ -574,7 +574,8 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
             help="Install from any GitHub repository instead of the embedded catalog. "
             "Bare, it opens the wizard on what that repository offers; with --skill or "
             "--mcp, the URL is a search root: the repository, a subfolder or the "
-            "artifact's own folder. `tree/<ref>/<path>` pins a branch, a tag or a SHA.",
+            "artifact's own folder. --bundle reads `.overpower/catalog.yaml` at the "
+            "repository root. `tree/<ref>/<path>` pins a branch, a tag or a SHA.",
         ),
     ] = None,
     global_: Annotated[
@@ -611,7 +612,7 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
     # Before the scope, before the catalog and before any obtention: a line that
     # `--from` cannot answer is a defect of the *line*, and answering it must not
     # depend on there being a git repository, a readable tree or a network.
-    _refuse_a_line_from_cannot_answer(from_, frameworks, bundles)
+    _refuse_a_line_from_cannot_answer(from_, frameworks)
 
     environment = Environment.from_process()
     asked = Request(
@@ -762,42 +763,30 @@ def _what_the_remote_install_writes_from(
     """
     if already_read is not None:
         return already_read
-    return obtained.enter_context(catalog_from(from_, request.skills, request.mcps))
+    return obtained.enter_context(
+        catalog_from(from_, request.skills, request.mcps, request.bundles)
+    )
 
 
-def _refuse_a_line_from_cannot_answer(
-    from_: str | None,
-    frameworks: Sequence[str],
-    bundles: Sequence[str],
-) -> None:
+def _refuse_a_line_from_cannot_answer(from_: str | None, frameworks: Sequence[str]) -> None:
     """The way a `--from` line has no answer, refused before anything is fetched.
 
-    The two sequences are `Request`'s selectors and would rather travel as a
-    whole `Request`, which is what they do everywhere else in this module. They
+    The sequence is one of `Request`'s selectors and would rather travel as a
+    whole `Request`, which is what it does everywhere else in this module. It
     cannot here, and the reason is the *order*: this refusal has to land before
     `_scope_and_root` — a line `--from` cannot answer must not need a git
     repository to be told so — and a `Request` built before the scope is resolved
     would carry a scope that is not the one it will run under.
 
     Since #135 the *other* refusal this used to make — a search root with
-    nothing to look for — is no longer decidable here, which is what took the
-    other two selectors out of the signature. A bare `--from` line means the
-    showcase where a wizard can open and means nothing where one cannot, so it
-    is answered where the terminal is known, a few lines further down, and still
-    before any obtention.
+    nothing to look for — is no longer decidable here, and #137 took `--bundle`
+    off the refused list, which is what leaves one selector in the signature. A
+    bare `--from` line means the showcase where a wizard can open and means
+    nothing where one cannot, so it is answered where the terminal is known, a
+    few lines further down, and still before any obtention.
     """
-    if from_ is None:
-        return
-    given = [
-        flag
-        for flag, names in (
-            (AI_FRAMEWORK_FLAG, frameworks),
-            (BUNDLE_FLAG, bundles),
-        )
-        if names
-    ]
-    if given:
-        raise UnsupportedRemoteUnitError(given)
+    if from_ is not None and frameworks:
+        raise UnsupportedRemoteUnitError
 
 
 def _refuse_an_mcp_name_from_the_wrong_class(catalog: Catalog, mcps: Sequence[str]) -> None:

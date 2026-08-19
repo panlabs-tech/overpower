@@ -23,6 +23,37 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.25.0] - 2026-08-19
+
+### Added
+
+- **The bundle crosses `--from`.** A repository declares its compositions in
+  `.overpower/catalog.yaml` at its root, and `install --bundle <slug> --from <url>`
+  equips a whole context of work in one command; `list --bundle <slug> --from
+  <url>` shows what the bundle names first, so the decision is made with the
+  contents in view. With no selector at all, the declared bundles take their place
+  in `list --from` and in the artifacts step of the `install --from` wizard, beside
+  the skills and the recipes. The manifest goes through the **same reader** as the
+  file overpower writes about its own content, so there is no second validator
+  anywhere in the product to disagree with the first — a malformed manifest is
+  refused naming the same field on both sides. `items` are names resolved against
+  the skills that same repository offers, reaching neither the embedded catalog nor
+  a third repository; one that does not resolve exits `3` saying which name, so the
+  report goes to whoever wrote the manifest. Unlike `--skill` and `--mcp`, the
+  manifest is read at the repository root, and a subfolder in the URL does not
+  interfere. It is **optional**: a repository that has not written one keeps its
+  skills listed and installable, and simply omits the section. ([#137](https://github.com/panlabs-tech/overpower/issues/137))
+
+### Changed
+
+- **`--ai-framework` beside `--from` is now refused as a unit that does not exist
+  remotely**, rather than as one that has not arrived yet. An AI Framework is a
+  folder of overpower's own wheel, so there is nothing in a third-party repository
+  for the flag to name; the message says so, and the line still exits `2` before
+  anything is fetched. It is the last of the four units outside `--from`, and it
+  stays outside by decision. ([#137](https://github.com/panlabs-tech/overpower/issues/137))
+
+
 ## [0.24.0] - 2026-08-19
 
 ### Changed

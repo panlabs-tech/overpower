@@ -13,9 +13,32 @@ The catalog embedded in overpower ages by construction — it is fixed at the ve
 
 `--from` is **exclusive**. Once it is on the line, only the remote repository is consulted — the embedded catalog is not searched at all, and not merged with the remote either. That settles the question of precedence between the two by removing it rather than answering it.
 
-On `install`, `--from` reaches `--skill` and `--mcp` — never `--bundle` or `--ai-framework`. A skill and an MCP server are the two units that exist as something installable outside a repository that already knows about overpower; a bundle and an AI Framework only exist inside a repository that curates them as such, so a line naming either of those two alongside `--from` is refused by name before anything is fetched over the network. On `list`, `--from` is narrower still and reaches `--mcp` alone — `list --from --skill <name>` is refused the same way `--bundle` and `--ai-framework` are, since `list --from` exists to preview a federated recipe, not to browse a remote skill.
+`--from` reaches **three of the four units** on both `install` and `list`: `--skill`, `--mcp`, and `--bundle`. Bare — with no selector at all — it answers the question before the name: *what does this repository offer?* The one flag it refuses is `--ai-framework`, and that refusal is a decision rather than a missing feature: an AI Framework is a folder of overpower's own package, so there is nothing in someone else's repository for the flag to name. A line pairing the two is refused by name, before anything is fetched over the network.
 
 `--from` is also the axis that separates a market MCP server from a homegrown one — there is no other axis for that distinction. The embedded recipe for a server lives at `catalog/mcps/<slug>.toml` inside the package; a federated one lives at `.overpower/mcp/<slug>.toml` inside whatever repository `--from` points at, discovered by the same search rule described below. Both use the identical recipe schema.
+
+## The federated bundle
+
+```bash
+uvx overpower@latest install --from https://github.com/owner/repo --bundle api-python --runtime codex
+```
+
+A **bundle** is a named composition — *"to work in this context, install these artifacts"* — and a repository federates one by writing `.overpower/catalog.yaml` at its root:
+
+```yaml
+bundles:
+  api-python:
+    description: Everything needed to work on the Python API.
+    items:
+      - fastapi-conventions
+      - pytest-fixtures
+```
+
+That file is read by the **same reader** that reads the catalog overpower ships, so a malformed manifest is refused naming the same field on both sides and there is no second validator anywhere to disagree with the first. `items` are **names**, never paths, resolved against the skills that same repository offers under `skills/` — they reach neither the embedded catalog nor a third repository. A name that does not resolve exits `3` and says which name, so the problem goes back to whoever wrote the manifest.
+
+The manifest is **optional**. A repository that has never written one keeps its skills listed and installable; its `list --from` simply omits the bundles section. `.overpower/` deliberately carries two formats — `catalog.yaml` for the manifest and `mcp/<slug>.toml` for recipes — because it is a namespace rather than a format.
+
+Unlike `--skill` and `--mcp`, `--bundle` does **not** treat the URL as a search root: the manifest is read from the repository root, and a subfolder in the URL does not interfere. What a repository composes is a property of the repository, not of the path you pasted — a vendored dependency's own `.overpower/catalog.yaml` speaks for its own repository, never for this one.
 
 ## The URL is a search root, not an address
 

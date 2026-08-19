@@ -192,6 +192,65 @@ def test_the_identity_holds_for_a_skill_that_came_from_a_remote(
     assert dry_code == real_code == 0
 
 
+def test_the_identity_holds_for_a_bundle_that_came_from_a_remote(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """#137: the composition crosses `--from`, and the identity crosses with it.
+
+    Worth its own case beside the remote *skill*, because a bundle is the one
+    unit whose destinations are not read off the line: the manifest names them,
+    and it is a file in the obtained tree. A dry run that read the manifest
+    differently from the real run — or resolved its `items` against a different
+    walk — would be a report about another installation, and there are two
+    obtentions to diverge between.
+
+    The embedded catalog is made to explode, so this also proves `items`
+    resolved against the pointed repository and never against the wheel.
+    """
+
+    # given
+    def unread(*_: object, **__: object) -> object:
+        message = "the embedded catalog was read while `--from` was given"
+        raise AssertionError(message)
+
+    dry_root = target(tmp_path, monkeypatch, "dry")
+    real_root = target(tmp_path, monkeypatch, "real")
+    monkeypatch.setattr(cli, "load_catalog", unread)
+    local = git_remote.build(
+        tmp_path / "origin",
+        {
+            **git_remote.skill_files("alpha", "beta", "gamma"),
+            **git_remote.bundle_catalog_file({"api-python": ["alpha", "beta"]}),
+        },
+    )
+    monkeypatch.setattr(remote, "fetch_with_git", git_remote.instead_of_github(local))
+    selectors = (
+        "install",
+        "--from",
+        f"https://github.com/owner/repo/tree/{local.branch}",
+        "--bundle",
+        "api-python",
+        "--runtime",
+        "claude-code",
+        "--runtime",
+        "cursor",
+    )
+
+    monkeypatch.chdir(dry_root)
+    dry_code, dry_out = run(capsys, *selectors, "--dry-run")
+    monkeypatch.chdir(real_root)
+    real_code, real_out = run(capsys, *selectors)
+
+    announced = paths_in(real_out)
+    assert paths_in(dry_out) == announced
+    assert landings_of(files_under(real_root), announced) == announced
+    assert list(dry_root.iterdir()) == []
+    assert dry_code == real_code == 0
+    # The leaf, against a literal: the equality above would hold just as well if
+    # the manifest's third skill had come along uninvited.
+    assert {found.parent.name for found in real_root.rglob("SKILL.md")} == {"alpha", "beta"}
+
+
 def test_a_collided_destination_ends_with_the_individual_artifacts_content(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

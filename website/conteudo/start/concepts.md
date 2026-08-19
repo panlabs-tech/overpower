@@ -39,4 +39,4 @@ overpower's model has exactly three units you can ask for, and they are not leve
 
 **Scope** is which of two places overpower writes to: the current repository, or the current machine (selected with `--global`). The two scopes are not symmetric — a repository write can rely on `git status` to reveal or undo a mistake, a machine write cannot, and the rules each command follows differ accordingly.
 
-The catalog tree itself is the map these terms describe — `content/pool/`, `content/frameworks/`, the bundle and framework entries in `catalog.toml` — and this page is only the legend for reading it.
+The catalog tree itself is the map these terms describe — `content/pool/`, `content/frameworks/`, the bundle and framework entries in `catalog.yaml` — and this page is only the legend for reading it.

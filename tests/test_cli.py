@@ -1297,10 +1297,16 @@ def test_an_mcp_name_outside_the_catalog_exits_two(
     assert list(root.iterdir()) == []
 
 
-def test_from_with_a_bundle_still_exits_two_now_that_mcp_has_joined_skill(
+def test_from_with_an_ai_framework_is_the_one_unit_that_stays_refused(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:
-    """The unit that stays refused (#83 moved `--mcp` off this list, not `--bundle`).
+    """The last unit off the list, and it is a decision rather than an adjournment.
+
+    `--mcp` joined `--skill` in #83 and `--bundle` in #137; an AI Framework does
+    not follow, because it stopped being a unit that *could*. It is a folder of
+    the overpower's own wheel, so there is nothing in a third-party repository
+    for the flag to name — which is why the message says the unit does not exist
+    remotely rather than promising a later ticket.
 
     Refused for the *line*, so it needs neither a git repository nor a network to
     be told.
@@ -1312,11 +1318,12 @@ def test_from_with_a_bundle_still_exits_two_now_that_mcp_has_joined_skill(
     code, output = project.run(
         capsys,
         *("install", "--from", "https://github.com/owner/repo"),
-        *("--bundle", "api-python", "--runtime", "claude-code"),
+        *("--ai-framework", "matt-pocock", "--runtime", "claude-code"),
     )
 
     assert code == 2
-    assert "--bundle" in project.joined(output)
+    assert "--ai-framework" in project.joined(output)
+    assert "does not exist" in project.joined(output)
 
 
 def test_a_line_that_mixes_a_skill_and_a_server_writes_both(
@@ -2425,27 +2432,39 @@ def _exploding(*_: object, **__: object) -> object:
 
 
 @pytest.mark.parametrize(
-    "unit",
+    "command",
     [
-        pytest.param(("--ai-framework", "matt-pocock"), id="--ai-framework"),
-        pytest.param(("--bundle", "api-python"), id="--bundle"),
+        pytest.param(("install", "--runtime", "claude-code"), id="install"),
+        pytest.param(("list",), id="list"),
     ],
 )
-def test_from_with_a_framework_or_a_bundle_exits_two(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture, unit: tuple[str, str]
+def test_from_with_an_ai_framework_exits_two_before_obtaining_anything(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: CaptureFixture,
+    command: tuple[str, ...],
 ) -> None:
-    """Skill is the only unit that exists in the market; the other two only exist
-    in a repository that already knows the overpower."""
+    """The one unit `--from` cannot name, on both verbs, and before any obtention.
+
+    A framework is a folder of the wheel: there is nothing remote for the flag
+    to reach, so the refusal is a statement about the *model* and not a queue
+    position. Both obtainers explode, which is what makes *"before anything is
+    fetched"* an assertion rather than a comment.
+    """
     # given
     project.target(tmp_path, monkeypatch)
     monkeypatch.setattr(cli, "load_catalog", _exploding)
+    monkeypatch.setattr(remote, "fetch_with_git", git_remote.refusing("obtention was attempted"))
+    monkeypatch.setattr(remote, "fetch_tarball", git_remote.refusing("obtention was attempted"))
 
+    verb, *rest = command
     code, output = project.run(
-        capsys, "install", "--from", REMOTE, *unit, "--runtime", "claude-code"
+        capsys, verb, "--from", REMOTE, "--ai-framework", "matt-pocock", *rest
     )
 
     assert code == 2
-    assert unit[0] in project.joined(output)
+    assert "--ai-framework" in project.joined(output)
+    assert "does not exist" in project.joined(output)
 
 
 def test_from_with_nothing_to_look_for_exits_two_before_obtaining_anything(
@@ -2710,6 +2729,51 @@ def test_a_bare_from_line_in_a_terminal_opens_the_wizard_on_the_showcase(
 
     assert code == 0
     assert offered == ["alpha", "beta"]
+    assert (root / project.CLAUDE / "alpha" / "SKILL.md").is_file()
+    assert not (root / project.CLAUDE / "beta").exists()
+
+
+def test_the_artifacts_step_offers_the_bundles_the_repository_declares(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """#137: the composition takes its place in the step, beside the skills and the recipes.
+
+    The point of the assertion is *what the step was handed*, not what was
+    picked: a bundle that reaches the showcase and not the wizard would be
+    listable and unchoosable, which is the half-state a person cannot act on.
+    """
+    # given
+    offered: list[tuple[str, str]] = []
+
+    def ask_artifacts(
+        catalog: Catalog,
+    ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+        offered.extend(("bundle", bundle.name) for bundle in catalog.bundles)
+        offered.extend(("skill", artifact.name) for artifact in catalog.pool)
+        offered.extend(("mcp", recipe.name) for recipe in catalog.mcps)
+        return ((), ("api-python",), (), ())
+
+    root = project.target(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    monkeypatch.setattr(wizard, "ask_artifacts", ask_artifacts)
+    planted = {
+        **git_remote.offering("alpha", "beta", bundles={"api-python": ["alpha"]}),
+        **git_remote.mcp_recipe_files("cloudflare"),
+    }
+    monkeypatch.setattr(remote, "fetch_with_git", git_remote.planting(planted))
+
+    code, _ = project.run(capsys, "install", "--from", REMOTE, "--runtime", "claude-code", "--yes")
+
+    assert code == 0
+    assert offered == [
+        ("bundle", "api-python"),
+        ("skill", "alpha"),
+        ("skill", "beta"),
+        ("mcp", "cloudflare"),
+    ]
+    # And the bundle picked in the step installs out of that very tree, rather
+    # than being a row the wizard could offer and the writer could not honour.
     assert (root / project.CLAUDE / "alpha" / "SKILL.md").is_file()
     assert not (root / project.CLAUDE / "beta").exists()
 
@@ -3008,14 +3072,16 @@ def test_list_from_with_no_selector_prints_the_showcase(
     assert "cloudflare" in joined
 
 
-def test_the_showcase_omits_the_two_units_a_repository_cannot_offer(
+def test_the_showcase_omits_the_one_unit_a_repository_cannot_offer(
     monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:
-    """No AI Framework and no bundle block, because `--from` never carries either.
+    """No AI Framework block, ever, and no empty block of anything else.
 
     The embedded screen keeps all four — an empty bundle list is a real shape of
-    *this* catalog. A third-party repository has no such category at all, and a
-    heading over nothing would be the screen inventing one.
+    *this* catalog. Off the wheel a heading over nothing would be the screen
+    inventing a category, so the empty ones are dropped; the framework heading is
+    the one that cannot appear at all, because a framework is a folder of the
+    wheel and nothing remote can hold one.
     """
     # given
     monkeypatch.setattr(cli, "load_catalog", _exploding)
@@ -3031,6 +3097,281 @@ def test_the_showcase_omits_the_two_units_a_repository_cannot_offer(
     assert "Bundles" not in joined
     assert "MCP servers" not in joined
     assert "Pool skills" in joined
+
+
+# --------------------------------------------------------------------------- #
+# #137: the bundle that crosses `--from`
+# --------------------------------------------------------------------------- #
+
+
+def test_install_bundle_from_installs_what_the_bundle_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """A whole context of work equipped in one command, and the embedded catalog stays shut."""
+    # given
+    root = project.target(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    planted = git_remote.offering(
+        "alpha", "beta", "gamma", bundles={"api-python": ["alpha", "beta"]}
+    )
+    monkeypatch.setattr(remote, "fetch_with_git", git_remote.planting(planted))
+
+    code, _ = project.run(
+        capsys,
+        *("install", "--from", REMOTE, "--bundle", "api-python"),
+        *("--runtime", "claude-code", "--yes"),
+    )
+
+    assert code == 0
+    assert (root / project.CLAUDE / "alpha" / "SKILL.md").is_file()
+    assert (root / project.CLAUDE / "beta" / "SKILL.md").is_file()
+    assert not (root / project.CLAUDE / "gamma").exists()
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param(REMOTE, id="repository root"),
+        pytest.param(f"{REMOTE}/tree/main/skills", id="a subfolder"),
+        pytest.param(f"{REMOTE}/tree/main/.overpower", id="the manifest's own folder"),
+    ],
+)
+def test_the_three_depths_of_url_install_the_same_bundle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture, url: str
+) -> None:
+    """The manifest is read from the root, so the URL's subfolder does not interfere."""
+    # given
+    root = project.target(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    planted = git_remote.offering("alpha", "beta", bundles={"api-python": ["alpha"]})
+    monkeypatch.setattr(remote, "fetch_with_git", git_remote.planting(planted))
+
+    code, _ = project.run(
+        capsys,
+        *("install", "--from", url, "--bundle", "api-python"),
+        *("--runtime", "claude-code", "--yes"),
+    )
+
+    assert code == 0
+    assert (root / project.CLAUDE / "alpha" / "SKILL.md").is_file()
+    assert not (root / project.CLAUDE / "beta").exists()
+
+
+def test_a_bundle_that_is_not_declared_remotely_exits_three_and_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """Obtained, read, and the answer is no: the manifest is a stranger's file."""
+    # given
+    root = project.target(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    planted = git_remote.offering("alpha", bundles={"api-python": ["alpha"]})
+    monkeypatch.setattr(remote, "fetch_with_git", git_remote.planting(planted))
+
+    code, output = project.run(
+        capsys,
+        *("install", "--from", REMOTE, "--bundle", "web-node"),
+        *("--runtime", "claude-code", "--yes"),
+    )
+
+    assert code == 3
+    assert "web-node" in project.joined(output)
+    assert list(root.iterdir()) == []
+
+
+def test_a_bundle_item_the_repository_does_not_offer_exits_three_naming_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The one AC that decides who the reader complains to: the item travels in the message."""
+    # given
+    root = project.target(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    planted = git_remote.offering("alpha", bundles={"api-python": ["alpha", "ghost"]})
+    monkeypatch.setattr(remote, "fetch_with_git", git_remote.planting(planted))
+
+    code, output = project.run(
+        capsys,
+        *("install", "--from", REMOTE, "--bundle", "api-python"),
+        *("--runtime", "claude-code", "--yes"),
+    )
+
+    assert code == 3
+    assert "ghost" in project.joined(output)
+    assert list(root.iterdir()) == []
+
+
+def test_a_bundle_item_never_reaches_the_embedded_catalog(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """`--from` is exclusive, and `items` is not the hole in it.
+
+    The embedded catalog really does have a skill by that name — the fixture
+    builds one — and the line still exits 3. A resolution that fell through to
+    the wheel would install content the pointed repository never carried, under
+    a manifest that never named it.
+    """
+    # given
+    project.catalog_of(tmp_path, monkeypatch, "embedded-only")
+    root = project.target(tmp_path, monkeypatch)
+    planted = git_remote.offering("alpha", bundles={"api-python": ["alpha", "embedded-only"]})
+    monkeypatch.setattr(remote, "fetch_with_git", git_remote.planting(planted))
+
+    code, output = project.run(
+        capsys,
+        *("install", "--from", REMOTE, "--bundle", "api-python"),
+        *("--runtime", "claude-code", "--yes"),
+    )
+
+    assert code == 3
+    assert "embedded-only" in project.joined(output)
+    assert list(root.iterdir()) == []
+
+
+def test_a_bundle_and_a_skill_on_one_from_line_both_install(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The two selectors are independent under `--from` the way they are off the wheel.
+
+    Worth asserting because they do not read the tree the same way: the bundle
+    resolves against the **enumerated** skills, anchored at the repository, while
+    `--skill` reaches from the search root at any depth. A line naming both runs
+    the two rules over one obtained tree, and nothing about the units changes.
+    """
+    # given
+    root = project.target(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    planted = git_remote.offering(
+        "alpha", "beta", "gamma", bundles={"api-python": ["alpha", "beta"]}
+    )
+    monkeypatch.setattr(remote, "fetch_with_git", git_remote.planting(planted))
+
+    code, _ = project.run(
+        capsys,
+        *("install", "--from", REMOTE, "--bundle", "api-python", "--skill", "gamma"),
+        *("--runtime", "claude-code", "--yes"),
+    )
+
+    assert code == 0
+    assert {found.parent.name for found in root.rglob("SKILL.md")} == {"alpha", "beta", "gamma"}
+
+
+def test_list_bundle_from_shows_what_the_bundle_names_and_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """Deciding with the content in view, and the *before* is half the claim.
+
+    The target is built and walked afterwards rather than left out, because
+    *"mostra o que ele nomeia, sem instalar"* is two assertions and a screen that
+    was right would hide a write that should not have happened.
+    """
+    # given
+    root = project.target(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    planted = git_remote.offering(
+        "alpha", "beta", "gamma", bundles={"api-python": ["alpha", "beta"]}
+    )
+    monkeypatch.setattr(remote, "fetch_with_git", git_remote.planting(planted))
+
+    code, output = project.run(capsys, "list", "--bundle", "api-python", "--from", REMOTE)
+
+    joined = project.joined(output)
+    assert code == 0
+    assert "The api-python bundle." in joined
+    assert "alpha" in joined
+    assert "beta" in joined
+    assert "gamma" not in joined
+    assert list(root.iterdir()) == []
+
+
+def test_the_showcase_lists_the_bundles_the_repository_declares(
+    monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The bundle takes its place beside the skills and the recipes, with no selector."""
+    # given
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    planted = {
+        **git_remote.offering("alpha", bundles={"api-python": ["alpha"]}),
+        **git_remote.mcp_recipe_files("cloudflare"),
+    }
+    monkeypatch.setattr(remote, "fetch_with_git", git_remote.planting(planted))
+
+    code, output = output_of(capsys, ["list", "--from", REMOTE])
+
+    joined = project.joined(output)
+    assert code == 0
+    assert "Bundles" in joined
+    assert "The api-python bundle." in joined
+    assert "Pool skills" in joined
+    assert "MCP servers" in joined
+
+
+def test_a_repository_with_no_manifest_omits_the_section_and_stays_installable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The manifest is optional, and adopting it is the author's move to make."""
+    # given
+    root = project.target(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    monkeypatch.setattr(
+        remote, "fetch_with_git", git_remote.planting(git_remote.skill_files("alpha"))
+    )
+
+    listed, output = project.run(capsys, "list", "--from", REMOTE)
+    installed, _ = project.run(
+        capsys,
+        *("install", "--from", REMOTE, "--skill", "alpha"),
+        *("--runtime", "claude-code", "--yes"),
+    )
+
+    joined = project.joined(output)
+    assert (listed, installed) == (0, 0)
+    assert "Bundles" not in joined
+    assert "alpha" in joined
+    assert (root / project.CLAUDE / "alpha" / "SKILL.md").is_file()
+
+
+def test_the_line_a_federated_bundle_prints_carries_the_origin_it_came_from(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The same promise the federated recipe already keeps: the line works pasted back.
+
+    A federated bundle is **not in the catalog**, so `overpower install --bundle
+    api-python` without the origin exits 2 naming the bundles that are.
+    """
+    # given
+    _ = project.target(tmp_path, monkeypatch)  # tty=False: the screen goes through a pipe
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    planted = git_remote.offering("alpha", bundles={"api-python": ["alpha"]})
+    monkeypatch.setattr(remote, "fetch_with_git", git_remote.planting(planted))
+
+    code, output = project.run(capsys, "list", "--bundle", "api-python", "--from", REMOTE)
+
+    line = next(row for row in _rows(output) if row.startswith("overpower install"))
+    assert code == 0
+    assert line == f"overpower install --bundle api-python --from {REMOTE}"
+
+
+def test_a_malformed_federated_manifest_names_the_field_and_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """Recused naming the field, exactly the way the embedded written file is."""
+    # given
+    root = project.target(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    planted = {
+        **git_remote.skill_files("alpha"),
+        ".overpower/catalog.yaml": "bundles:\n  api-python:\n    items: [alpha]\n",
+    }
+    monkeypatch.setattr(remote, "fetch_with_git", git_remote.planting(planted))
+
+    code, output = project.run(
+        capsys,
+        *("install", "--from", REMOTE, "--bundle", "api-python"),
+        *("--runtime", "claude-code", "--yes"),
+    )
+
+    assert code == 1
+    assert "bundles.api-python.description" in project.joined(output)
+    assert list(root.iterdir()) == []
 
 
 def test_the_showcase_lines_carry_the_origin_they_came_from(
@@ -3092,43 +3433,12 @@ def test_list_skill_from_shows_the_skill_whole(
     assert "beta" not in joined
 
 
-@pytest.mark.parametrize(
-    "unit",
-    [
-        pytest.param(("--ai-framework", "matt-pocock"), id="--ai-framework"),
-        pytest.param(("--bundle", "api-python"), id="--bundle"),
-    ],
-)
-def test_list_from_with_another_unit_exits_two(
-    capsys: pytest.CaptureFixture[str], unit: tuple[str, str]
-) -> None:
-    """The two units that only exist in a repository already knowing the overpower."""
-    code, output = output_of(capsys, ["list", *unit, "--from", REMOTE])
-
-    assert code == 2
-    assert unit[0] in project.joined(output)
-
-
-@pytest.mark.parametrize(
-    "unit",
-    [
-        pytest.param(("--ai-framework", "matt-pocock"), id="--ai-framework"),
-        pytest.param(("--bundle", "api-python"), id="--bundle"),
-    ],
-)
-def test_list_from_with_another_unit_exits_two_before_obtaining_anything(
-    monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture, unit: tuple[str, str]
-) -> None:
-    """The order is the half the guard buys: a line with no answer costs no download."""
-    # given
-    monkeypatch.setattr(cli, "load_catalog", _exploding)
-    monkeypatch.setattr(remote, "fetch_with_git", git_remote.refusing("obtention was attempted"))
-    monkeypatch.setattr(remote, "fetch_tarball", git_remote.refusing("obtention was attempted"))
-
-    code, output = output_of(capsys, ["list", *unit, "--from", REMOTE])
-
-    assert code == 2
-    assert unit[0] in project.joined(output)
+# The `list` half of this refusal — and its *before any obtention* rider — is
+# asserted by `test_from_with_an_ai_framework_exits_two_before_obtaining_anything`,
+# which parametrises over both verbs. It moved there when #137 took `--bundle`
+# off the refused list and left the two commands refusing exactly one unit each:
+# two tests over a one-element list, one per verb, was the same claim written
+# twice.
 
 
 @pytest.mark.parametrize(

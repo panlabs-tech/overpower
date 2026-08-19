@@ -28,6 +28,7 @@ screens a change had licence to move, and a screen that also moves when the
 from __future__ import annotations
 
 import io
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -1101,21 +1102,35 @@ product prints anywhere, and 60 columns is where that has to be proven."""
 
 
 def recorded_showcase() -> Catalog:
-    """The catalog a `--from` obtention builds: two of the four units, and no others.
+    """The catalog a `--from` obtention builds: three of the four units, and no fourth.
 
-    A remote catalog carries no framework and no bundle — `--from` never reaches
-    either — so this fixture is the shape the anchored walk actually returns,
-    not `recorded()` with fields blanked. That is what makes the snapshot able
-    to record the block omission at all: with `recorded()` there would be
-    nothing empty to drop.
+    A remote catalog carries **no framework** — `--from` never reaches one, and
+    since #137 that is the only unit it cannot — so this fixture is the shape the
+    anchored walk actually returns, not `recorded()` with fields blanked. That is
+    what makes the snapshot able to record the block omission at all: with
+    `recorded()` there would be nothing empty to drop.
+
+    The bundle is in it because the bundle block is where the origin makes the
+    **longest** line this screen can print — `overpower install --bundle
+    api-python --from <url>` — and the width property is measured on the longest
+    line or it is not measured. Its `items` are the two skills above it, which is
+    the only shape a federated manifest can have: `items` resolve against the
+    skills the same repository offers.
     """
+    offered = (
+        artifact("grilling", "Grills a decision until it gets sharp.", files=1, size=948),
+        artifact("heavy-reference", "A reference big enough to read in MiB.", 3, 2_097_152),
+    )
     return Catalog(
         frameworks=(),
-        pool=(
-            artifact("grilling", "Grills a decision until it gets sharp.", files=1, size=948),
-            artifact("heavy-reference", "A reference big enough to read in MiB.", 3, 2_097_152),
+        pool=offered,
+        bundles=(
+            Bundle(
+                name="api-python",
+                description="Equipment for working on a Python API.",
+                artifacts=offered,
+            ),
         ),
-        bundles=(),
         mcps=(recorded_recipe(),),
     )
 
@@ -1154,13 +1169,34 @@ def test_no_showcase_description_is_truncated(width: int) -> None:
     assert "…" not in rendered
 
 
-def test_the_showcase_drops_the_blocks_a_repository_has_no_category_for() -> None:
-    """Off the wheel an empty bundle list is a real shape and its heading tells the truth;
-    a third-party repository has no such category, and a heading over nothing would be
-    the screen inventing one."""
+def test_the_showcase_drops_the_block_a_repository_has_no_category_for() -> None:
+    """The framework block is the one that cannot appear: it is a folder of this wheel.
+
+    Off the wheel an empty bundle list is a real shape of *this* catalog and its
+    heading tells the truth about it. On a showcase a heading over nothing would
+    be the screen inventing a category — so an empty block is dropped, and the
+    framework block is empty by construction rather than by circumstance.
+    """
     joined = unwrapped(render(catalog_screen(recorded_showcase(), SHOWCASE_URL), 80))
 
     assert "AI Frameworks" not in joined
+    assert "Bundles" in joined
+    assert "Pool skills" in joined
+    assert "MCP servers" in joined
+
+
+def test_the_showcase_of_a_repository_with_no_manifest_drops_the_bundle_block_too() -> None:
+    """The manifest is optional, so its block is dropped by circumstance and not by rule.
+
+    The sibling above proves the framework heading can never appear; this one
+    proves the bundle heading appears **only** when there is a manifest to draw
+    it from, which is what keeps the drop a property of emptiness rather than a
+    second rule about which units the showcase believes in.
+    """
+    unmanifested = replace(recorded_showcase(), bundles=())
+
+    joined = unwrapped(render(catalog_screen(unmanifested, SHOWCASE_URL), 80))
+
     assert "Bundles" not in joined
     assert "Pool skills" in joined
     assert "MCP servers" in joined
@@ -1192,6 +1228,9 @@ def test_every_showcase_line_carries_the_origin_it_came_from() -> None:
 
     for artifact_offered in catalog.pool:
         assert f"{PROGRAM} install --skill {artifact_offered.name} --from {SHOWCASE_URL}" in joined
+    for bundle in catalog.bundles:
+        assert f"{PROGRAM} install --bundle {bundle.name} --from {SHOWCASE_URL}" in joined
+        assert f"{PROGRAM} list --bundle {bundle.name} --from {SHOWCASE_URL}" in joined
     for recipe in catalog.mcps:
         assert f"{PROGRAM} install --mcp {recipe.name} --from {SHOWCASE_URL}" in joined
         assert f"{PROGRAM} list --mcp {recipe.name} --from {SHOWCASE_URL}" in joined

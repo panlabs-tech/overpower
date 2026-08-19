@@ -16,7 +16,15 @@ Nenhum arquivo de `src/` ou `tests/` foi editado durante a auditoria.
 > [#127](https://github.com/panlabs-tech/overpower/pull/127) (`S4-1`, `S4-2`).
 > Onde a medição do conserto discordou da auditoria, quem vale é o PR — o desempate do `S4-3` não
 > desempatava, o `S9-2` tinha três trechos e não dois, e o conserto proposto para o `S4-2` não
-> alcançava o dado. As dúvidas abertas da § 7 continuam abertas.
+> alcançava o dado.
+>
+> **Estado, 2026-08-19: três das nove dúvidas da § 7 fecharam, ao encerrar a spec.** As **6** e
+> **9** viraram conserto — a contagem do `doctor` passou a somar as duas classes de aterrissagem,
+> e o documento sem JSON nenhum é recusado nas palavras deste produto em vez das do parser. A **7**
+> virou emenda no corpo da própria #75, com ponteiro para o
+> [#100](https://github.com/panlabs-tech/overpower/issues/100). Nenhuma virou ticket: foram
+> aplicadas direto, por decisão do dono, no PR que fechou as três specs abertas. As outras seis
+> continuam abertas, e a **2** deixou de estar travada — ver a nota ao pé da § 7.
 
 ---
 
@@ -809,10 +817,17 @@ O que não deu para executar, e o que faltou para executar.
 | 3 | **`${...}` dentro de um literal de `[server.env]` deveria ser recusado pelo leitor?** Medido: é aceito e chega literal aos três alvos — o que **reintroduz** a armadilha `${VAR:-default}` se alguém editar a receita. Não virou achado por falta de texto normativo: a #75 linha 190 diz que `[server.env]` é "o que ele escreve porque pode", e a linha 196 diz que o overpower não policia receita federada | uma decisão do dono. O conserto barato é o teste **P-2**, que pinaria as 4 receitas embutidas |
 | 4 | **`url = "not a url at all"` sob `transport = "http"`** é aceito e renderizado literal | uma linha da #75 que exija validar a forma da URL — não existe |
 | 5 | **Slot com espaço no nome** (`name = "SRV TOKEN"`) é aceito e renderiza `"SRV TOKEN": "${SRV TOKEN}"`. Suspeita: o Claude Code não expande nome com espaço, o que seria a mesma classe do S10-1 | medir o binário do Claude Code |
-| 6 | **`0 artifacts · 0 places` num repo que só tem MCP.** `diagnose` alimenta `landed` só de `_landed_in`, que anda em árvore de skill; os grafts vivem em `places` e não entram na conta | uma decisão: o cabeçalho *"what is installed"* obriga a contagem a incluir enxerto? Nenhuma história nomeia esse número |
-| 7 | **A #75 continua dizendo o oposto do que o #100 decidiu** (história 48). Refutado como achado — a ADR 0017:36 traz a emenda —, mas a divergência é real e a próxima auditoria vai reabri-la | uma decisão de higiene: emendar a história 48 com um ponteiro para o #100 |
+| 6 | ~~**`0 artifacts · 0 places` num repo que só tem MCP.**~~ **Fechada em 2026-08-19.** `Diagnosis` ganhou o campo `grafted`, gêmeo de `landed` para a classe de enxerto, e a contagem virou soma das duas classes — contadas **à parte e somadas**, nunca unidas num conjunto, porque o pool namespaceia por tipo e uma skill e um servidor podem dividir o nome | a decisão saiu por **consistência**, não por gosto: `_landed_in` também não tem procedência — conta toda árvore num caminho de runtime, inclusive uma que o usuário fez à mão —, então excluir o enxerto aplicava a uma classe uma regra que a outra nunca teve |
+| 7 | ~~**A #75 continua dizendo o oposto do que o #100 decidiu** (história 48).~~ **Fechada em 2026-08-19**: a história 48 no corpo da #75 recebeu a emenda, com ponteiro para o [#100](https://github.com/panlabs-tech/overpower/issues/100) e para a ADR 0017 | — |
 | 8 | **Concorrência: dois `overpower install` no mesmo documento ao mesmo tempo.** É o único eixo que a auditoria nomeou e não abriu — nenhum dos cinco críticos o executou. A pergunta: um perde o enxerto do outro em silêncio? | tempo. O eixo é montável (dois processos, um `.mcp.json`), só não coube |
-| 9 | **`.mcp.json` de 0 bytes recusa em exit 3** (*"Expecting value. Received unexpected EOF"*), enquanto o arquivo **ausente** é criado em exit 0. A diferença é deliberada (tudo que existe é do usuário), mas a mensagem empresta as palavras do parser em vez de dizer "vazio". Cosmético | uma decisão de redação |
+| 9 | ~~**`.mcp.json` de 0 bytes recusa em exit 3**~~ (*"Expecting value…"*), enquanto o arquivo **ausente** é criado em exit 0. **Fechada em 2026-08-19**: a assimetria fica — tudo que existe é do usuário —, e a mensagem parou de emprestar as palavras do parser. `_refuse_unless_strict` nomeia o documento vazio e o de só espaço em branco **antes** de chamar o leitor | a redação escolhida separa *vazio* de *só espaço em branco* porque `json` responde a mesma frase para os dois, e para o arquivo de só comentário também — a linha única que o usuário recebia não distinguia três casos |
+
+**A dúvida 2 destravou sem ninguém ir atrás dela.** O que faltava era *"um repositório público com
+`.overpower/mcp/<slug>.toml` para apontar, ou permissão para publicar um de fixture"* — e o
+[#134](https://github.com/panlabs-tech/overpower/issues/134) construiu exatamente esse fixture ao
+entregar a vitrine remota (`git_remote.mcp_recipe_files`, em `tests/test_remote.py`). A dúvida
+deixou de ser uma decisão do dono e virou um teste: passar o mesmo conteúdo pelos dois caminhos de
+obtenção e comparar o **enxerto escrito**, não só a recusa. Segue aberta porque ninguém a escreveu.
 
 ### Sobre o critério de parada
 

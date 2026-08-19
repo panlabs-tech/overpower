@@ -23,6 +23,30 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.25.1] - 2026-08-19
+
+### Fixed
+
+- `doctor` no longer reports `0 artifacts · 0 places` over a repository whose only
+  installation is an MCP server. The count was fed from the copy class alone —
+  trees sitting in a runtime path — so a written graft sat two lines below a block
+  headed *"what is installed"* without being in the number. **Both landing classes
+  count now**, and the decision came from consistency rather than taste: neither
+  class carries provenance, and the copy side never pretended to — it counts every
+  tree in a runtime path, including one made by hand — so leaving grafts out
+  applied to one class a rule the other never had. The two are counted apart and
+  added, never merged into one set: the pool namespaces by type, so a skill and a
+  server may share a name, and a union would answer one where the disk holds two. ([#75](https://github.com/panlabs-tech/overpower/issues/75))
+- A configuration file with no JSON in it is refused in this product's words
+  instead of the parser's. A 0-byte `.mcp.json` answered *"Expecting value: line 1
+  column 1 (char 0)"* — about a file that has no line 1 and no column 1 — and
+  `json` says the very same sentence for a file holding only a comment, so the one
+  line the user got could not tell the two apart. Empty and whitespace-only are now
+  named before the reader is called, each in its own words. **The refusal itself
+  does not move**: a document that exists is the user's, which is why the same
+  command still creates the file when nothing is there at all. ([#75](https://github.com/panlabs-tech/overpower/issues/75))
+
+
 ## [0.25.0] - 2026-08-19
 
 ### Added

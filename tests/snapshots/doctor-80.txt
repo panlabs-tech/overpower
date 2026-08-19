@@ -9,7 +9,7 @@
 
 ╭─ integrity  what is installed ───────────────────────────────────────────────╮
 │                                                                              │
-│  3 artifacts · 5 places                                                      │
+│  4 artifacts · 6 places                                                      │
 │                                                                              │
 │  dangling link                                                               │
 │    ~/.cursor/skills/grilling/  ← ../../.claude/skills/grilling               │

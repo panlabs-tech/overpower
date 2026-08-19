@@ -209,7 +209,21 @@ def _refuse_unless_strict(path: Path, text: str) -> None:
     Grafting into it would be the worst outcome the product has — exit 0, a
     graft on disk, and a runtime that goes on seeing no servers at all. So the
     tolerant reader stays, and the refusal asks the stricter question next to it.
+
+    **A document with no JSON in it is named before the parser sees it**, and
+    that is a sentence rather than a check: `json` answers *"Expecting value:
+    line 1 column 1 (char 0)"* for a 0-byte file, which has no line 1 and no
+    column 1 — and it answers the very same thing for a file holding only a
+    comment, so the one line the user is given could not tell those apart. The
+    refusal itself does not move: a document that exists is the user's, which is
+    why the same command happily creates the file when nothing is there at all.
     """
+    if not text:
+        raise MalformedDocumentError(path, "it is empty, and a runtime needs a JSON object")
+    if not text.strip():
+        raise MalformedDocumentError(
+            path, "it holds nothing but whitespace, and a runtime needs a JSON object"
+        )
     try:
         _ = loads_json(text)
     except ValueError as broken:

@@ -1351,6 +1351,8 @@ BROKEN = [
         '{\n  // mine, and the reader of this file cannot parse it\n  "mcpServers": {}\n}\n',
         id="comment",
     ),
+    pytest.param("", id="empty"),
+    pytest.param("   \n\n", id="whitespace-only"),
 ]
 """The shapes of *already broken*, and the ones that hide are the whole point.
 
@@ -1444,6 +1446,47 @@ def test_a_broken_file_is_refused_before_the_copies_of_the_same_line_land(
     assert code == 3
     assert not (root / CLAUDE).exists()
     assert document.read_text(encoding="utf-8") == broken
+
+
+@pytest.mark.parametrize(
+    ("text", "said"),
+    [
+        pytest.param("", "it is empty", id="empty"),
+        pytest.param("   \n\n", "it holds nothing but whitespace", id="whitespace-only"),
+    ],
+)
+def test_a_document_with_no_json_in_it_is_refused_in_this_products_words(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    text: str,
+    said: str,
+) -> None:
+    """The refusal was never in doubt; what it *said* was borrowed from the parser.
+
+    A 0-byte `.mcp.json` is refused because it exists — everything that exists
+    is the user's, and the same command creates the file when nothing is there
+    at all. That asymmetry is deliberate. The message was not: `json` answers
+    `Expecting value: line 1 column 1 (char 0)` about a file that has no line 1
+    and no column 1, and it says **the same sentence** for a file holding only a
+    comment, so the one line the user gets could not tell the two apart.
+
+    Whitespace-only is separated from truly empty rather than folded into it,
+    because *"it is empty"* about a file with bytes in it is the same class of
+    wrong sentence, one step smaller.
+    """
+    # given
+    catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": CLOUDFLARE})
+    root = target(tmp_path, monkeypatch)
+    document = occupied(root, text)
+
+    code, output = run(capsys, "install", "--mcp", "cloudflare", "--runtime", "claude-code")
+
+    spoken = joined(output)
+    assert code == 3
+    assert said in spoken
+    assert "Expecting value" not in spoken
+    assert document.read_text(encoding="utf-8") == text
 
 
 def test_a_duplicate_the_graft_never_looks_up_is_not_ours_to_refuse(

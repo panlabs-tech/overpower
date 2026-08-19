@@ -898,10 +898,16 @@ def _integrity_block(diagnosis: Diagnosis, glyphs: _Glyphs) -> Panel:
     artifact occupies as many places as runtimes were equipped, and a screen
     that printed a single number would be the screen assuming one artifact costs
     one write — the shape `domain.md` locks against for the graft.
+
+    Both numbers come off `Diagnosis` rather than being computed here, and that
+    is the fix for the defect this line used to have: the second one was
+    `len(diagnosis.landed)`, which is the copy class alone, so a repository
+    whose only installation was a graft read `0 places` with the server two
+    lines below it.
     """
     counted = Text(
         f"{diagnosis.artifacts} {_plural('artifact', diagnosis.artifacts)}"
-        f" · {len(diagnosis.landed)} {_plural('place', len(diagnosis.landed))}",
+        f" · {diagnosis.places} {_plural('place', diagnosis.places)}",
         style="op.dim",
     )
     roots = _Roots(repository=diagnosis.root, home=diagnosis.home)

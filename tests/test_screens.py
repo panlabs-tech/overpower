@@ -40,6 +40,7 @@ from overpower.inspection import (
     DanglingLink,
     Diagnosis,
     Divergence,
+    Grafted,
     Landed,
     LinkTurnedText,
     Terminal,
@@ -1701,6 +1702,12 @@ def recorded_diagnosis() -> Diagnosis:
     Both scopes too: a project path shortens against the repository and a machine
     path against the home, and a screen that reported both roots the same way
     would be a screen a reader has to guess at.
+
+    And **both landing classes**, because the count line sums them: a recording
+    made of copies alone would leave the graft half of that sum free to move
+    unseen, which is exactly how it came to read `0 places` over a written
+    server in the first place. The graft carries no finding — a healthy server
+    is the ordinary case, and what is being recorded here is that it is counted.
     """
     return Diagnosis(
         terminal=Terminal(tty=True, colour="truecolor", width=80, no_color=None),
@@ -1712,6 +1719,13 @@ def recorded_diagnosis() -> Diagnosis:
             landed(AGENTS_SKILLS, "grilling"),
             landed(AGENTS_SKILLS, "panlabs-python-standards", digest="b"),
             landed(CURSOR_SKILLS, "grilling", Scope.GLOBAL, digest=None),
+        ),
+        grafted=(
+            Grafted(
+                name="cloudflare",
+                scope=Scope.PROJECT,
+                destination=DocumentKey(ROOT / ".mcp.json", "mcpServers.cloudflare"),
+            ),
         ),
         findings=(
             DanglingLink(
@@ -1748,6 +1762,7 @@ def recorded_healthy_diagnosis() -> Diagnosis:
         root=ROOT,
         home=DOCTOR_HOME,
         landed=(landed(CLAUDE_SKILLS, "grilling"), landed(AGENTS_SKILLS, "grilling")),
+        grafted=(),
         findings=(),
         notices=(),
     )
@@ -1810,10 +1825,15 @@ def test_the_doctor_screen_counts_artifacts_and_places_separately(width: int) ->
     A single number would be the screen assuming one artifact costs one write,
     which is the shape `domain.md` locks against for the graft — where one
     artifact costs a second write, possibly outside the repository.
+
+    The recording carries three distinct copies over five places **and** one
+    graft over one, so both halves of each number carry: dropping the graft
+    class again would answer `3 artifacts · 5 places` here, which is the number
+    this screen printed while a server sat in `.mcp.json`.
     """
     joined = unwrapped(render(doctor_screen(recorded_diagnosis()), width))
 
-    assert "3 artifacts · 5 places" in joined
+    assert "4 artifacts · 6 places" in joined
 
 
 def test_the_doctor_screen_spells_a_destination_the_way_the_plan_spells_it() -> None:
@@ -1835,6 +1855,7 @@ def test_the_doctor_screen_spells_a_destination_the_way_the_plan_spells_it() -> 
         landed=(
             Landed(name="context7", scope=Scope.PROJECT, destination=grafted, fingerprint=None),
         ),
+        grafted=(),
         findings=(DanglingLink(destination=grafted, points_at=None),),
         notices=(),
     )

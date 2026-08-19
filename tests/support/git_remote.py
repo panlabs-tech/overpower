@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING
 from overpower import remote
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Mapping, Sequence
     from pathlib import Path
 
 # `git` is invoked by name and without a shell. `S603`/`S607` want an absolute
@@ -198,6 +198,31 @@ def mcp_recipe_files(*names: str, under: str = ".overpower/mcp") -> dict[str, st
         )
         for name in names
     }
+
+
+def bundle_catalog_file(
+    bundles: Mapping[str, Sequence[str]], *, at: str = ".overpower/catalog.yaml"
+) -> dict[str, str]:
+    """A repository tree carrying `.overpower/catalog.yaml`, one entry per bundle.
+
+    Sibling of `mcp_recipe_files`, one directory up and in the other format:
+    `.overpower/` is a namespace rather than a format (ADR 0020), and the two
+    functions are what makes a test say so without prose. The same mapping
+    `build` and `planting` take, so it composes —
+    `{**skill_files("alpha"), **bundle_catalog_file({"api": ["alpha"]})}` is a
+    repository that offers a skill and declares a bundle naming it.
+
+    `at` is a parameter for one reason: the manifest is read from the repository
+    **root** and nowhere else, and a test of that anchor has to be able to plant
+    one somewhere else and watch it be ignored.
+    """
+    lines = ["bundles:"]
+    for name, items in bundles.items():
+        lines.append(f"  {name}:")
+        lines.append(f'    description: "The {name} bundle."')
+        lines.append("    items:")
+        lines.extend(f"      - {item}" for item in items)
+    return {at: "\n".join(lines) + "\n"}
 
 
 def instead_of_github(local: LocalRemote) -> Callable[[str, str, Path], Path]:

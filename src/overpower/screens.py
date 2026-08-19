@@ -431,8 +431,14 @@ def catalog_screen(catalog: Catalog, origin: str | None = None) -> RenderableTyp
       that are;
     - an empty block is dropped instead of drawn. Off the wheel a missing
       bundle list is a real shape of *this* catalog and the heading tells the
-      truth about it; a third-party repository has no bundles as a *category*,
-      and a heading over nothing there would be the screen inventing one.
+      truth about it; a repository that declared no manifest has no bundles to
+      show, and a heading over nothing there would be the screen inventing one.
+
+    Three of the four blocks can be reached through `--from` since #137 — the
+    manifest a repository writes at `.overpower/catalog.yaml` is what carries
+    the bundle across — so three of them take the origin. The AI Framework block
+    does not, and never will: a framework is a folder of this wheel, so a
+    `--from` on its line would point at a repository it could not have come from.
     """
     sections = (
         (
@@ -473,8 +479,8 @@ def catalog_screen(catalog: Catalog, origin: str | None = None) -> RenderableTyp
                     _weight(bundle.size, bundle.files),
                     bundle.description,
                     commands=(
-                        _install(BUNDLE_FLAG, bundle.name),
-                        _inspect(BUNDLE_FLAG, bundle.name),
+                        _install(BUNDLE_FLAG, bundle.name, origin),
+                        _inspect(BUNDLE_FLAG, bundle.name, origin),
                     ),
                 )
                 for bundle in catalog.bundles
@@ -536,11 +542,15 @@ def framework_screen(framework: Framework) -> RenderableType:
     )
 
 
-def bundle_screen(bundle: Bundle) -> RenderableType:
+def bundle_screen(bundle: Bundle, origin: str | None = None) -> RenderableType:
     """One bundle: the pool artifacts its manifest names, and nothing else.
 
     In the order the manifest wrote them, never sorted — a bundle is a curated
     composition, and the order is part of what was curated.
+
+    `origin` is the `--from` search root the manifest was read at, for the same
+    reason `artifact_screen` takes one: a federated bundle is not in the
+    catalog, so the line the screen prints needs it to work pasted back (#137).
     """
     return _block(
         "Bundle",
@@ -551,7 +561,7 @@ def bundle_screen(bundle: Bundle) -> RenderableType:
                 _weight(bundle.size, bundle.files),
                 bundle.description,
                 contents=bundle.artifacts,
-                commands=(_install(BUNDLE_FLAG, bundle.name),),
+                commands=(_install(BUNDLE_FLAG, bundle.name, origin),),
             )
         ],
     )

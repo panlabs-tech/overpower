@@ -562,6 +562,16 @@ def _bundles_offered(tree: Path, source: Source, offers: Sequence[Artifact]) -> 
     a carrier of an address and ADR 0006 forbids one by name; and not a
     free-depth walk either, because a vendored dependency's skill is reachable
     by `--skill <name>` without being part of what this repository composes.
+
+    **The loop below is `discovery.load_catalog`'s, on purpose and declared.** The
+    two assemble a `Bundle` the same way, and the temptation is to share one
+    helper — which would have to take the resolver *and* its error as parameters,
+    since both differ and both differ for reasons that are the point: what a name
+    resolves against (the walked pool there, the anchored offer here) and what a
+    miss costs (exit 1 there, exit 3 here, ADR 0009). A helper parameterised on
+    everything that differs is longer than the two loops it replaces and hides
+    the one line worth reading. What must not diverge is the *reader*, and that
+    one really is shared.
     """
     manifest = tree.joinpath(*_FEDERATED_CATALOG)
     if not manifest.is_file():

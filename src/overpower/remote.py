@@ -24,9 +24,12 @@ the repository, so the root URL and a subfolder's have to answer the same.
 
 **A runtime destination is not an offer.** A repository already equipped with the
 overpower carries its skill twice — at `skills/<name>/` and at the runtime's own
-`<project_dir>/<name>/` — and the second is where an install put it. Both
-searches skip those, which is what stops the showcase counting one skill as two
-and what unmakes an ambiguity the reach used to refuse falsely.
+`<project_dir>/<name>/` — and the second is where an install put it. Each half
+answers that in the way its own rule allows: the showcase by the **anchor**,
+which leaves the copy outside the walk with no predicate needed, and the reach by
+a **tie-break** — a copy never wins against an offer, and never hides what would
+otherwise be the only answer. That unmakes an ambiguity the reach used to refuse
+falsely, and costs nothing where the copy is all there is.
 
 **A skill is found by its own `SKILL.md`; a recipe, by the fixed convention
 path `.overpower/mcp/<slug>.toml`** (`docs/agents/domain.md` § Vocabulário) —
@@ -97,7 +100,7 @@ from overpower.recipes import RECIPE_SUFFIX, read_recipe
 from overpower.runtimes import RUNTIMES, Scope
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Mapping, Sequence
+    from collections.abc import Generator, Iterable, Mapping, Sequence
 
     from overpower.discovery import Artifact
     from overpower.recipes import Recipe
@@ -527,17 +530,30 @@ def _is_a_runtime_destination(folder: Path, tree: Path) -> bool:
     return folder.parent.relative_to(tree).parts in _RUNTIME_DESTINATIONS
 
 
-def _narrowed_into_a_destination(root: Path, tree: Path) -> bool:
-    """Whether the URL itself already pointed inside a runtime destination.
+def _offers_among(matches: Iterable[Path], tree: Path) -> list[Path]:
+    """`matches` with installed copies dropped — unless dropping them leaves nothing.
 
-    The deny-list narrows a search nobody narrowed; it may not overrule a caller
-    who did. Pointing `--from` at `.claude/skills` is that caller saying *that
-    copy, on purpose* — the very narrowing `AmbiguousRemoteSkillError` tells
-    them to make — and denying it there would answer *not found* about a folder
-    they named in the line.
+    **A tie-break, not a filter**, and the difference is the whole correctness of
+    it. What the deny-list exists to stop is a copy *competing* with the offer it
+    was copied from; what it must never do is answer *not found* about the only
+    thing there. Both cases fall out of one rule:
+
+    | under the root | filtered | answered |
+    | --- | --- | --- |
+    | `skills/alpha` + `.claude/skills/alpha` | `skills/alpha` | one, no ambiguity |
+    | `.claude/skills/alpha` alone | *empty* | the copy, because it is all there is |
+    | `skills/alpha` + `vendor/skills/alpha` | both | still ambiguous, as before |
+
+    The second row is the one a filter gets wrong, and it is not a corner: a URL
+    pointed at `.claude` names that copy on purpose, and two destinations in the
+    table — `agent/skills` (`eve`) and `data/skills` (`astrbot`) — are ordinary
+    folder names a repository could be genuinely offering out of. Neither cost
+    was measured in ADR 0019, which weighed the deny-list on the enumeration
+    only; the tie-break is what makes the reach's half cost nothing at all.
     """
-    parts = root.relative_to(tree).parts
-    return any(parts[: len(destination)] == destination for destination in _RUNTIME_DESTINATIONS)
+    found = sorted(matches)
+    offers = [match for match in found if not _is_a_runtime_destination(match, tree)]
+    return offers or found
 
 
 @contextmanager
@@ -811,15 +827,13 @@ def _skill_called(name: str, root: Path, tree: Path, source: Source) -> Artifact
     needed: the walk is the caller's to narrow, while whether a hit is an
     installed copy is a fact about its distance from the repository root.
     """
-    denying = not _narrowed_into_a_destination(root, tree)
-    matches = sorted(
+    matches = _offers_among(
         {
             found.parent
             for found in root.rglob(SKILL_FILE)
-            if found.is_file()
-            and found.parent.name == name
-            and not (denying and _is_a_runtime_destination(found.parent, tree))
-        }
+            if found.is_file() and found.parent.name == name
+        },
+        tree,
     )
     if not matches:
         raise RemoteSkillNotFoundError(name, source)

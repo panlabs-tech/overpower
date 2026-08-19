@@ -1338,8 +1338,7 @@ def _install(flag: str, name: str, origin: str | None = None) -> str:
     catalog has no origin to name and a `--from` there would point at a
     repository it never came from.
     """
-    origin_flag = "" if origin is None else f" {FROM_FLAG} {origin}"
-    return f"{PROGRAM} install {flag} {name}{origin_flag}"
+    return f"{PROGRAM} install {flag} {name}{_origin_flag(origin)}"
 
 
 def _inspect(flag: str, name: str, origin: str | None = None) -> str:
@@ -1354,8 +1353,17 @@ def _inspect(flag: str, name: str, origin: str | None = None) -> str:
     by the showcase is not in the catalog, so the line that opens it needs the
     search root that has it.
     """
-    origin_flag = "" if origin is None else f" {FROM_FLAG} {origin}"
-    return f"{PROGRAM} list {flag} {name}{origin_flag}"
+    return f"{PROGRAM} list {flag} {name}{_origin_flag(origin)}"
+
+
+def _origin_flag(origin: str | None) -> str:
+    """` --from <url>`, or nothing at all — the tail both printed commands share.
+
+    One function and not the same expression twice, because the two lines have to
+    agree: a screen that prints `install --from <url>` beside a bare `list` line
+    is a screen whose two commands answer about different repositories.
+    """
+    return "" if origin is None else f" {FROM_FLAG} {origin}"
 
 
 def _entry(  # noqa: PLR0913 — the three facts of an item plus the three blocks under it.

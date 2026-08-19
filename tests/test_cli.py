@@ -23,7 +23,7 @@ import subprocess
 import sys
 from dataclasses import replace
 from importlib import metadata
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Protocol
 
 import pytest
@@ -2816,13 +2816,19 @@ def test_the_showcase_install_is_identical_dry_real_and_on_disk(
 ) -> None:
     """The three-way identity, on the one path that never had it.
 
-    Nine cells, and every one an equality: the destinations `--dry-run` names,
-    the destinations the real run names, and what a walk of the target finds
-    afterwards — each compared against each — plus the two exit codes agreeing
-    and the dry run leaving the target untouched. That is what makes `--dry-run`
-    an audit of *this* installation rather than a report about another one, and
-    a showcase install is the case where the two runs could most easily diverge:
-    the catalog itself is obtained, not read off the wheel.
+    Three sets, and each compared against each: the destinations `--dry-run`
+    names, the destinations the real run names, and what a walk of the target
+    finds afterwards — plus the two exit codes agreeing and the dry run leaving
+    the target untouched. That is what makes `--dry-run` an audit of *this*
+    installation rather than a report about another one, and a showcase install
+    is where the two runs could most easily diverge: the catalog itself is
+    obtained, not read off the wheel.
+
+    **The two granularities are both asserted, and they are not the same claim.**
+    The screens speak in *landings* — a destination directory, with the artifact
+    named on its own row — so the three-way equality is at that granularity. The
+    disk is then read at the leaf, against a literal, because the equality alone
+    would hold just as well if `beta` had landed where `alpha` was announced.
     """
 
     def picked(
@@ -2854,19 +2860,22 @@ def test_the_showcase_install_is_identical_dry_real_and_on_disk(
     assert list(root.iterdir()) == []
     real_code, real_out = project.run(capsys, "install", "--from", REMOTE, "--yes")
 
-    # The parent of the skill's own folder, because that is the granularity the
-    # two screens speak in: a landing is a destination directory, and the
-    # artifact under it is named on its own row.
-    walked = {
-        found.parent.parent.relative_to(root).as_posix()
-        for found in root.rglob("SKILL.md")
-        if found.is_file()
-    }
+    landed = {found.parent.relative_to(root).as_posix() for found in root.rglob("SKILL.md")}
+    # The parent, because that is the granularity the two screens speak in: a
+    # landing is a destination directory, and the artifact is named on its own row.
+    walked = {PurePosixPath(folder).parent.as_posix() for folder in landed}
     dry_paths = _destinations(dry_out)
     real_paths = _destinations(real_out)
     assert (dry_code, real_code) == (0, 0)
     assert dry_paths == real_paths == walked == {project.CLAUDE}
-    assert (root / project.CLAUDE / "alpha" / "SKILL.md").is_file()
+    # The leaf, against a literal: the equality above would hold just as well if
+    # `beta` had landed where `alpha` was announced, and nothing else names it.
+    assert landed == {f"{project.CLAUDE}/alpha"}
+    assert "alpha" in project.joined(dry_out)
+    # And what a dry run promised is all that is there — no file it never named.
+    assert {path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file()} == {
+        f"{project.CLAUDE}/alpha/SKILL.md"
+    }
 
 
 def _destinations(output: str) -> set[str]:
@@ -3100,8 +3109,15 @@ def test_list_from_with_another_unit_exits_two(
     assert unit[0] in project.joined(output)
 
 
+@pytest.mark.parametrize(
+    "unit",
+    [
+        pytest.param(("--ai-framework", "matt-pocock"), id="--ai-framework"),
+        pytest.param(("--bundle", "api-python"), id="--bundle"),
+    ],
+)
 def test_list_from_with_another_unit_exits_two_before_obtaining_anything(
-    monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+    monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture, unit: tuple[str, str]
 ) -> None:
     """The order is the half the guard buys: a line with no answer costs no download."""
     # given
@@ -3109,7 +3125,38 @@ def test_list_from_with_another_unit_exits_two_before_obtaining_anything(
     monkeypatch.setattr(remote, "fetch_with_git", git_remote.refusing("obtention was attempted"))
     monkeypatch.setattr(remote, "fetch_tarball", git_remote.refusing("obtention was attempted"))
 
-    code, output = output_of(capsys, ["list", "--bundle", "api-python", "--from", REMOTE])
+    code, output = output_of(capsys, ["list", *unit, "--from", REMOTE])
 
     assert code == 2
-    assert "--bundle" in project.joined(output)
+    assert unit[0] in project.joined(output)
+
+
+@pytest.mark.parametrize(
+    "depth",
+    [
+        pytest.param("", id="repository root"),
+        pytest.param("/tree/main/skills", id="a subfolder"),
+        pytest.param("/tree/main/skills/alpha", id="the artifact's own folder"),
+    ],
+)
+def test_the_showcase_a_url_prints_does_not_depend_on_its_depth(
+    monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture, depth: str
+) -> None:
+    """Asserted through `main(argv)` and stdout, which is where the promise is made.
+
+    `tests/test_remote.py` already holds this against `catalog_from`; the same
+    claim at the command line is a different one, because it is the command line
+    that decides whether a bare `--from` even reaches the showcase.
+    """
+    # given
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    monkeypatch.setattr(
+        remote, "fetch_with_git", git_remote.planting(git_remote.skill_files("alpha", "beta"))
+    )
+
+    code, output = output_of(capsys, ["list", "--from", f"{REMOTE}{depth}"])
+
+    joined = project.joined(output)
+    assert code == 0
+    assert "alpha" in joined
+    assert "beta" in joined

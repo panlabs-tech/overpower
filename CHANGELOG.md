@@ -23,6 +23,56 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.22.0] - 2026-08-18
+
+### Added
+
+- **`--from` answers the question before the name: *what does this repository
+  offer?*** `list --from <url>` with no selector prints that repository's showcase
+  — its skills with name and description, and the MCP recipes it federates — in
+  one command, and `install --from <url>` with no selector opens the **same
+  wizard** anyone already knows, with the remote catalog in place of the embedded
+  one and the sections that repository has nothing in left out. Nobody learns a
+  second flow because of provenance. `list --skill <name> --from <url>` gains the
+  selector it was missing, so a skill can be read whole before it is installed.
+
+  The showcase is **anchored**: it walks `<repository>/skills/**` — a direct child
+  of the root, free depth below it, so `skills/<category>/<name>/` is offered
+  exactly as `skills/<name>/` is — plus `<repository>/.overpower/mcp/*.toml`. It
+  **ignores the URL's subpath entirely**, because an offer is a property of the
+  repository and not of the path someone pasted: the root URL and a subfolder's
+  return the same list. The price is declared rather than hidden — **2 of the 75
+  `SKILL.md` measured** fall outside the anchor and stay installable by name. The
+  sentence is *"`list` shows the showcase; `--skill` reaches what you can name"*.
+
+  A repository with nothing installable is refused at **exit 3** naming the URL,
+  rather than opening a wizard with no choices in it: the problem is the address,
+  not any answer the person could have given. `--bundle` and `--ai-framework`
+  alongside `--from` still exit 2 before anything is obtained. ([#135](https://github.com/panlabs-tech/overpower/issues/135))
+
+### Fixed
+
+- **A repository equipped with the overpower can be installed from again.** One
+  that has run `overpower install` on itself carries its skill twice — at
+  `skills/<name>/`, which is what it offers, and at the runtime's own destination
+  such as `.claude/skills/<name>/`, which is where the install put it. `--from
+  --skill <name>` found both and refused the line as ambiguous, and that refusal
+  was **false**: there is one skill there, and the second path is a copy of the
+  first.
+
+  The reach now discards installed copies, derived from the runtime table itself
+  so a row added there needs no second edit — and it discards them **as a
+  tie-break, not as a filter**: a copy never wins against an offer, and never
+  hides what would otherwise be the only answer. Both halves of that matter.
+  Pointing `--from` inside a runtime's own folder still reaches what is there,
+  and so does a repository whose only skill lives under one — `github/spec-kit`
+  is that repository, measured, and two rows of the table (`agent/skills`,
+  `data/skills`) are ordinary folder names something could genuinely be offering
+  from. Two real offers of the same name under one root are still refused, and
+  still name every candidate.
+  ([#135](https://github.com/panlabs-tech/overpower/issues/135))
+
+
 ## [0.21.4] - 2026-08-17
 
 ### Fixed

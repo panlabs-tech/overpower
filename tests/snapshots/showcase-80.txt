@@ -1,0 +1,30 @@
+╭─ Pool skills  installs alone ────────────────────────────────────────────────╮
+│                                                                              │
+│  grilling                                                    948 B · 1 file  │
+│    Grills a decision until it gets sharp.                                    │
+│                                                                              │
+│      overpower install --skill grilling --from                               │
+│      https://github.com/owner/repo                                           │
+│                                                                              │
+│  heavy-reference                                         2.00 MiB · 3 files  │
+│    A reference big enough to read in MiB.                                    │
+│                                                                              │
+│      overpower install --skill heavy-reference --from                        │
+│      https://github.com/owner/repo                                           │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+╭─ MCP servers  grafts into the runtime's config ──────────────────────────────╮
+│                                                                              │
+│  cloudflare                                                            http  │
+│    A remote MCP server reached over streamable HTTP, described at the        │
+│    length a description reaches when it has to say what the server touches:  │
+│    it carries no secret in the file, because the connection authorises in    │
+│    the browser the first time an agent uses it, and nothing here has to be   │
+│    filled in before it works.                                                │
+│                                                                              │
+│      overpower install --mcp cloudflare --from                               │
+│      https://github.com/owner/repo                                           │
+│      overpower list --mcp cloudflare --from https://github.com/owner/repo    │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

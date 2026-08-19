@@ -195,13 +195,20 @@ class UnsupportedRemoteUnitError(BadInvocationError):
 
 
 class NothingToSearchForError(BadInvocationError):
-    """`--from` with no `--skill` and no `--mcp`: a search root, and nothing to look for in it.
+    """`--from` with no unit, **off a pipe**: a search root, and nothing to look for in it.
 
     `plan_for` already refuses an empty selection, and this exists because of
     *when* rather than *whether*: reaching that refusal would cost a whole
     repository download first, for a line that could never have installed
     anything. It is the same reasoning that puts `TooManySelectorsError` before
     the catalog is read.
+
+    Since #135 it is **conditional on there being no terminal**, and that is not
+    a weakening of the rule but the same rule under a new fact: a bare `--from`
+    line now *means* the showcase, and the showcase is a step of the wizard. Where
+    a wizard can open, the line has something to look for after all; where one
+    cannot, the line has the shape it always had and earns the refusal it always
+    did — still before any obtention, since the terminal is known long before one.
     """
 
     def __init__(self) -> None:
@@ -560,9 +567,13 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
         typer.Option(
             FROM_FLAG,
             metavar="URL",
+            # ASCII only, and not a style point: this text is read back through a
+            # subprocess whose stdout the Windows console encodes in cp1252, so a
+            # single em dash here fails `test_the_install_help_still_fits_eighty_columns`
+            # on three of the twelve cells with a `UnicodeDecodeError`.
             help="Install from any GitHub repository instead of the embedded catalog. "
             "Bare, it opens the wizard on what that repository offers; with --skill or "
-            "--mcp, the URL is a search root — the repository, a subfolder or the "
+            "--mcp, the URL is a search root: the repository, a subfolder or the "
             "artifact's own folder. `tree/<ref>/<path>` pins a branch, a tag or a SHA.",
         ),
     ] = None,

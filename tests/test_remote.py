@@ -538,19 +538,53 @@ def test_a_copy_under_a_runtime_destination_is_not_an_ambiguity(
         assert [artifact.name for artifact in catalog.pool] == ["alpha"]
 
 
-def test_a_url_pointed_into_a_runtime_destination_still_reaches_what_is_there(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    "depth",
+    [
+        pytest.param("", id="the repository root"),
+        pytest.param("/.claude", id="the runtime's own folder"),
+        pytest.param("/.claude/skills", id="the destination itself"),
+    ],
+)
+def test_a_copy_is_reached_at_every_depth_when_it_is_all_there_is(
+    monkeypatch: pytest.MonkeyPatch, depth: str
 ) -> None:
-    """The deny-list narrows a search; it never overrules the URL that already did.
+    """The deny-list is a tie-break: it never hides the only answer under the root.
 
-    Pointing `--from` inside `.claude/skills` is the caller saying *that copy,
-    on purpose* — the same narrowing `AmbiguousRemoteSkillError` tells them to
-    make. Denying it there would answer *not found* about a folder they named.
+    A filter gets this wrong at every one of the three depths, and the root is
+    the worst of them — a repository whose skill lives only under a runtime
+    destination would answer *not found* about the thing it has. `github/spec-kit`
+    is that repository, measured: its one `SKILL.md` is under `.github/skills/`
+    (ADR 0019).
     """
     # given
     _planting(monkeypatch, git_remote.installed_skill_files("alpha"))
 
-    with remote.catalog_from(f"{ROOT_URL}/tree/main/.claude/skills", ["alpha"]) as catalog:
+    with remote.catalog_from(f"{ROOT_URL}/tree/main{depth}", ["alpha"]) as catalog:
+        assert [artifact.name for artifact in catalog.pool] == ["alpha"]
+
+
+@pytest.mark.parametrize(
+    "destination",
+    [
+        pytest.param("agent/skills", id="eve"),
+        pytest.param("data/skills", id="astrbot"),
+    ],
+)
+def test_a_destination_that_is_an_ordinary_folder_name_still_reaches(
+    monkeypatch: pytest.MonkeyPatch, destination: str
+) -> None:
+    """Two rows of the table are folder names a repository could genuinely offer from.
+
+    `.claude/skills` announces itself as configuration; `agent/skills` and
+    `data/skills` do not. A filter would make those two repositories
+    unreachable by name, and ADR 0019 priced the deny-list on the enumeration
+    only — this cost was never weighed, so the tie-break is what keeps it zero.
+    """
+    # given
+    _planting(monkeypatch, git_remote.installed_skill_files("alpha", runtime=destination))
+
+    with remote.catalog_from(ROOT_URL, ["alpha"]) as catalog:
         assert [artifact.name for artifact in catalog.pool] == ["alpha"]
 
 

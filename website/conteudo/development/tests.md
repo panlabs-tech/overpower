@@ -64,17 +64,7 @@ The identity also drives the design, not just the test: the writer consumes the 
 
 ## Visual output: structure in the gate, snapshot per screen
 
-Colour does not break a test; layout does — a full-session snapshot is a diff nobody reads, and a real regression hiding inside a 50%-changed file is invisible. One file per screen fixes the granularity problem: a redesign that touches one screen shows up as a change to one file, and a reviewer sees exactly what an aesthetic pass had licence to touch.
-
-**In the gate, structure** — properties that carry meaning and must never regress, none of which break on a border tweak: piped output carries no ANSI at all, the banner is suppressed without a TTY, no description is truncated at 80 or 60 columns, no rendered line exceeds the terminal width, every planned path appears in the rendered plan.
-
-**Outside the gate, as bytes, a snapshot** — one file per screen, at 80 and 60 columns, without colour, of the rendered console (never of the raw byte stream, which also records the transient progress animation rather than the final screen). The comparator is small and home-grown, with an explicit update path:
-
-```bash
-uv run pytest --snapshot-update tests/test_screens.py
-```
-
-See [Screens](/development/screens) for the mechanics of what gets captured.
+Colour does not break a test; layout does. Splitting the assertion in two is what keeps that cheap: properties that carry meaning and must never regress — no ANSI under a pipe, no truncated description, no rendered line past the terminal width — live in the gate as structural checks, while appearance is pinned by one snapshot file per screen, so a redesign that touches one screen shows up as a change to exactly one file. See [Screens](/development/screens) for the full mechanics of what each half captures and how to update a snapshot deliberately.
 
 ## The wizard's seam is a stub, and it does not get a contract test
 

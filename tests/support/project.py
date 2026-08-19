@@ -173,7 +173,7 @@ def catalog_of(  # noqa: PLR0913 — one keyword per unit of the catalog, plus t
     for slug, url in (mcps or {}).items():
         _recipe(tmp_path / "packaged" / "mcps" / f"{slug}.toml", slug, url)
 
-    written = tmp_path / "packaged" / "catalog.toml"
+    written = tmp_path / "packaged" / "catalog.yaml"
     written.write_text(_written(frameworks or {}, bundles or {}), encoding="utf-8")
     monkeypatch.setattr(cli, "content_root", lambda: content)
     monkeypatch.setattr(cli, "catalog_file", lambda: written)
@@ -273,15 +273,24 @@ def custom_recipe(tmp_path: Path, slug: str, body: str) -> Path:
 
 
 def _written(frameworks: Mapping[str, Sequence[str]], bundles: Mapping[str, Sequence[str]]) -> str:
-    """The written catalog: one description per framework, one manifest per bundle."""
-    bundle_tables = (
-        f'[bundles.{name}]\ndescription = "The {name} bundle."\nitems = {list(items)!r}\n'
-        for name, items in bundles.items()
-    )
-    framework_tables = (
-        f'[frameworks.{name}]\ndescription = "The {name} framework."\n' for name in frameworks
-    )
-    return "\n".join((*bundle_tables, *framework_tables))
+    """The written catalog: one description per framework, one manifest per bundle.
+
+    Every string is quoted, which is not decoration: a plain YAML scalar may not
+    carry `: `, and a test is free to name a bundle whatever it needs to.
+    """
+    lines: list[str] = []
+    if bundles:
+        lines.append("bundles:")
+        lines.extend(_bundle_entry(name, items) for name, items in bundles.items())
+    if frameworks:
+        lines.append("frameworks:")
+        lines.extend(f'  {name}:\n    description: "The {name} framework."' for name in frameworks)
+    return "\n".join(lines) + "\n" if lines else ""
+
+
+def _bundle_entry(name: str, items: Sequence[str]) -> str:
+    listed = ", ".join(f'"{item}"' for item in items)
+    return f'  {name}:\n    description: "The {name} bundle."\n    items: [{listed}]'
 
 
 def source(content: Path, name: str) -> Path:

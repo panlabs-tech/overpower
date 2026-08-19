@@ -9,7 +9,7 @@ name = "overpower"
 # from the VCS — measured in #2, `hatch-vcs` under `git clone --depth 1` (the
 # default of `actions/checkout`) fails to find the tag, warns, *succeeds*, and
 # publishes an invented version.
-version = "0.23.0"
+version = "0.24.0"
 description = "Installs curated AI Frameworks into a repository or a machine"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -40,7 +40,9 @@ classifiers = [
 ]
 
 # The CLI stack, fixed in https://github.com/panlabs-tech/overpower/issues/4.
-# Measured cost of the three of them under `uvx`: +0.55 s cold, +0.04 s warm.
+# Measured cost of the three that open the list, under `uvx`: +0.55 s cold,
+# +0.04 s warm. Every entry below them carries the reason it exists — the table
+# is short enough that justifying each one is cheaper than re-deriving it.
 dependencies = [
   "typer>=0.27",
   "rich>=15",
@@ -60,6 +62,23 @@ dependencies = [
   # in one environment collide, so a dependency on `json5` must never be added
   # beside this one.
   "json-five>=1.1.2",
+  # The format the overpower writes about itself, and the first dependency it
+  # takes for a file of its **own** rather than for the CLI or for somebody
+  # else's document. It pays for two things at once
+  # (https://github.com/panlabs-tech/overpower/issues/136):
+  #
+  #   - `catalog.yaml`, the one written file, which the federated manifest of a
+  #     homemade repository reaches through the *same* reader — one validator,
+  #     so a second one can never disagree with the first;
+  #   - the deletion of the hand-rolled frontmatter parser in
+  #     `overpower.discovery`. Keeping a YAML parser by hand next to a real one
+  #     is the weak form of the two-readers defect, and the hand-rolled one was
+  #     wrong: `description: >` and `description: |` arrived with the block
+  #     marker inside the text.
+  #
+  # `yaml.load` and `yaml.safe_load` are banned below; the sanctioned module is
+  # `overpower.yamlio`.
+  "pyyaml>=6.0.3",
 ]
 
 [project.urls]
@@ -187,12 +206,22 @@ convention = "google"
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "json.load" = { msg = "use overpower.jsonio.load_json, which returns object" }
 "json.loads" = { msg = "use overpower.jsonio.loads_json, which returns object" }
+# YAML is banned for the same reason plus one of its own. The `Any` argument is
+# the JSON one verbatim — both readers answer it, and both take pyright strict
+# down with them. The second reason is that `yaml.load` **without** a `Loader`
+# constructs arbitrary Python objects out of the document, so a manifest fetched
+# from somebody else's repository would be code. That door is closed here rather
+# than reviewed later: the sanctioned module names `SafeLoader` explicitly, and
+# `safe_load` is banned beside `load` so the exemption stays one line to audit.
+"yaml.load" = { msg = "use overpower.yamlio.loads_yaml, which returns object" }
+"yaml.safe_load" = { msg = "use overpower.yamlio.loads_yaml, which returns object" }
 
 [tool.ruff.lint.per-file-ignores]
-# The sanctioned module. It does not exist yet — it is born with the first
-# catalog read — and the exemption is written now so the tripwire above cannot
-# be defused by deleting it later.
+# The sanctioned modules, one per banned reader. Each exemption was written
+# before the file it names, so the tripwire above cannot be defused by deleting
+# the module it points at.
 "src/overpower/jsonio.py" = ["TID251"]
+"src/overpower/yamlio.py" = ["TID251"]
 # Tests assert with `assert` (S101), reach into privates on purpose (SLF001),
 # compare against literals (PLR2004) and do not document themselves (D, ANN).
 # INP001 is here because `--import-mode=importlib` makes the implicit-namespace

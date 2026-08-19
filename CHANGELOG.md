@@ -23,6 +23,37 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.24.0] - 2026-08-19
+
+### Changed
+
+- The one file the overpower writes about its own content is now YAML:
+  `catalog.toml` became `catalog.yaml` inside the wheel, and the reader that
+  decodes it goes through a sanctioned module that answers `object` — the same
+  discipline the JSON reader already followed, and `yaml.load` is banned beside
+  `json.load` for the same blind spot plus one of its own, since a loader without
+  `Loader` builds arbitrary Python out of the document. **Nothing answers
+  differently:** `list`, `install` and `doctor` print what they printed, byte for
+  byte, and the same files land on disk. What the move buys is *one* reader — the
+  manifest a homemade repository federates reaches this same decoder, so a second
+  validator can never disagree with the first. It costs one guarantee: TOML had no
+  key type but string, so a table key is now checked where it used to be cast. The
+  recipe of an MCP server did not move and will not — `.overpower/` is a
+  namespace, not a format. ([#136](https://github.com/panlabs-tech/overpower/issues/136))
+
+### Fixed
+
+- A skill description written as a YAML block no longer arrives with the block
+  marker inside the text. `description: >` produced *"> first half second half"*
+  and `description: |` the same with a pipe, because the frontmatter was read by a
+  parser written here by hand instead of by YAML. **The hand-rolled parser is
+  gone**, which is the second thing the dependency paid for: keeping one next to a
+  real one is the weak form of the two-readers defect. It was invisible while the
+  product only read its own content — 0 of the 26 embedded `SKILL.md` use a block,
+  and all 26 read byte-identically before and after — and it would have surfaced
+  the first time somebody else's frontmatter rendered. ([#136](https://github.com/panlabs-tech/overpower/issues/136))
+
+
 ## [0.23.0] - 2026-08-19
 
 ### Changed

@@ -21,6 +21,15 @@ line was measured and is not possible — median 179 characters, maximum 517, an
 cutting at the first sentence leaves 13 of 22 above one line. The cost in screen
 height was rendered and accepted; what it buys is that the embedded and the
 remote path describe an artifact identically, because both read the artifact.
+
+**The frontmatter is read by a real YAML reader**, `overpower.yamlio`, and the
+hand-rolled parser that used to stand here is gone
+(https://github.com/panlabs-tech/overpower/issues/136). Keeping one by hand next
+to a real one is the weak form of the two-readers defect, and the hand-rolled
+one was wrong: `description: >` and `description: |` arrived with the block
+marker as the first word of the text. It was invisible while the product only
+read its own content — 0 of the 26 embedded `SKILL.md` use a block — and it
+turns into a visible defect the day somebody else's frontmatter renders.
 """
 
 from __future__ import annotations
@@ -28,11 +37,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from overpower.errors import BadInvocationError, OverpowerError
 from overpower.recipes import RECIPE_SUFFIX, read_recipe
 from overpower.written import read_written_catalog
+from overpower.yamlio import loads_yaml
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
@@ -193,6 +203,27 @@ class UnknownArtifactTypeError(OverpowerError):
         self.path = path
         known = ", ".join(sorted(TYPE_DIRS))
         super().__init__(f"unknown artifact type directory: {path} (the set is {known})")
+
+
+class UnreadableFrontmatterError(OverpowerError):
+    """A `SKILL.md` whose frontmatter is not YAML — nothing was read out of it.
+
+    Sibling of `MissingDescriptionError` and deliberately not the same class:
+    *there is no description* and *the block it would be in does not parse* are
+    two defects with two different fixes. The reader's own complaint is carried
+    through because it names the line and the column, which is the difference
+    between one edit and bisecting the file.
+
+    The hand-rolled parser this replaced never refused anything — it guessed,
+    and a guess over frontmatter written by somebody else is how a block marker
+    ends up rendered as the first word of a description.
+    """
+
+    def __init__(self, path: Path, detail: str) -> None:
+        """Name the file and repeat what the reader said about it."""
+        self.path = path
+        self.detail = detail
+        super().__init__(f"unreadable frontmatter in {path} ({detail})")
 
 
 class MissingDescriptionError(OverpowerError):
@@ -424,41 +455,56 @@ def _description_of(artifact: Path) -> str:
     skill_md = artifact / SKILL_FILE
     if not skill_md.is_file():
         raise MissingDescriptionError(skill_md)
-    description = _frontmatter_description(skill_md.read_text(encoding="utf-8"))
+    description = _frontmatter_description(skill_md)
     if not description:
         raise MissingDescriptionError(skill_md)
     return description
 
 
-def _frontmatter_description(text: str) -> str:
-    """`description:` out of the YAML frontmatter, folded, unquoted, untruncated.
+def _frontmatter_description(path: Path) -> str:
+    """`description:` out of the frontmatter, read as the YAML it always was.
 
-    Hand-parsed, and that is a decision: a YAML dependency would be the first
-    one the product does not already need, for one key of one block that every
-    measured artifact writes on a single line. Continuation lines are folded
-    with a space, the way YAML folds a plain scalar, so an artifact that wraps
-    its description in the file still arrives whole.
+    Quoting, folding and block scalars are the reader's job now, not this
+    module's — which is the whole point of taking the dependency. What arrives
+    is what YAML says the value is, stripped of the whitespace the format itself
+    leaves at the edges: `>` folds its lines into one, `|` keeps its newlines,
+    and neither carries its marker into the text.
+
+    A `description` that is not a string is no description, and so is a file
+    with no frontmatter block at all — both answer `""`, and the caller turns
+    that into a refusal that names the file. A block that is *not YAML* is a
+    different answer and gets its own.
+    """
+    block = _frontmatter(path.read_text(encoding="utf-8"))
+    if block is None:
+        return ""
+    try:
+        document = loads_yaml(block)
+    except ValueError as error:
+        raise UnreadableFrontmatterError(path, str(error)) from error
+    if not isinstance(document, dict):
+        return ""
+    description = cast("dict[object, object]", document).get("description")
+    return description.strip() if isinstance(description, str) else ""
+
+
+def _frontmatter(text: str) -> str | None:
+    """The lines between the opening `---` and the next one, or `None`.
+
+    Splitting the block off before decoding is what keeps the markdown below it
+    out of the reader: a `SKILL.md` body is prose, and prose is rarely YAML. The
+    closing delimiter is required, because a block that never closes is a file
+    with no frontmatter rather than a file whose frontmatter runs to the end.
+
+    The cost of splitting is that a line number in the reader's complaint counts
+    from the start of the block and not of the file — one line off, on a block
+    that is a handful of lines long and whose offending line the reader quotes
+    back verbatim.
     """
     lines = text.splitlines()
     if not lines or lines[0].strip() != "---":
-        return ""
-
-    collected: list[str] = []
-    for line in lines[1:]:
+        return None
+    for index, line in enumerate(lines[1:], start=1):
         if line.strip() == "---":
-            break
-        if collected:
-            if line.startswith((" ", "\t")):
-                collected.append(line.strip())
-                continue
-            break
-        key, separator, value = line.partition(":")
-        if separator and key.strip() == "description":
-            collected.append(value.strip())
-
-    return _unquote(" ".join(part for part in collected if part))
-
-
-def _unquote(value: str) -> str:
-    quoted = len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}  # noqa: PLR2004
-    return value[1:-1] if quoted else value
+            return "\n".join(lines[1:index])
+    return None

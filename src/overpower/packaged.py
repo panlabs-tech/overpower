@@ -28,7 +28,14 @@ CONTENT_DIR = "content"
 CATALOG_DIR = "catalog"
 """The root that never lands."""
 
-CATALOG_FILE = "catalog.toml"
+CATALOG_FILE = "catalog.yaml"
+"""The one file in it, and the format is the reader's rather than this module's.
+
+It was `catalog.toml` until https://github.com/panlabs-tech/overpower/issues/136
+moved it, so that the manifest a homemade repository federates goes through the
+same reader as this one. The recipe of an MCP server, which lives in the sibling
+directory, stayed TOML.
+"""
 
 
 def content_root() -> Path:

@@ -60,8 +60,8 @@ Three slot roles exist: `env`, `header`, and `bearer`. A `bearer` slot is render
 │    Cloudflare's remote MCP server, over streamable       │
 │    HTTP. It carries no secret in the file: the           │
 │    connection authorises in the browser the first time   │
-│    an agent uses it, so nothing here has to be filled     │
-│    in before the server works.                            │
+│    an agent uses it, so nothing here has to be filled    │
+│    in before the server works.                           │
 │                                                          │
 │      overpower install --mcp cloudflare                  │
 │                                                          │

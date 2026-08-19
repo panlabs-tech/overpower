@@ -9,11 +9,11 @@ description: Any GitHub repository as a search root, and how a tree path pins a 
 uvx overpower@latest install --from https://github.com/owner/repo --skill some-skill --runtime codex
 ```
 
-The catalog embedded in overpower ages by construction — it is fixed at the version you have installed, and refreshing it means waiting for a new curation pass. `--from` is the escape hatch that does not wait: it points `--skill` at **any GitHub repository, with no registration step**, and reads from there instead of the embedded catalog.
+The catalog embedded in overpower ages by construction — it is fixed at the version you have installed, and refreshing it means waiting for a new curation pass. `--from` is the escape hatch that does not wait: it points at **any GitHub repository, with no registration step**, and reads from there instead of the embedded catalog.
 
 `--from` is **exclusive**. Once it is on the line, only the remote repository is consulted — the embedded catalog is not searched at all, and not merged with the remote either. That settles the question of precedence between the two by removing it rather than answering it.
 
-It also applies to `--skill` only. A skill is the one unit that exists as something installable outside a repository that already knows about overpower; a bundle and an AI Framework only exist inside a repository that curates them as such. A line that names `--from` alongside `--bundle` or `--ai-framework` is refused by name, before anything is fetched over the network.
+On `install`, `--from` reaches `--skill` and `--mcp` — never `--bundle` or `--ai-framework`. A skill and an MCP server are the two units that exist as something installable outside a repository that already knows about overpower; a bundle and an AI Framework only exist inside a repository that curates them as such, so a line naming either of those two alongside `--from` is refused by name before anything is fetched over the network. On `list`, `--from` is narrower still and reaches `--mcp` alone — `list --from --skill <name>` is refused the same way `--bundle` and `--ai-framework` are, since `list --from` exists to preview a federated recipe, not to browse a remote skill.
 
 `--from` is also the axis that separates a market MCP server from a homegrown one — there is no other axis for that distinction. The embedded recipe for a server lives at `catalog/mcps/<slug>.toml` inside the package; a federated one lives at `.overpower/mcp/<slug>.toml` inside whatever repository `--from` points at, discovered by the same search rule described below. Both use the identical recipe schema.
 

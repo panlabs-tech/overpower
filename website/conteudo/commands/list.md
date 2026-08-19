@@ -62,8 +62,8 @@ A recipe is the logical declaration of a server, and this is the screen it is ju
 │    Cloudflare's remote MCP server, over streamable       │
 │    HTTP. It carries no secret in the file: the           │
 │    connection authorises in the browser the first time   │
-│    an agent uses it, so nothing here has to be filled     │
-│    in before the server works.                            │
+│    an agent uses it, so nothing here has to be filled    │
+│    in before the server works.                           │
 │                                                          │
 │      overpower install --mcp cloudflare                  │
 │                                                          │
@@ -77,3 +77,11 @@ A recipe is the logical declaration of a server, and this is the screen it is ju
 Every label but the last one is a field of the recipe itself, spelled the way the underlying TOML spells it — `url` for an HTTP server, or `command`, `args`, and `env` for a stdio one. `targets` is the exception: there is no `targets` field anywhere in the recipe. Which pairs of runtime and scope a given server can actually serve is **derived**, computed from the transport and the roles of its slots against a table in code, never declared by hand in the recipe — a declared field would go stale in silence the day a runtime gained the capability, leaving the recipe lying about itself. See [MCP servers](/targets/mcp) for how that derivation works.
 
 Each target printed is a **pair**: a runtime and the scope it reads that server in. `claude-code` here shows only its project half, because it is the half that exists — the same runtime may read nothing at all in global scope for a given server. A recipe that no target can serve at all prints `none` rather than an empty line.
+
+## `list --from` — previewing a federated recipe
+
+```bash
+uvx overpower@latest list --mcp coolify --from https://github.com/owner/repo
+```
+
+`--from` on `list` is narrower than it is on `install`: it reaches `--mcp` alone. A line that pairs `--from` with `--ai-framework`, `--bundle`, or `--skill` is refused the same way any of those three would be refused on their own — `list --from` exists to preview a federated MCP recipe pulled from someone else's repository before installing it, not to browse a remote skill catalog. See [--from](/targets/from) for the URL forms it accepts and how a `tree/<ref>/<path>` segment pins a branch, a tag, or a commit.

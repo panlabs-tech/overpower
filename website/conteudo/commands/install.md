@@ -43,6 +43,7 @@ $ overpower install --skill panlabs-python-standards --runtime claude-code,curso
 │                                                                              │
 │    .claude/skills/  ← claude-code                                   8 files  │
 │    .agents/skills/  ← codex, cursor                                 8 files  │
+│                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -60,6 +61,7 @@ The plan grid is where several runtimes sharing one destination becomes visible 
 │                                                                              │
 │    .claude/skills/  ← claude-code                                  74 files  │
 │    .agents/skills/  ← cursor                                       74 files  │
+│                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 

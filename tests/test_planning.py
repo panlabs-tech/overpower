@@ -47,7 +47,7 @@ def test_the_copy_class_lands_in_a_folder_and_the_planner_says_which(
     # given
     content = catalog_of(tmp_path, monkeypatch, "alpha")
     root = target(tmp_path, monkeypatch)
-    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
 
     plan = plan_for(
         Request(skills=("alpha",), runtimes=("claude-code",), scope=Scope.PROJECT),
@@ -74,7 +74,7 @@ def test_the_graft_class_lands_in_a_document_and_the_planner_says_which_key(
     # given
     content = catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": "https://mcp.example.com/mcp"})
     root = target(tmp_path, monkeypatch)
-    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
 
     plan = plan_for(
         Request(mcps=("cloudflare",), runtimes=("claude-code",), scope=Scope.PROJECT),
@@ -110,7 +110,7 @@ def test_one_recipe_is_two_writes_of_one_landing_where_the_dialect_asks_for_two(
     # given
     content = catalog_of(tmp_path, monkeypatch, mcps={"panel": SLOTTED})
     root = target(tmp_path, monkeypatch)
-    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
 
     plan = plan_for(
         Request(mcps=("panel",), runtimes=("vscode",), scope=Scope.PROJECT),
@@ -467,7 +467,7 @@ def test_an_ai_framework_writes_every_artifact_it_carries(
     # given
     content = catalog_of(tmp_path, monkeypatch, frameworks={"matt-pocock": ("grilling", "tdd")})
     root = target(tmp_path, monkeypatch)
-    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
 
     plan = plan_for(
         Request(ai_frameworks=("matt-pocock",), runtimes=("claude-code",)),
@@ -497,7 +497,7 @@ def test_a_bundle_writes_exactly_what_it_names_and_no_framework(
         bundles={"api-python": ("alpha",)},
     )
     root = target(tmp_path, monkeypatch)
-    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
 
     plan = plan_for(
         Request(bundles=("api-python",), runtimes=("claude-code",)),
@@ -525,7 +525,7 @@ def test_framework_bundle_and_skill_on_one_line_produce_one_plan_in_fixed_order(
         bundles={"api-python": ("alpha",)},
     )
     root = target(tmp_path, monkeypatch)
-    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
 
     plan = plan_for(
         Request(
@@ -606,7 +606,7 @@ def test_a_skill_naming_other_skills_in_its_text_writes_only_itself(
         encoding="utf-8",
     )
     root = target(tmp_path, monkeypatch)
-    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
 
     plan = plan_for(
         Request(skills=("wayfinder",), runtimes=("claude-code",)),
@@ -647,7 +647,7 @@ def test_a_sourced_recipe_costs_a_clone_landing_alongside_its_graft(
     (cloned / "pkg").mkdir(parents=True)
     (cloned / "pkg" / "server.py").write_text("x", encoding="utf-8")
     (cloned / "readme.md").write_text("x", encoding="utf-8")
-    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
 
     plan = plan_for(
         Request(mcps=("homegrown",), runtimes=("claude-code",), scope=Scope.GLOBAL),
@@ -678,7 +678,7 @@ def test_a_recipe_with_no_source_costs_no_clone_landing(
     # given
     content = catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": "https://mcp.example.com/mcp"})
     root = target(tmp_path, monkeypatch)
-    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
 
     plan = plan_for(
         Request(mcps=("cloudflare",), runtimes=("claude-code",), scope=Scope.PROJECT),

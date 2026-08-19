@@ -76,7 +76,7 @@ def write_content(tmp_path: Path) -> Path:
 
 def write_catalog_file(tmp_path: Path, body: str) -> Path:
     """The one written file, in the sibling root that never lands."""
-    path = tmp_path / "catalog" / "catalog.toml"
+    path = tmp_path / "catalog" / "catalog.yaml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body, encoding="utf-8", newline="\n")
     return path
@@ -99,12 +99,14 @@ def write_mcp(tmp_path: Path, name: str, url: str = "https://mcp.example.com/mcp
 
 
 WRITTEN = """
-[bundles.api-python]
-description = "Equipment for working on a Python API."
-items = ["panlabs-python-standards"]
+bundles:
+  api-python:
+    description: Equipment for working on a Python API.
+    items: [panlabs-python-standards]
 
-[frameworks.matt-pocock]
-description = "The promoted skills."
+frameworks:
+  matt-pocock:
+    description: The promoted skills.
 """
 
 
@@ -146,29 +148,54 @@ def test_a_skill_carries_its_whole_description_from_its_own_skill_md(tmp_path: P
     assert pool[0].description == LONG_DESCRIPTION
 
 
-def test_a_quoted_description_arrives_without_its_quotes(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("frontmatter", "expected"),
+    [
+        pytest.param("Grills a decision.", "Grills a decision.", id="plain-scalar"),
+        pytest.param(
+            '"Grills a decision: relentlessly."',
+            "Grills a decision: relentlessly.",
+            id="scalar-carrying-a-colon",
+        ),
+        pytest.param(
+            ">\n  first half\n  second half",
+            "first half second half",
+            id="folded-block",
+        ),
+        pytest.param(
+            "|\n  first half\n  second half",
+            "first half\nsecond half",
+            id="literal-block",
+        ),
+        pytest.param(
+            "first half\n  second half",
+            "first half second half",
+            id="plain-scalar-over-two-lines",
+        ),
+    ],
+)
+def test_a_description_arrives_the_way_yaml_reads_it(
+    tmp_path: Path, frontmatter: str, expected: str
+) -> None:
+    """The shapes a description arrives in, four of them measured across `--from`.
+
+    The two block rows are the correction: the hand-rolled parser this replaced
+    kept the marker as the first word of the text, so `description: >` arrived
+    as *"> first half second half"*. It was invisible while the product only
+    read its own content — 0 of the 26 embedded `SKILL.md` use a block — and it
+    becomes a visible defect the day a remote repository's frontmatter renders.
+
+    `>` folds its lines into one and `|` keeps its newline, which is the whole
+    difference between the two markers; honouring it is what reading real YAML
+    buys. The fifth row is the plain scalar wrapped over two lines, which folds
+    for the same reason `>` does and used to be a test of its own.
+    """
     content = tmp_path / "content"
-    write_skill(content / "pool" / "skills", "quoted", '"Grills a decision: relentlessly."')
+    write_skill(content / "pool" / "skills", "described", frontmatter)
 
     pool = discover_pool(content / "pool")
 
-    assert pool[0].description == "Grills a decision: relentlessly."
-
-
-def test_a_description_wrapped_over_several_lines_arrives_folded(tmp_path: Path) -> None:
-    # given
-    content = tmp_path / "content"
-    skill = content / "pool" / "skills" / "folded"
-    skill.mkdir(parents=True)
-    (skill / "SKILL.md").write_text(
-        "---\nname: folded\ndescription: first half\n  second half\nname2: x\n---\n",
-        encoding="utf-8",
-        newline="\n",
-    )
-
-    pool = discover_pool(content / "pool")
-
-    assert pool[0].description == "first half second half"
+    assert pool[0].description == expected
 
 
 def test_a_skill_without_a_description_names_the_file_that_lacks_it(tmp_path: Path) -> None:
@@ -182,6 +209,25 @@ def test_a_skill_without_a_description_names_the_file_that_lacks_it(tmp_path: Pa
         discover_pool(content / "pool")
 
     assert str(skill / "SKILL.md") in str(raised.value)
+
+
+def test_frontmatter_that_does_not_parse_names_the_file_and_the_reason(tmp_path: Path) -> None:
+    """A real parser refuses where the hand-rolled one guessed, and says why.
+
+    `description: Use when: X` is not YAML — a plain scalar may not carry `: `.
+    The refusal repeats the reader's own complaint, which quotes the offending
+    line back, so the author fixes what they can see instead of bisecting their
+    own file.
+    """
+    # given
+    content = tmp_path / "content"
+    skill = write_skill(content / "pool" / "skills", "broken", "Use when: you want a refusal.")
+
+    with pytest.raises(OverpowerError) as raised:
+        discover_pool(content / "pool")
+
+    assert str(skill / "SKILL.md") in str(raised.value)
+    assert "Use when: you want a refusal." in str(raised.value)
 
 
 def test_an_artifact_carries_its_size_and_its_file_count(tmp_path: Path) -> None:
@@ -268,9 +314,54 @@ def test_the_written_file_carries_bundles_and_framework_descriptions(tmp_path: P
 def test_a_written_file_that_is_not_a_table_of_tables_says_so(tmp_path: Path) -> None:
     """The decoder returns `object`, so a malformed file fails here and not later."""
     with pytest.raises(OverpowerError) as raised:
-        read_written_catalog(write_catalog_file(tmp_path, "bundles = 1\n"))
+        read_written_catalog(write_catalog_file(tmp_path, "bundles: 1\n"))
 
     assert "bundles" in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    "key",
+    [pytest.param("1", id="an-integer"), pytest.param("true", id="a-boolean")],
+)
+def test_a_written_file_whose_table_key_is_not_a_name_says_so(tmp_path: Path, key: str) -> None:
+    """TOML had no key type but string; YAML has, so the key is checked.
+
+    `1:` decodes to the integer `1` and `true:` to the boolean `True`. Under
+    TOML this module could cast the table and be telling the truth; under YAML
+    the same cast would be a lie living in the one module whose only reason to
+    exist is being the type tripwire.
+    """
+    with pytest.raises(OverpowerError) as raised:
+        read_written_catalog(
+            write_catalog_file(tmp_path, f"bundles:\n  {key}:\n    description: x\n")
+        )
+
+    assert "bundles" in str(raised.value)
+
+
+def test_a_written_file_that_does_not_parse_at_all_names_the_file(tmp_path: Path) -> None:
+    """Unparseable is refused as a named error, never as a library stack.
+
+    It is what the next ticket rests on: the federated manifest is written by a
+    stranger, and it reaches this same reader.
+    """
+    with pytest.raises(OverpowerError) as raised:
+        read_written_catalog(write_catalog_file(tmp_path, "bundles:\n  -\n   x: [1,\n"))
+
+    assert "catalog.yaml" in str(raised.value)
+    assert "line" in str(raised.value)
+
+
+def test_a_written_file_with_nothing_in_it_is_an_empty_catalog(tmp_path: Path) -> None:
+    """YAML answers `None` to the empty document where TOML answered `{}`.
+
+    An empty manifest is an empty catalog and not a malformed one — the same
+    answer the format before it gave, kept on purpose.
+    """
+    written = read_written_catalog(write_catalog_file(tmp_path, "# nothing yet\n"))
+
+    assert written.bundles == ()
+    assert written.frameworks == {}
 
 
 # --------------------------------------------------------------------------- #
@@ -304,8 +395,8 @@ def test_a_bundle_naming_an_artifact_the_pool_does_not_have_names_both(tmp_path:
     content = write_content(tmp_path)
     written = write_catalog_file(
         tmp_path,
-        '[bundles.api-python]\ndescription = "d"\nitems = ["ghost"]\n'
-        '\n[frameworks.matt-pocock]\ndescription = "d"\n',
+        'bundles:\n  api-python:\n    description: "d"\n    items: ["ghost"]\n'
+        'frameworks:\n  matt-pocock:\n    description: "d"\n',
     )
 
     with pytest.raises(OverpowerError) as raised:

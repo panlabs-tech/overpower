@@ -35,10 +35,23 @@
 # disappears from `list` and `install --bundle api-python` answers that it does
 # not know the name. What fails loudly needs no verification. The asymmetry was
 # measured in issue #10.
+#
+# THE FORMAT IS YAML, and it was TOML until issue #136. The move buys one thing:
+# the manifest a homemade repository federates in `.overpower/catalog.yaml` is
+# read by the *same* reader as this file, so there is never a second validator
+# to disagree with the first. The recipe of an MCP server next door stayed TOML
+# on purpose — that reader is a closed allowlist under the promise that a recipe
+# which gets past it is a recipe that renders, and rewriting it for cosmetic
+# consistency buys nothing. `.overpower/` is a namespace, not a format.
+#
+# Descriptions are quoted even when they would parse bare: a plain YAML scalar
+# may not carry `: `, and the framework line below already does.
 
-[bundles.api-python]
-description = "Equipment for working on a Python API."
-items = ["panlabs-python-standards"]
+bundles:
+  api-python:
+    description: "Equipment for working on a Python API."
+    items: ["panlabs-python-standards"]
 
-[frameworks.matt-pocock]
-description = "Matt Pocock's agent skills for real engineering: grilling, spec and ticket flows, TDD, code review, domain modelling and more."
+frameworks:
+  matt-pocock:
+    description: "Matt Pocock's agent skills for real engineering: grilling, spec and ticket flows, TDD, code review, domain modelling and more."

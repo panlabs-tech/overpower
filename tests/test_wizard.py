@@ -100,7 +100,7 @@ def test_artifact_choices_group_the_four_units_with_one_separator_each(
         bundles={"bun": ["alpha"]},
         mcps={"cloudflare": "https://mcp.example.com/mcp"},
     )
-    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
 
     choices = wizard.artifact_choices(catalog)
 
@@ -121,7 +121,7 @@ def test_artifact_choices_prints_no_heading_for_an_empty_unit(
 ) -> None:
     """No bundle and no framework here — a real catalog shape, not a defect."""
     content = catalog_of(tmp_path, monkeypatch, "solo")
-    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
 
     choices = wizard.artifact_choices(catalog)
 
@@ -140,7 +140,7 @@ def test_ask_artifacts_partitions_the_pick_by_kind(
         bundles={"bun": ["alpha"]},
         mcps={"cloudflare": "https://mcp.example.com/mcp"},
     )
-    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
     picked = [("framework", "fw"), ("skill", "alpha"), ("mcp", "cloudflare")]
     monkeypatch.setattr(wizard.questionary, "checkbox", _answering(picked))
 
@@ -154,7 +154,7 @@ def test_ask_artifacts_empty_pick_is_a_legal_answer(
 ) -> None:
     """Nothing chosen lands on the same `NothingSelectedError` the flags reach."""
     content = catalog_of(tmp_path, monkeypatch, "alpha")
-    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
     monkeypatch.setattr(wizard.questionary, "checkbox", _answering([]))
 
     assert wizard.ask_artifacts(catalog) == ((), (), (), ())
@@ -169,7 +169,7 @@ def test_counted_counts_all_four_classes(tmp_path: Path, monkeypatch: pytest.Mon
         bundles={"bun": ["alpha"]},
         mcps={"cloudflare": "https://mcp.example.com/mcp"},
     )
-    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
 
     assert wizard._counted(catalog) == "4 artifacts available"  # pyright: ignore[reportPrivateUsage]
 
@@ -178,7 +178,7 @@ def test_ask_artifacts_returns_none_on_interruption(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     content = catalog_of(tmp_path, monkeypatch, "alpha")
-    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
     monkeypatch.setattr(wizard.questionary, "checkbox", _answering(None))
 
     assert wizard.ask_artifacts(catalog) is None
@@ -784,7 +784,7 @@ def test_run_wizard_builds_the_same_request_the_equivalent_flag_line_would(
 
     # given
     content = catalog_of(tmp_path, monkeypatch, "alpha", frameworks={"fw": ["fa"]})
-    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
     monkeypatch.setattr(wizard, "ask_artifacts", picked_framework)
     monkeypatch.setattr(wizard, "ask_scope", _project_scope)
     monkeypatch.setattr(wizard, "ask_runtimes", _fixed_runtimes)
@@ -811,7 +811,7 @@ def test_run_wizard_carries_the_mode_flags_of_the_line_through_untouched(
     """
     # given
     content = catalog_of(tmp_path, monkeypatch, "alpha")
-    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
     monkeypatch.setattr(wizard, "ask_scope", _project_scope)
     monkeypatch.setattr(wizard, "ask_runtimes", _fixed_runtimes)
     asked = Request(skills=("alpha",), force=True, dry_run=True, yes=True)
@@ -850,7 +850,7 @@ def test_run_wizard_opens_only_the_steps_the_request_left_open(
     """The same table the CLI is asserted against, one layer in and over values."""
     # given
     content = catalog_of(tmp_path, monkeypatch, "alpha")
-    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
     steps: list[str] = []
 
     def picked_skill(
@@ -933,7 +933,7 @@ def test_run_wizard_opens_the_mcp_runtime_step_for_an_mcp_the_artifacts_step_jus
     """
     # given
     content = catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": "https://mcp.example.com/mcp"})
-    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
 
     def picked_mcp(
         _catalog: Catalog,
@@ -967,7 +967,7 @@ def test_run_wizard_asks_scope_naming_a_selected_recipe_that_brings_its_own_sour
         'description = "x"\ntransport = "stdio"\n\n[source]\nurl = "https://github.com/x/y"\n\n'
         '[server]\ncommand = "uv"\n',
     )
-    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
     asked = Request(mcps=("homegrown",))
     seen: list[bool] = []
 
@@ -1006,7 +1006,7 @@ def test_run_wizard_asks_scope_naming_a_source_the_artifacts_step_just_picked(
         'description = "x"\ntransport = "stdio"\n\n[source]\nurl = "https://github.com/x/y"\n\n'
         '[server]\ncommand = "uv"\n',
     )
-    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
     seen: list[bool] = []
 
     def picked_mcp(
@@ -1040,7 +1040,7 @@ def test_run_wizard_asks_scope_naming_no_source_for_an_ordinary_recipe(
     """The ordinary case, unaffected: no `[source]`, the wizard still asks freely."""
     # given
     content = catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": "https://mcp.example.com/mcp"})
-    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
     asked = Request(mcps=("cloudflare",))
     seen: list[bool] = []
 
@@ -1084,7 +1084,7 @@ def test_run_wizard_returns_none_when_any_step_is_abandoned(
         return None
 
     content = catalog_of(tmp_path, monkeypatch, "alpha")
-    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.toml")
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
     monkeypatch.setattr(wizard, "ask_artifacts", picked_skill)
     monkeypatch.setattr(wizard, "ask_scope", _project_scope)
     monkeypatch.setattr(wizard, "ask_runtimes", _fixed_runtimes)

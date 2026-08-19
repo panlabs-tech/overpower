@@ -16,19 +16,30 @@ entry, no agent entry and no path: those are discovered by walking the tree
 **The decoder returns `object`, and that is a tripwire rather than a style.**
 Measured in https://github.com/panlabs-tech/overpower/issues/2: pyright strict
 has a blind spot on `Any`, so `return data["name"]` inside a `-> str` function
-type-checks and blows up at runtime. `tomllib.load` hands back `dict[str, Any]`,
-so the decode is confined to `_loads` below — which declares `object` — and every
+type-checks and blows up at runtime. The YAML reader hands back `Any`, so the
+decode is confined to `overpower.yamlio` — which declares `object` — and every
 field is narrowed in the open, where all three checkers can see it. It is the
-same discipline `pyproject.toml` bans `json.load` to enforce.
+same discipline `pyproject.toml` bans `json.load` to enforce, and `yaml.load`
+beside it.
+
+**The format is YAML, and the format before it was TOML.** The move
+(https://github.com/panlabs-tech/overpower/issues/136) buys one thing: the
+manifest a homemade repository federates reaches *this* reader, so there is
+never a second validator to disagree with the first. It costs one guarantee.
+TOML had no key type but string; YAML has, so `_table` below **checks** the key
+where it used to cast it. The recipe of an MCP server did not move and will not:
+that module is a closed allowlist under the promise that *a recipe that gets
+past it is a recipe that renders*, and `.overpower/` is a namespace rather than
+a format.
 """
 
 from __future__ import annotations
 
-import tomllib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 from overpower.errors import OverpowerError
+from overpower.yamlio import loads_yaml
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -58,8 +69,24 @@ class WrittenCatalog:
     """Framework name to its one description line."""
 
 
+class UnreadableWrittenCatalogError(OverpowerError):
+    """The written file is not YAML at all — the reader never got to look inside.
+
+    Sibling of `MalformedWrittenCatalogError` and deliberately not the same
+    class: *did not parse* and *parsed into the wrong shape* are two defects,
+    and only the second one has a field to name. The parser's own complaint is
+    carried through because it names the line and the column.
+    """
+
+    def __init__(self, path: Path, detail: str) -> None:
+        """Name the file and repeat what the reader said about it."""
+        self.path = path
+        self.detail = detail
+        super().__init__(f"{path}: not YAML the reader can parse ({detail})")
+
+
 class MalformedWrittenCatalogError(OverpowerError):
-    """The written file parsed as TOML but is not shaped like a catalog."""
+    """The written file parsed as YAML but is not shaped like a catalog."""
 
     def __init__(self, path: Path, key: str, expected: str) -> None:
         """Name the file and the key, so the fix is one edit away."""
@@ -70,7 +97,8 @@ class MalformedWrittenCatalogError(OverpowerError):
 
 def read_written_catalog(path: Path) -> WrittenCatalog:
     """Read the one written file, narrowing every field as it goes."""
-    document = _table(path, "the file", _loads(path.read_text(encoding="utf-8")), "a table")
+    decoded = _loads(path)
+    document = _table(path, "the file", {} if decoded is None else decoded, "a table")
     return WrittenCatalog(
         bundles=_bundles(path, document.get("bundles", {})),
         frameworks=_frameworks(path, document.get("frameworks", {})),
@@ -117,17 +145,36 @@ def _description(path: Path, key: str, value: object) -> str:
 
 
 def _table(path: Path, key: str, value: object, expected: str) -> dict[str, object]:
-    """A TOML table, typed.
+    """A mapping whose keys were **checked**, because the format stopped promising them.
 
-    The cast is not a shrug: TOML has **no** key type but string, so `dict[str,
-    object]` is what the format guarantees and `isinstance` cannot express. The
-    values stay `object` — that is the point of the whole module.
+    Under TOML the cast here was not a shrug: the format has no key type but
+    string, so `dict[str, object]` was what it guaranteed and what `isinstance`
+    could not express. YAML guarantees no such thing — `1:` decodes to an
+    integer and `true:` to a boolean — so the same cast would now be a lie, and
+    it would be living in the one module whose whole reason to exist is being
+    the type tripwire. The cast that remains claims nothing about keys; the loop
+    below is what makes the return type true. The values stay `object`, which is
+    the point of the whole module.
     """
     if not isinstance(value, dict):
         raise MalformedWrittenCatalogError(path, key, expected)
-    return cast("dict[str, object]", value)
+    checked: dict[str, object] = {}
+    for name, entry in cast("dict[object, object]", value).items():
+        if not isinstance(name, str):
+            raise MalformedWrittenCatalogError(path, f"{key}.{name!r}", "a name")
+        checked[name] = entry
+    return checked
 
 
-def _loads(text: str) -> object:
-    """The whole decode surface, and it declares `object` on purpose."""
-    return tomllib.loads(text)
+def _loads(path: Path) -> object:
+    """The whole decode surface, and it declares `object` on purpose.
+
+    The reader is `overpower.yamlio`, which is the only place in the product
+    allowed to touch a YAML loader. It answers `ValueError` when the text is not
+    YAML, and that becomes a named refusal here — the next thing to arrive
+    through this function is a manifest written by a stranger.
+    """
+    try:
+        return loads_yaml(path.read_text(encoding="utf-8"))
+    except ValueError as error:
+        raise UnreadableWrittenCatalogError(path, str(error)) from error

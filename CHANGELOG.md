@@ -30,6 +30,36 @@ navigable index of the decisions that produced it.
 - **The project moved out of the `panlabs-tech` organization and into the personal profile.** The name is unchanged; the owner is not. `[project.urls]` now declares `github.com/ThiagoPanini/overpower`, and both `Homepage` and `Documentation` point at [thiagopanini.github.io/overpower](https://thiagopanini.github.io/overpower/), where the site is published from now on. The old addresses survive only as GitHub redirects, which this repository does not treat as an answer: every reference inside the tree — 420 of them, from the towncrier `issue_format` that stamps the owner into every future CHANGELOG entry down to the issue links in docstrings — was rewritten to the new one. ([#149](https://github.com/ThiagoPanini/overpower/issues/149))
 
 
+## [0.25.2] - 2026-08-19
+
+### Fixed
+
+- **`--yes` now says what it actually does.** Its help read *"Skip the confirmation,
+  and nothing else"*, and that "nothing else" was carrying more than it admitted:
+  `_asking` is also the predicate deciding whether an already-occupied global
+  destination becomes a question or becomes a refusal, so `-y` in a terminal turned
+  a prompt that could have written into an exit 3. The behaviour is deliberately
+  unchanged — the flag that accepts an overwrite is `--force`, and only `--force`,
+  because a `-y` that silently deletes would move this command next to `apt-get`
+  when it was built to stand next to `pip`. What changes is that the screen a user
+  consults now names which of the two lifts the refusal. ([#145](https://github.com/ThiagoPanini/overpower/issues/145))
+- The comment that keeps the `--from` help text ASCII-only quoted a denominator that
+  no longer exists: it justified itself against *"three of the twelve cells"*, and
+  the CI matrix is 3 OS x 3 Python, which is **nine**. The constraint itself is
+  untouched — the cp1252 decode on the Windows runners is real, and it is three
+  cells either way — but a measurement quoted in a comment that exists to justify a
+  constraint is exactly the kind of number that gets copied forward, so it now names
+  the matrix it was read off. ([#146](https://github.com/ThiagoPanini/overpower/issues/146))
+- **`install --help` mentions the wizard.** `--runtime` announces *"No default"* and
+  *"not every runtime is in both"*, which together read as a hard requirement, and
+  nothing else on that screen said otherwise — so the one surface a user goes to in
+  order to find out what the flags do concluded that `overpower install --skill x`
+  is refused. In a terminal it is not: since #57 the trigger is the gap, and a line
+  that does not add up to a plan opens the wizard on exactly the steps it left open.
+  The command's own description says so now, next to the sentence that a line off a
+  terminal is still refused instead. ([#147](https://github.com/ThiagoPanini/overpower/issues/147))
+
+
 ## [0.25.1] - 2026-08-19
 
 ### Fixed

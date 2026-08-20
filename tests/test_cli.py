@@ -216,6 +216,31 @@ def test_the_runtime_help_names_the_two_tables(capsys: pytest.CaptureFixture[str
     assert "not every runtime" in output
 
 
+def test_the_install_help_announces_the_wizard(capsys: pytest.CaptureFixture[str]) -> None:
+    """`--runtime` says "no default" and "not every runtime is in both", which reads as
+    a hard requirement; in a terminal the gap opens the wizard instead, and the one
+    screen a user consults to find out never said so
+    (https://github.com/ThiagoPanini/overpower/issues/147).
+    """
+    code, output = output_of(capsys, ["install", "--help"])
+
+    assert code == 0
+    assert "opens a wizard on exactly those steps" in project.joined(output)
+
+
+def test_the_yes_help_says_it_does_not_accept_an_overwrite(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`--yes` documented itself as skipping the confirmation "and nothing else", while
+    it also turns an occupied global destination from a question into exit 3
+    (https://github.com/ThiagoPanini/overpower/issues/145).
+    """
+    code, output = output_of(capsys, ["install", "--help"])
+
+    assert code == 0
+    assert "It does not accept an overwrite" in project.joined(output)
+
+
 def test_the_install_help_still_fits_eighty_columns() -> None:
     result = piped("install", "--help")
 

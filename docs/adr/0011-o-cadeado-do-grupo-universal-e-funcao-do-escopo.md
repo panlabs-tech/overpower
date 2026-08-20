@@ -4,7 +4,7 @@ O grupo `Universal` do passo de runtime volta a ser **seção travada** — *alw
 
 Isto **reverte** uma posição da [ADR 0008](0008-a-tela-e-herdada-a-escrita-nao.md), que dizia, sobre a seção travada do upstream:
 
-> O [#9](https://github.com/panlabs-tech/overpower/issues/9) removeu esse modelo: em projeto não há canônico, cada runtime recebe cópia real. **O grupo continua na tela; o cadeado sai.**
+> O [#9](https://github.com/ThiagoPanini/overpower/issues/9) removeu esse modelo: em projeto não há canônico, cada runtime recebe cópia real. **O grupo continua na tela; o cadeado sai.**
 
 O cadeado volta. A ADR 0008 segue de pé em tudo o mais — o pulo silencioso, o default, a sonda e o lockfile continuam fora.
 
@@ -12,7 +12,7 @@ O cadeado volta. A ADR 0008 segue de pé em tudo o mais — o pulo silencioso, o
 
 O cadeado do upstream é honesto **lá** porque lá existe um canônico: em modo symlink o `npx skills` escreve `.agents/skills/` sempre, antes de qualquer link, e desmarcá-lo seria mentira. É também por isso que a tela dele tem um passo que a nossa não tem — `Installation method · Symlink / Copy`.
 
-O [#9](https://github.com/panlabs-tech/overpower/issues/9) removeu esse modelo em projeto, com medição: sob `core.symlinks=false` — que a doc do git diz ser **auto-detectado no clone**, isto é, o padrão no Windows e não a exceção — o link materializa como arquivo de texto, o `git status` fica **limpo** e o equipamento está quebrado para quem clonou. Em projeto, cada runtime recebe **cópia real**.
+O [#9](https://github.com/ThiagoPanini/overpower/issues/9) removeu esse modelo em projeto, com medição: sob `core.symlinks=false` — que a doc do git diz ser **auto-detectado no clone**, isto é, o padrão no Windows e não a exceção — o link materializa como arquivo de texto, o `git status` fica **limpo** e o equipamento está quebrado para quem clonou. Em projeto, cada runtime recebe **cópia real**.
 
 Copiar o cadeado sem copiar o symlink cobra isto de quem só usa Claude Code, em escopo de projeto, com o `matt-pocock` de 74 arquivos:
 
@@ -45,7 +45,7 @@ overpower install --runtime claude-code            → escreve .claude/skills/ e
 (wizard, nada marcado em "Additional agents")      → escreve .agents/skills/
 ```
 
-A flag continua literal. É o que preserva a decisão do [#8](https://github.com/panlabs-tech/overpower/issues/8) de que **a linha de comando é o manifesto** — ela tem de caber num README, num Makefile e num passo de CI, e significar ali o mesmo que significa no terminal. Um cadeado que fosse regra de planejamento faria `--runtime claude-code` escrever duas árvores, e a flag pararia de dizer o que faz.
+A flag continua literal. É o que preserva a decisão do [#8](https://github.com/ThiagoPanini/overpower/issues/8) de que **a linha de comando é o manifesto** — ela tem de caber num README, num Makefile e num passo de CI, e significar ali o mesmo que significa no terminal. Um cadeado que fosse regra de planejamento faria `--runtime claude-code` escrever duas árvores, e a flag pararia de dizer o que faz.
 
 Também é o que mantém a asserção central: *o plano é igual ao disco*. O plano não ganha nada implícito; ele lista o que o `Request` carrega, e o `Request` carrega o que a tela mostrou travado.
 
@@ -57,4 +57,4 @@ Também é o que mantém a asserção central: *o plano é igual ao disco*. O pl
 
 **Os números 19 e 6 são vendorizados como o 76 e o 74.** Vêm do upstream e envelhecem com ele; pela **regra 5** a versão do overpower é a versão da tabela. Um refresh que mude quem lê `.agents/skills` muda os números e não muda esta decisão.
 
-**Esta ADR se reabre** se o método de escrita voltar a ser escolha — um `--copy`/symlink em projeto, que o [#9](https://github.com/panlabs-tech/overpower/issues/9) matou —, porque aí o canônico volta e o cadeado deixa de ser preço e passa a ser consequência, como é no upstream. Reabre também se a tabela deixar de ter caminho compartilhado por muitos, porque aí não há grupo a travar.
+**Esta ADR se reabre** se o método de escrita voltar a ser escolha — um `--copy`/symlink em projeto, que o [#9](https://github.com/ThiagoPanini/overpower/issues/9) matou —, porque aí o canônico volta e o cadeado deixa de ser preço e passa a ser consequência, como é no upstream. Reabre também se a tabela deixar de ter caminho compartilhado por muitos, porque aí não há grupo a travar.

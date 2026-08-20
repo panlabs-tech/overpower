@@ -2,7 +2,7 @@
 
 Que forma tem um teste neste repo — o que é substituído por dublê, o que roda de verdade, e como a saída visual é asseverada sem que todo ajuste estético quebre teste.
 
-Decidido em [Doutrina de teste](https://github.com/panlabs-tech/overpower/issues/30). O que **não** se decide aqui, porque já estava travado: **onde** o teste roda — `static` (ubuntu, um Python) + `test` (**3 SOs × 3 versões**) + `gate` —, `pytest` bloqueante, e o corte local × CI, todos do [#24](https://github.com/panlabs-tech/overpower/issues/24); e `pytest 9` com `strict = true`, do [#2](https://github.com/panlabs-tech/overpower/issues/2).
+Decidido em [Doutrina de teste](https://github.com/ThiagoPanini/overpower/issues/30). O que **não** se decide aqui, porque já estava travado: **onde** o teste roda — `static` (ubuntu, um Python) + `test` (**3 SOs × 3 versões**) + `gate` —, `pytest` bloqueante, e o corte local × CI, todos do [#24](https://github.com/ThiagoPanini/overpower/issues/24); e `pytest 9` com `strict = true`, do [#2](https://github.com/ThiagoPanini/overpower/issues/2).
 
 ## Resumo executável
 
@@ -54,23 +54,23 @@ def test_installing_over_a_previous_version_leaves_no_stale_file(tmp_path: Path)
     survives and reads as installed."""
 ```
 
-O terceiro caso é o que **prende a semântica de escrita à identidade de três vias** (§5 abaixo): se o disco tem de ser igual ao plano, o destino de uma escrita planejada tem de ficar **igual à origem**, não sobreposto a ela. Como satisfazer isso é implementação — o [#9](https://github.com/panlabs-tech/overpower/issues/9) já tinha nomeado a armadilha sem escolher o conserto —, mas a asserção não admite sobreposição.
+O terceiro caso é o que **prende a semântica de escrita à identidade de três vias** (§5 abaixo): se o disco tem de ser igual ao plano, o destino de uma escrita planejada tem de ficar **igual à origem**, não sobreposto a ela. Como satisfazer isso é implementação — o [#9](https://github.com/ThiagoPanini/overpower/issues/9) já tinha nomeado a armadilha sem escolher o conserto —, mas a asserção não admite sobreposição.
 
 ## 2. Uma suíte só, e ela roda inteira nas 9 células
 
-Não existe categoria *"roda numa célula só"*, e não existe marcador `slow`. O [#24](https://github.com/panlabs-tech/overpower/issues/24) mediu **7–13 s de overhead fixo por job** contra uma bateria de **~2 s**: dividir a suíte não compra tempo, e o que se testa — disco — é justamente o que diverge entre as 9 células.
+Não existe categoria *"roda numa célula só"*, e não existe marcador `slow`. O [#24](https://github.com/ThiagoPanini/overpower/issues/24) mediu **7–13 s de overhead fixo por job** contra uma bateria de **~2 s**: dividir a suíte não compra tempo, e o que se testa — disco — é justamente o que diverge entre as 9 células.
 
 Teste que não pode rodar numa plataforma **chaveia por `sys.platform`**, nunca por variável de ambiente. A preocupação da régua (§2) é que a exigência suma do workflow e o CI fique verde skipando tudo; `sys.platform` não pode ser esquecido no YAML.
 
 Três ausências ficam registradas como **conhecidas**, não como cobertura:
 
-- o caso **sem privilégio de symlink** no Windows não é reproduzível na CI hospedada — o `actions/runner-images` liga **Developer Mode** e põe o usuário em `Administrators` ([#19](https://github.com/panlabs-tech/overpower/issues/19)). A máquina do dev é o único lugar onde ele aparece;
+- o caso **sem privilégio de symlink** no Windows não é reproduzível na CI hospedada — o `actions/runner-images` liga **Developer Mode** e põe o usuário em `Administrators` ([#19](https://github.com/ThiagoPanini/overpower/issues/19)). A máquina do dev é o único lugar onde ele aparece;
 - **PyPy não tem `CreateJunction`**, e não está na matriz;
-- **construir uma pergunta do `questionary` não roda nas células Windows.** Medido em [#57](https://github.com/panlabs-tech/overpower/issues/57): a construção monta um `Application` do `prompt_toolkit`, e a saída Win32 dele levanta `NoConsoleScreenBufferError` num processo sem console screen buffer — que é o que um filho do `pytest` no runner hospedado é. Um terminal Windows de verdade tem o buffer, então o caminho do produto não é afetado; o que fica sem cobertura ali é a asserção de que a biblioteca aceita os argumentos que o wizard passa.
+- **construir uma pergunta do `questionary` não roda nas células Windows.** Medido em [#57](https://github.com/ThiagoPanini/overpower/issues/57): a construção monta um `Application` do `prompt_toolkit`, e a saída Win32 dele levanta `NoConsoleScreenBufferError` num processo sem console screen buffer — que é o que um filho do `pytest` no runner hospedado é. Um terminal Windows de verdade tem o buffer, então o caminho do produto não é afetado; o que fica sem cobertura ali é a asserção de que a biblioteca aceita os argumentos que o wizard passa.
 
 ## 3. `git` roda de verdade, e o remoto é local
 
-O [#25](https://github.com/panlabs-tech/overpower/issues/25) fixou o primário como `init` + `remote add` + `fetch --depth 1 origin <ref>` + `checkout FETCH_HEAD`, e o fallback como tarball anônimo do `codeload`. Isso é **subprocesso e rede**. O corte separa os dois: **o subprocesso roda; a rede não.**
+O [#25](https://github.com/ThiagoPanini/overpower/issues/25) fixou o primário como `init` + `remote add` + `fetch --depth 1 origin <ref>` + `checkout FETCH_HEAD`, e o fallback como tarball anônimo do `codeload`. Isso é **subprocesso e rede**. O corte separa os dois: **o subprocesso roda; a rede não.**
 
 Medido para esta decisão, com um repositório local fazendo de remoto:
 
@@ -113,7 +113,7 @@ def test_a_search_that_finds_nothing_does_not_fall_back() -> None:
 
 ## 4. Rede nunca entra em portão
 
-Esta é a **quarta ocorrência da mesma classe**, e a regra já estava escrita: o [#11](https://github.com/panlabs-tech/overpower/issues/11) recusou o P3 por pôr rede num CI que o [#3](https://github.com/panlabs-tech/overpower/issues/3) mediu instável; o [#19](https://github.com/panlabs-tech/overpower/issues/19) rebaixou o job `windows-latest` a verificação de release; o [#24](https://github.com/panlabs-tech/overpower/issues/24) recusou o portão de frescura da tabela e generalizou — **portão bloqueia o que este repo controla; o que depende de terceiro é ato de curadoria, não automação.** O GitHub é terceiro.
+Esta é a **quarta ocorrência da mesma classe**, e a regra já estava escrita: o [#11](https://github.com/ThiagoPanini/overpower/issues/11) recusou o P3 por pôr rede num CI que o [#3](https://github.com/ThiagoPanini/overpower/issues/3) mediu instável; o [#19](https://github.com/ThiagoPanini/overpower/issues/19) rebaixou o job `windows-latest` a verificação de release; o [#24](https://github.com/ThiagoPanini/overpower/issues/24) recusou o portão de frescura da tabela e generalizou — **portão bloqueia o que este repo controla; o que depende de terceiro é ato de curadoria, não automação.** O GitHub é terceiro.
 
 Então o teste ponta a ponta contra o `mattpocock/skills` real **existe**, é comando documentado, e **não roda em job nenhum** — nem no PR, nem no release. Ele é passo de curadoria, ao lado do refresh do conteúdo.
 
@@ -133,7 +133,7 @@ Com a variável ligada a condição de skip não pode mais ser satisfeita — um
 
 ## 5. A identidade de três vias
 
-O [#18](https://github.com/panlabs-tech/overpower/issues/18) mediu **três** comandos do `npx skills` anunciando um conjunto de caminhos e escrevendo outro, sempre com `exit 0`. Isso sobe a exigência do [#8](https://github.com/panlabs-tech/overpower/issues/8) — que era o `--dry-run` espelhar o **exit code** — para espelhar o **conteúdo**. A asserção que prova as três de uma vez é uma só:
+O [#18](https://github.com/ThiagoPanini/overpower/issues/18) mediu **três** comandos do `npx skills` anunciando um conjunto de caminhos e escrevendo outro, sempre com `exit 0`. Isso sobe a exigência do [#8](https://github.com/ThiagoPanini/overpower/issues/8) — que era o `--dry-run` espelhar o **exit code** — para espelhar o **conteúdo**. A asserção que prova as três de uma vez é uma só:
 
 > **`caminhos(stdout do --dry-run)` == `caminhos(stdout da execução real)` == `walk(disco)`**
 
@@ -154,7 +154,7 @@ A identidade também **manda no desenho**, não só no teste: o escritor consome
 
 ## 6. Saída visual: estrutura no portão, snapshot por tela
 
-O [#12](https://github.com/panlabs-tech/overpower/issues/12) mediu que **cor não quebra teste e layout quebra** — numa suíte de 9, trocar a cor da marca quebrou **zero**, porque o snapshot congelava layout e não cor. A variante F, porém, tem moldura, identação e **reembrulho por largura**, e largura é entrada. Três medições contra as capturas reais do protótipo decidiram a forma.
+O [#12](https://github.com/ThiagoPanini/overpower/issues/12) mediu que **cor não quebra teste e layout quebra** — numa suíte de 9, trocar a cor da marca quebrou **zero**, porque o snapshot congelava layout e não cor. A variante F, porém, tem moldura, identação e **reembrulho por largura**, e largura é entrada. Três medições contra as capturas reais do protótipo decidiram a forma.
 
 **Medição 1 — o tamanho do estrago.** Quantas linhas de um snapshot gravado mudariam num ajuste estético real:
 
@@ -194,7 +194,7 @@ Nada de plugin: uma dev-dep a menos, e o caminho de atualização fica explícit
 
 ~~**A tela do `questionary` não é nossa para gravar.** O #12 mediu que as telas de seleção saem **idênticas em todas as variantes**, porque o `questionary` é dono daquela tela inteira. Snapshot dela grava o desenho de terceiro.~~
 
-> **Revisto pelo [#65](https://github.com/panlabs-tech/overpower/issues/65).** A premissa era a posse, e ela mudou: o wizard substitui `questionary.prompts.common.create_inquirer_layout`, então o bloco travado, o viewport, o contador e o rodapé são desenho **nosso**. O que continua não sendo nosso são as linhas de escolha, que o `InquirerControl` desenha — e elas continuam sem snapshot.
+> **Revisto pelo [#65](https://github.com/ThiagoPanini/overpower/issues/65).** A premissa era a posse, e ela mudou: o wizard substitui `questionary.prompts.common.create_inquirer_layout`, então o bloco travado, o viewport, o contador e o rodapé são desenho **nosso**. O que continua não sendo nosso são as linhas de escolha, que o `InquirerControl` desenha — e elas continuam sem snapshot.
 >
 > O que entrou não foi snapshot, e a razão é uma medida: **o fluxo de bytes não distingue *escrito* de *visível*.** O layout antigo escrevia as 57 linhas da lista e deixava o terminal rolar 56 delas, então uma gravação de bytes teria passado verde sobre o defeito que o #65 existe para consertar — 1 linha selecionável numa tela de 24. A guarda é portanto **aritmética**: pergunta + bloco estático + viewport + contador + rodapé tem de caber em 24 linhas, e o viewport não pode cair abaixo das 8 do `npx skills`. Roda nas 9 células, porque não precisa de terminal.
 >
@@ -210,7 +210,7 @@ O que prova a fiação é **um** teste de PTY com teclas enviadas, asseverando o
 
 ## 8. Descoberta: onde mora a asserção do `README.md` solto
 
-A [ADR 0006](../adr/0006-a-arvore-e-o-catalogo.md) trocou catálogo declarado por convenção descoberta, e o [#10](https://github.com/panlabs-tech/overpower/issues/10) mediu o único ponto cego: **`README.md` solto na pasta de tipo vira artefato**.
+A [ADR 0006](../adr/0006-a-arvore-e-o-catalogo.md) trocou catálogo declarado por convenção descoberta, e o [#10](https://github.com/ThiagoPanini/overpower/issues/10) mediu o único ponto cego: **`README.md` solto na pasta de tipo vira artefato**.
 
 A asserção mora **no espelho do módulo de descoberta**, sobre uma árvore montada em `tmp_path` — `tests/test_catalog.py`, ao lado dos outros casos de descoberta. Uma só, e ela nomeia o defeito:
 
@@ -221,7 +221,7 @@ def test_a_loose_file_in_the_type_folder_is_not_an_artifact(tmp_path: Path) -> N
 
 **Não** nasce um segundo teste varrendo o `content/` real atrás de arquivo solto: com o primeiro verde, um `README.md` no repo é inofensivo, e asseverar o repo em vez do código é testar o conteúdo de hoje.
 
-**E a descoberta não duplica P1 e P2.** Que o conteúdo chegue **dentro do wheel** é garantia dos dois portões de git e build do [#11](https://github.com/panlabs-tech/overpower/issues/11) — e não é observável de dentro do `pytest`, que sob layout `src/` importa a árvore de fonte e veria conteúdo que o wheel não tem. `pytest` prova que a descoberta está **certa dada uma árvore**; P1 e P2 provam que a **árvore chega**. Somar um teste que finge cobrir o segundo é falso conforto.
+**E a descoberta não duplica P1 e P2.** Que o conteúdo chegue **dentro do wheel** é garantia dos dois portões de git e build do [#11](https://github.com/ThiagoPanini/overpower/issues/11) — e não é observável de dentro do `pytest`, que sob layout `src/` importa a árvore de fonte e veria conteúdo que o wheel não tem. `pytest` prova que a descoberta está **certa dada uma árvore**; P1 e P2 provam que a **árvore chega**. Somar um teste que finge cobrir o segundo é falso conforto.
 
 ## 9. Forma, nomes e casas
 
@@ -266,7 +266,7 @@ uv run --with pytest-cov pytest --cov=src/overpower --cov-report=term-missing
 
 Mutation testing é **gatilho, não adoção**: entra se um bug escapar com a suíte verde, apontado ao código determinístico, nunca no portão.
 
-## O que isto encomenda ao [#14](https://github.com/panlabs-tech/overpower/issues/14)
+## O que isto encomenda ao [#14](https://github.com/ThiagoPanini/overpower/issues/14)
 
 Lista fechada, e é o insumo de teste da estruturação:
 
@@ -276,4 +276,4 @@ Lista fechada, e é o insumo de teste da estruturação:
 - o comando de curadoria com `OVERPOWER_NETWORK_TESTS=1` documentado onde o resto dos comandos morar;
 - nada de `pytest-cov`, nada de plugin de snapshot, nada de `freezegun`.
 
-E uma dependência de ordem que o [#24](https://github.com/panlabs-tech/overpower/issues/24) já tinha nomeado, aqui só reafirmada: `pytest` sem nenhum teste sai **5**, e sob ruleset isso é deadlock de merge. Os primeiros testes já estão no `main`.
+E uma dependência de ordem que o [#24](https://github.com/ThiagoPanini/overpower/issues/24) já tinha nomeado, aqui só reafirmada: `pytest` sem nenhum teste sai **5**, e sob ruleset isso é deadlock de merge. Os primeiros testes já estão no `main`.

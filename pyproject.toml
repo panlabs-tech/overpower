@@ -27,9 +27,9 @@ keywords = ["ai", "agent", "skills", "claude", "cursor", "codex"]
 classifiers = [
   # `1 - Planning` was true of the `0.0.x` probe and is the same claim the README
   # notice made; both leave together in
-  # https://github.com/panlabs-tech/overpower/issues/44. It stays `3 - Alpha` and
+  # https://github.com/ThiagoPanini/overpower/issues/44. It stays `3 - Alpha` and
   # not `4 - Beta`: the graft class is exercised since
-  # https://github.com/panlabs-tech/overpower/issues/76, but for **one** of the
+  # https://github.com/ThiagoPanini/overpower/issues/76, but for **one** of the
   # three measured targets and with no slot, so the surface a user meets still
   # grows ticket by ticket.
   "Development Status :: 3 - Alpha",
@@ -39,7 +39,7 @@ classifiers = [
   "Topic :: Software Development :: Code Generators",
 ]
 
-# The CLI stack, fixed in https://github.com/panlabs-tech/overpower/issues/4.
+# The CLI stack, fixed in https://github.com/ThiagoPanini/overpower/issues/4.
 # Measured cost of the three that open the list, under `uvx`: +0.55 s cold,
 # +0.04 s warm. Every entry below them carries the reason it exists — the table
 # is short enough that justifying each one is cheaper than re-deriving it.
@@ -65,7 +65,7 @@ dependencies = [
   # The format the overpower writes about itself, and the first dependency it
   # takes for a file of its **own** rather than for the CLI or for somebody
   # else's document. It pays for two things at once
-  # (https://github.com/panlabs-tech/overpower/issues/136):
+  # (https://github.com/ThiagoPanini/overpower/issues/136):
   #
   #   - `catalog.yaml`, the one written file, which the federated manifest of a
   #     homemade repository reaches through the *same* reader — one validator,
@@ -90,7 +90,7 @@ Issues = "https://github.com/panlabs-tech/overpower/issues"
 [project.scripts]
 # package == command == `overpower`. `uvx <name>` resolves by *command* and
 # infers the package by name equality; diverging forces `--from`.
-# Measured in https://github.com/panlabs-tech/overpower/issues/3
+# Measured in https://github.com/ThiagoPanini/overpower/issues/3
 overpower = "overpower.cli:main"
 
 # The sdist declares what it carries, and the mechanism is an ALLOWLIST:
@@ -122,7 +122,7 @@ overpower = "overpower.cli:main"
 include = ["src/"]
 
 # --------------------------------------------------------------------------- #
-# Project management — https://github.com/panlabs-tech/overpower/issues/2
+# Project management — https://github.com/ThiagoPanini/overpower/issues/2
 # --------------------------------------------------------------------------- #
 
 [tool.uv]
@@ -139,19 +139,19 @@ dev = ["pytest>=9", "pytest-randomly", "ruff", "towncrier"]
 typecheck = ["pyright"]
 
 # Deliberately absent, and each absence is a decision of
-# https://github.com/panlabs-tech/overpower/issues/30:
+# https://github.com/ThiagoPanini/overpower/issues/30:
 #   pytest-cov  — coverage is an ephemeral diagnostic, never a gate. The command
 #                 lives in README.md and installs the plugin with `--with`.
 #   syrupy      — the snapshot comparator is ~15 lines in tests/support.
 #   freezegun   — the product never reads a clock.
 
 # --------------------------------------------------------------------------- #
-# Lint and format — https://github.com/panlabs-tech/overpower/issues/2
+# Lint and format — https://github.com/ThiagoPanini/overpower/issues/2
 # --------------------------------------------------------------------------- #
 
 [tool.ruff]
 # 100 and not the default 88, decided in
-# https://github.com/panlabs-tech/overpower/issues/24 against a real specimen of
+# https://github.com/ThiagoPanini/overpower/issues/24 against a real specimen of
 # the org (90 files, 20740 lines, strictly annotated): 88 rewraps 2.71% of the
 # lines, 98 rewraps 0.25%, 100 rewraps none. 98 and 100 tie on measurement, and
 # 100 wins the tie-break on explanation cost.
@@ -188,7 +188,7 @@ ignore = [
 ]
 # `›` is the product's own punctuation for *a key inside a document* —
 # `.mcp.json › mcpServers.cloudflare`, decided with the graft in
-# https://github.com/panlabs-tech/overpower/issues/76. RUF001 is right that it
+# https://github.com/ThiagoPanini/overpower/issues/76. RUF001 is right that it
 # resembles `>`, and that is exactly why it is not `>`: the plan line sits next
 # to lines meant to be pasted into a shell, where `>` reads as a redirect.
 # Allowed once, here, rather than suppressed at each of the sites that draw it.
@@ -233,7 +233,7 @@ convention = "google"
 docstring-code-format = true
 
 # --------------------------------------------------------------------------- #
-# Typing — https://github.com/panlabs-tech/overpower/issues/2
+# Typing — https://github.com/ThiagoPanini/overpower/issues/2
 # --------------------------------------------------------------------------- #
 
 [tool.pyright]
@@ -246,7 +246,7 @@ venvPath = "."
 venv = ".venv"
 
 # --------------------------------------------------------------------------- #
-# Tests — https://github.com/panlabs-tech/overpower/issues/2 and /issues/30
+# Tests — https://github.com/ThiagoPanini/overpower/issues/2 and /issues/30
 # --------------------------------------------------------------------------- #
 
 [tool.pytest.ini_options]
@@ -267,7 +267,7 @@ markers = ["network: talks to GitHub; a curation step, never a gate"]
 required_plugins = ["pytest-randomly"]
 
 # --------------------------------------------------------------------------- #
-# CHANGELOG — https://github.com/panlabs-tech/overpower/issues/2
+# CHANGELOG — https://github.com/ThiagoPanini/overpower/issues/2
 # --------------------------------------------------------------------------- #
 
 # The six Keep a Changelog sections replace towncrier's defaults (`feature`,
@@ -276,7 +276,7 @@ required_plugins = ["pytest-randomly"]
 # filename, which turns the CHANGELOG into a navigable index of the map.
 #
 # THE TYPES ARE ALSO THE VERSION. Since
-# https://github.com/panlabs-tech/overpower/issues/62 the `release-ready` check
+# https://github.com/ThiagoPanini/overpower/issues/62 the `release-ready` check
 # reads the section titles back off the CHANGELOG and refuses a bump smaller
 # than they ask for — `breaking`/`removed` major, `added`/`changed`/`deprecated`
 # minor, `fixed`/`security` patch, with major capped at minor while the project
@@ -297,7 +297,7 @@ directory = "changelog.d"
 filename = "CHANGELOG.md"
 start_string = "<!-- towncrier release notes start -->\n"
 title_format = "## [{version}] - {project_date}"
-issue_format = "[#{issue}](https://github.com/panlabs-tech/overpower/issues/{issue})"
+issue_format = "[#{issue}](https://github.com/ThiagoPanini/overpower/issues/{issue})"
 
 [[tool.towncrier.type]]
 directory = "breaking"

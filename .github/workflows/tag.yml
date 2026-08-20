@@ -1,6 +1,6 @@
 # Publishing is merging: a merge into `main` that moved the version creates the
 # tag and dispatches the release; a merge that did not moves nothing.
-# https://github.com/panlabs-tech/overpower/issues/24
+# https://github.com/ThiagoPanini/overpower/issues/24
 #
 # "Every merge publishes" does not survive this repository's own history —
 # measured, 2 of 10 commits changed the version, and the other 8 would have

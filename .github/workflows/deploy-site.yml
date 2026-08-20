@@ -10,7 +10,7 @@
 # `id-token` scope for the `pypi` environment, and the only artifact it uploads
 # is the static site.
 #
-# https://github.com/panlabs-tech/overpower/issues/130
+# https://github.com/ThiagoPanini/overpower/issues/130
 name: Deploy the documentation site
 
 on:

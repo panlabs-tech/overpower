@@ -2,7 +2,7 @@
 
 The doctrine cuts the `--from` path in one place and one only: **the subprocess
 runs; the network does not**
-(https://github.com/panlabs-tech/overpower/issues/30). Everything the primary
+(https://github.com/ThiagoPanini/overpower/issues/30). Everything the primary
 obtention path is worth asserting survives that cut, measured against a local
 repository standing in for the remote:
 
@@ -22,7 +22,7 @@ and against the real GitHub.
 **The honest limit**, because a local remote does not cover it: fetching an
 arbitrary SHA depends on the *server* allowing it. `allow_any_sha` below turns
 that on so the local remote behaves like GitHub, but that GitHub does behave
-this way was measured in https://github.com/panlabs-tech/overpower/issues/25,
+this way was measured in https://github.com/ThiagoPanini/overpower/issues/25,
 not here.
 """
 

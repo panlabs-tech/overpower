@@ -4,11 +4,11 @@ Enxertar preserva byte a byte o arquivo do usuário: o `git diff` mostra **só**
 
 > `json.dumps` está proibido como escritor de enxerto.
 
-Decidido na sessão de grilling que produziu a spec de MCP, fechando [Preservação de formato ao enxertar](https://github.com/panlabs-tech/overpower/issues/22).
+Decidido na sessão de grilling que produziu a spec de MCP, fechando [Preservação de formato ao enxertar](https://github.com/ThiagoPanini/overpower/issues/22).
 
 ## A razão é o axioma 2, e ela não é estética
 
-*"Num repo git, o git é o manifesto"* só vale se o diff responder **exatamente** o que a ferramenta escreveu. Medido em [Formatos de configuração de MCP por runtime](https://github.com/panlabs-tech/overpower/issues/17), escrever com `json.dumps` no melhor caso possível — `.mcp.json` estrito, sem comentários, `indent=2` idêntico ao do usuário — já produz isto ao instalar **um** servidor:
+*"Num repo git, o git é o manifesto"* só vale se o diff responder **exatamente** o que a ferramenta escreveu. Medido em [Formatos de configuração de MCP por runtime](https://github.com/ThiagoPanini/overpower/issues/17), escrever com `json.dumps` no melhor caso possível — `.mcp.json` estrito, sem comentários, `indent=2` idêntico ao do usuário — já produz isto ao instalar **um** servidor:
 
 ```diff
      "antigo": {
@@ -41,7 +41,7 @@ E há um custo medido extra: o trust de `.vscode/mcp.json` é `TrustedOnNonce`, 
 
 ### Escrever nosso próprio splice
 
-Leitor JSONC mínimo mais inserção textual nossa, zero dependência. Coerente com um projeto que se fixou enxuto ([#2](https://github.com/panlabs-tech/overpower/issues/2)).
+Leitor JSONC mínimo mais inserção textual nossa, zero dependência. Coerente com um projeto que se fixou enxuto ([#2](https://github.com/ThiagoPanini/overpower/issues/2)).
 
 **Perdeu por proporção**: é código de parser em produção, exercitado sobre arquivo de terceiro que pode chegar de qualquer forma, para economizar uma dependência que já era necessária como leitor.
 
@@ -53,7 +53,7 @@ A primeira delas é exatamente a classe de defeito que este produto existe para 
 
 **Colisão de nome de módulo.** O pacote PyPI `json-five` instala o módulo `json5` — mesmo nome do pacote PyPI `json5`. Os dois no mesmo ambiente é colisão.
 
-**O `pyright` strict tem ponto cego aqui.** Medido no [estado da arte](https://github.com/panlabs-tech/overpower/issues/2): `Any` explícito não é `Unknown`, e o escritor de enxerto é justamente código que lê JSON de terceiro. A tipagem não cobre este módulo; o teste sobre bytes cobre.
+**O `pyright` strict tem ponto cego aqui.** Medido no [estado da arte](https://github.com/ThiagoPanini/overpower/issues/2): `Any` explícito não é `Unknown`, e o escritor de enxerto é justamente código que lê JSON de terceiro. A tipagem não cobre este módulo; o teste sobre bytes cobre.
 
 **E se o arquivo do usuário já estiver quebrado**, o overpower faz o que as CLIs oficiais fazem — medido: `claude mcp add` e `codex mcp add` **recusam e não reparam**. Reparar é editar por conta própria um arquivo que não é nosso.
 

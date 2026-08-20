@@ -1,7 +1,7 @@
 """The table is a transcription, so most of what is worth asserting is shape.
 
 The counts below are the ones the map states out loud — in
-https://github.com/panlabs-tech/overpower/issues/18, in ADR 0008 and in
+https://github.com/ThiagoPanini/overpower/issues/18, in ADR 0008 and in
 `docs/agents/domain.md`. Pinning them here is what turns "76 runtimes, 55
 project paths" from prose into something that breaks when a refresh changes it.
 """
@@ -121,7 +121,7 @@ def test_the_mcp_table_keys_now_nest_inside_runtimes_but_prove_nothing_there() -
 
     `vscode` joined `claude-code` and `devin` there, so the MCP table's keys are
     now a subset of `RUNTIMES_BY_KEY` — the direction
-    https://github.com/panlabs-tech/overpower/issues/79 once measured false. The
+    https://github.com/ThiagoPanini/overpower/issues/79 once measured false. The
     other direction still fails, which is what keeps this a pair of tables and
     not a hierarchy: `cursor` has a skills row and no MCP document anywhere. And
     `vscode`'s own row proves the type-level decision was right regardless of set
@@ -461,7 +461,7 @@ def test_only_openclaw_consults_the_filesystem() -> None:
         assert consulted == [] or row.key == "openclaw"
 
 
-# --- machine documents: the 3x3 matrix of https://github.com/panlabs-tech/overpower/issues/81
+# --- machine documents: the 3x3 matrix of https://github.com/ThiagoPanini/overpower/issues/81
 
 
 WINDOWS, MACOS, LINUX = "win32", "darwin", "linux"

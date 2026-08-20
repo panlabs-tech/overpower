@@ -1,7 +1,7 @@
 """The snapshot comparator: one file per screen, updated only when asked.
 
 No plugin, and that is a decision rather than an omission
-(https://github.com/panlabs-tech/overpower/issues/30): one dev dependency fewer,
+(https://github.com/ThiagoPanini/overpower/issues/30): one dev dependency fewer,
 and the update path stays an explicit command instead of a reflex.
 
     uv run pytest --snapshot-update tests/test_screens.py

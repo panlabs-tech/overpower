@@ -47,9 +47,9 @@ LONG_DESCRIPTION = "a" * 517
 """The worst case of *"the whole description, never truncated"*.
 
 517 characters is the maximum measured across the promoted skills in
-https://github.com/panlabs-tech/overpower/issues/10, and the pool skill that
+https://github.com/ThiagoPanini/overpower/issues/10, and the pool skill that
 ships in v0.1.0 was chosen for having exactly that description
-(https://github.com/panlabs-tech/overpower/issues/45).
+(https://github.com/ThiagoPanini/overpower/issues/45).
 """
 
 

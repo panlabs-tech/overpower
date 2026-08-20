@@ -7,7 +7,7 @@ O `--from` passa a responder duas perguntas diferentes, e elas têm regras de bu
 
 A primeira responde *"o que este repositório oferta?"*, que é propriedade do **repositório**. A segunda responde *"você tem isto?"*, que é propriedade do **caminho que o usuário apontou**. Uma regra só não serve às duas, e a medição diz qual erra menos em cada uma.
 
-Decidido na sabatina de [Repositório caseiro](https://github.com/panlabs-tech/overpower/issues/26).
+Decidido na sabatina de [Repositório caseiro](https://github.com/ThiagoPanini/overpower/issues/26).
 
 ## Considered Options
 
@@ -32,7 +32,7 @@ Decidido na sabatina de [Repositório caseiro](https://github.com/panlabs-tech/o
 
 **O deny-list perdeu a enumeração e ganhou outro lugar.** Excluir os destinos que o próprio overpower escreve acerta 74 com um falso positivo, o que é pior que a âncora. Mas ele resolve um defeito que a âncora não toca: a busca **nomeada** devolve **exit 3 falso** num repositório que tenha `skills/alpha` e `.claude/skills/alpha`, que é o estado de todo repositório caseiro que já rodou `overpower install` em si mesmo. Isso é correção de defeito existente, não parte desta decisão.
 
-**A alternativa de uma regra só** — ancorar também a busca nomeada — quebra a promessa de raiz de busca que o [#25](https://github.com/panlabs-tech/overpower/issues/25) mediu e testou: `--from .../tree/main/skills/engineering/tdd` aponta para a pasta da própria skill, e sob a âncora não existiria `skills/` abaixo dela. As três profundidades de URL devolvendo a mesma resposta é comportamento shipado, com teste verde.
+**A alternativa de uma regra só** — ancorar também a busca nomeada — quebra a promessa de raiz de busca que o [#25](https://github.com/ThiagoPanini/overpower/issues/25) mediu e testou: `--from .../tree/main/skills/engineering/tdd` aponta para a pasta da própria skill, e sob a âncora não existiria `skills/` abaixo dela. As três profundidades de URL devolvendo a mesma resposta é comportamento shipado, com teste verde.
 
 ## Consequences
 
@@ -44,6 +44,6 @@ Decidido na sabatina de [Repositório caseiro](https://github.com/panlabs-tech/o
 
 **Só `skills/` é enumerado.** `commands/` e `agents/` existem no conjunto fechado do embutido e ficaram de fora do federado: medido, **0 dos 75** vive neles, e um comando caseiro precisaria carregar um `SKILL.md` porque `_description_of` exige o arquivo em todo tipo. Admiti-los depois é aditivo — um repositório hoje ignorado em silêncio não reclama; um hoje listado que amanhã some, sim.
 
-**No alcance, o deny-list é desempate e não filtro** — decidido na implementação ([#135](https://github.com/panlabs-tech/overpower/issues/135)), porque esta ADR pesou o deny-list só na enumeração e o custo dele no alcance ficou sem medir. Filtrar responde *não achei* sobre a única coisa que existe sob a raiz, e isso não é canto: `github/spec-kit` — uma das 6 linhas medidas aqui — tem seu único `SKILL.md` sob `.github/skills/`, e duas linhas da tabela de runtime são nomes de pasta comuns que um repositório pode ofertar de verdade (`agent/skills` do `eve`, `data/skills` do `astrbot`). A regra que sai: **descarte as cópias, a menos que descartá-las não deixe nada**. Uma cópia nunca ganha de uma oferta, e nunca esconde a única resposta. Duas ofertas homônimas de verdade seguem ambíguas, que é o caso que a recusa existe para pegar.
+**No alcance, o deny-list é desempate e não filtro** — decidido na implementação ([#135](https://github.com/ThiagoPanini/overpower/issues/135)), porque esta ADR pesou o deny-list só na enumeração e o custo dele no alcance ficou sem medir. Filtrar responde *não achei* sobre a única coisa que existe sob a raiz, e isso não é canto: `github/spec-kit` — uma das 6 linhas medidas aqui — tem seu único `SKILL.md` sob `.github/skills/`, e duas linhas da tabela de runtime são nomes de pasta comuns que um repositório pode ofertar de verdade (`agent/skills` do `eve`, `data/skills` do `astrbot`). A regra que sai: **descarte as cópias, a menos que descartá-las não deixe nada**. Uma cópia nunca ganha de uma oferta, e nunca esconde a única resposta. Duas ofertas homônimas de verdade seguem ambíguas, que é o caso que a recusa existe para pegar.
 
 **AI Framework não entra por `--from`.** Ele fica sendo conceito do que está embutido no código-fonte do overpower, e uma linha nomeando-o ao lado de `--from` segue recusada em **exit 2**. O que a [ADR 0006](0006-a-arvore-e-o-catalogo.md) exige de um framework — o nível de tipo repetido dentro dele, sendo a árvore a única fonte possível do tipo — não tem quem garanta num repositório alheio.

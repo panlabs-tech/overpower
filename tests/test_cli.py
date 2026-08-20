@@ -195,7 +195,7 @@ def test_the_list_command_shows_the_four_blocks(capsys: pytest.CaptureFixture[st
 
     Whoever has never read the documentation learns the class exists from the
     catalog itself, which is what the block buys
-    (https://github.com/panlabs-tech/overpower/issues/77).
+    (https://github.com/ThiagoPanini/overpower/issues/77).
     """
     code, output = output_of(capsys, ["list"])
 

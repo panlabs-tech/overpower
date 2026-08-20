@@ -7,9 +7,9 @@ many words: *"no double is born for the renderer; what needs a fixture is the
 recipe, which is a value."*
 
 This is where the matrix of target by dialect is asserted. Three columns —
-Claude Code (https://github.com/panlabs-tech/overpower/issues/76), VS Code
-(https://github.com/panlabs-tech/overpower/issues/79) and Devin
-(https://github.com/panlabs-tech/overpower/issues/80) — and the assertions are
+Claude Code (https://github.com/ThiagoPanini/overpower/issues/76), VS Code
+(https://github.com/ThiagoPanini/overpower/issues/79) and Devin
+(https://github.com/ThiagoPanini/overpower/issues/80) — and the assertions are
 about **what each column spells**: the root key it lands under, how it
 discriminates the transport, the fields each transport carries, and the grafts
 one recipe becomes.
@@ -902,7 +902,7 @@ def test_the_answer_follows_the_table_and_never_the_recipe() -> None:
 def test_a_second_scope_on_the_table_becomes_another_target() -> None:
     """A pair is (runtime, scope), so the machine scope tripled the answer — not the recipe.
 
-    https://github.com/panlabs-tech/overpower/issues/81 was the day this test
+    https://github.com/ThiagoPanini/overpower/issues/81 was the day this test
     was written for. The same recipe is offered six pairs now, and the file that
     moved is the table: `targets_of` is handed a project-only table and answers
     three, handed the real one and answers six.

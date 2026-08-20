@@ -14,4 +14,4 @@ Isso dá uma regra melhor que a proposta: **o que está dentro da árvore do art
 
 **Divergência registrada.** A mesma medição mostrou que a dinâmica não é idêntica ao incumbente: o `npx skills` escreve `~/.agents/.skill-lock.json` (9,1 KB) e um `skills-lock.json` por projeto, e esse lock **registra procedência** — `source: "mattpocock/skills"`, `sourceType: "github"` por skill. Sob o axioma "sem estado no alvo" o overpower não escreve nada disso, o que o torna **mais estrito** que o incumbente, não igual. A perda dessa procedência foi aceita conscientemente.
 
-O `NOTICE` do wheel, decidido em [Onde os assets vivem e como entram no wheel](https://github.com/panlabs-tech/overpower/issues/11), segue valendo: ele cobre a distribuição da ferramenta, que é outra cópia e outra obrigação.
+O `NOTICE` do wheel, decidido em [Onde os assets vivem e como entram no wheel](https://github.com/ThiagoPanini/overpower/issues/11), segue valendo: ele cobre a distribuição da ferramenta, que é outra cópia e outra obrigação.

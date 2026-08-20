@@ -2,11 +2,11 @@
 
 O `pyproject.toml` do overpower não tem `force-include`, não tem `artifacts`, não tem `ignore-vcs` e não tem `packages`. O conteúdo vendorizado entra no wheel pela travessia default do `hatchling`, sem uma linha de configuração de build.
 
-O artefato desta decisão é uma **ausência**, e por isso ela precisa estar escrita: quem ler a [pesquisa de empacotamento](https://github.com/panlabs-tech/overpower/issues/3) — que recomenda `hatchling` justamente por ele ter `force-include` — e abrir o `pyproject.toml` vai achar que faltou alguém escrever a configuração.
+O artefato desta decisão é uma **ausência**, e por isso ela precisa estar escrita: quem ler a [pesquisa de empacotamento](https://github.com/ThiagoPanini/overpower/issues/3) — que recomenda `hatchling` justamente por ele ter `force-include` — e abrir o `pyproject.toml` vai achar que faltou alguém escrever a configuração.
 
 ## Considered Options
 
-O problema real existe. O `.gitignore` do repo tem **88 padrões que casam em qualquer profundidade** — `build/`, `lib/`, `dist/`, `var/`, `env/`, `*.spec`, `*.log` — e o `hatchling` respeita esse arquivo. Medido: cinco arquivos de conteúdo dentro do pacote, dois deles em pastas chamadas `build/` e `lib/`; `git add -A`, `uv build`; **o build saiu 0 e o wheel foi publicado com 1 dos 5**, sem aviso do git, do build ou do wheel. É a mesma classe do `hatch-vcs` sob clone raso registrada no [#2](https://github.com/panlabs-tech/overpower/issues/2): sucesso com conteúdo errado.
+O problema real existe. O `.gitignore` do repo tem **88 padrões que casam em qualquer profundidade** — `build/`, `lib/`, `dist/`, `var/`, `env/`, `*.spec`, `*.log` — e o `hatchling` respeita esse arquivo. Medido: cinco arquivos de conteúdo dentro do pacote, dois deles em pastas chamadas `build/` e `lib/`; `git add -A`, `uv build`; **o build saiu 0 e o wheel foi publicado com 1 dos 5**, sem aviso do git, do build ou do wheel. É a mesma classe do `hatch-vcs` sob clone raso registrada no [#2](https://github.com/ThiagoPanini/overpower/issues/2): sucesso com conteúdo errado.
 
 Quatro saídas foram construídas e medidas.
 

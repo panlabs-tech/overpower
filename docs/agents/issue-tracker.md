@@ -1,8 +1,8 @@
 # Issue tracker
 
-As issues deste repo vivem como **issues do GitHub** em `panlabs-tech/overpower`. Use a CLI `gh` para todas as operações.
+As issues deste repo vivem como **issues do GitHub** em `ThiagoPanini/overpower`. Use a CLI `gh` para todas as operações.
 
-> **Este tracker não é o da org.** `panlabs-tech/.github` hospeda trabalho sobre o **padrão panlabs**, e o próprio doc de lá diz que produto tem tracker próprio. O overpower é produto: nada dele entra lá.
+> **Este tracker não é o da org.** O overpower saiu de `panlabs-tech` e vive no perfil pessoal — a org não é mais nem o dono do repo. `panlabs-tech/.github` continua hospedando trabalho sobre o **padrão panlabs**, e o próprio doc de lá diz que produto tem tracker próprio. O overpower é produto: nada dele entra lá.
 
 ## O que entra
 
@@ -31,21 +31,21 @@ O `/wayfinder` carta a rota de um esforço grande como um **mapa** (issue-raiz) 
 
 **Criar o mapa**: `gh issue create --title "..." --label "wayfinder:map" --body-file <arquivo>`.
 
-**Criar tickets e ligar ao mapa.** As duas APIs de relação exigem o **`id`** interno da issue, não o número — resolva com `gh api repos/panlabs-tech/overpower/issues/<numero> --jq .id`.
+**Criar tickets e ligar ao mapa.** As duas APIs de relação exigem o **`id`** interno da issue, não o número — resolva com `gh api repos/{owner}/{repo}/issues/<numero> --jq .id`.
 
 ```bash
 # ticket como sub-issue do mapa
-gh api -X POST repos/panlabs-tech/overpower/issues/<MAPA>/sub_issues -F sub_issue_id=<ID_TICKET>
+gh api -X POST repos/{owner}/{repo}/issues/<MAPA>/sub_issues -F sub_issue_id=<ID_TICKET>
 
 # ticket A bloqueado pelo ticket B
-gh api -X POST repos/panlabs-tech/overpower/issues/<NUM_A>/dependencies/blocked_by -F issue_id=<ID_B>
+gh api -X POST repos/{owner}/{repo}/issues/<NUM_A>/dependencies/blocked_by -F issue_id=<ID_B>
 ```
 
 Crie todos os tickets primeiro e ligue as arestas num **segundo passe** — uma issue precisa existir antes de poder ser referenciada.
 
-**Listar os filhos do mapa**: `gh api repos/panlabs-tech/overpower/issues/<MAPA>/sub_issues --jq '.[] | {number, title, state, assignees: [.assignees[].login]}'`
+**Listar os filhos do mapa**: `gh api repos/{owner}/{repo}/issues/<MAPA>/sub_issues --jq '.[] | {number, title, state, assignees: [.assignees[].login]}'`
 
-**Ler os bloqueadores de um ticket**: `gh api repos/panlabs-tech/overpower/issues/<NUM>/dependencies/blocked_by --jq '[.[] | select(.state=="open") | .number]'`
+**Ler os bloqueadores de um ticket**: `gh api repos/{owner}/{repo}/issues/<NUM>/dependencies/blocked_by --jq '[.[] | select(.state=="open") | .number]'`
 
 **A fronteira** — tickets tomáveis agora — são os filhos do mapa que estão **abertos**, **sem assignee** e cuja lista `blocked_by` não tem nenhuma issue aberta.
 

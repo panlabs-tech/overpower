@@ -11,7 +11,7 @@
  * Roda com `npm test`. Cadência: commit.
  *
  * Transplantado de `panlabs-tech/shinydoc-docusaurus` com o SearchBar que ele
- * cobra. https://github.com/panlabs-tech/overpower/issues/130
+ * cobra. https://github.com/ThiagoPanini/overpower/issues/130
  */
 
 import {test} from 'node:test';

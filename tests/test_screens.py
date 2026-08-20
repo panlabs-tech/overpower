@@ -1,7 +1,7 @@
 """Structure at the gate, snapshot per screen — the test doctrine's §6, applied.
 
 The two halves are on purpose. Measured in
-https://github.com/panlabs-tech/overpower/issues/12: **colour does not break
+https://github.com/ThiagoPanini/overpower/issues/12: **colour does not break
 tests and layout does** — changing the brand colour broke zero of nine tests,
 because the snapshot froze layout and not colour. So the properties that carry
 meaning are asserted structurally here, where an aesthetic tweak cannot move
@@ -12,7 +12,7 @@ colour.
 ticket's own instruction: the truncation property is to be asserted *"com a
 descrição de 517 caracteres do pool como caso"*, and the pool skill of v0.1.0 was
 picked for having exactly that description — the maximum measured across the
-promoted skills (https://github.com/panlabs-tech/overpower/issues/45).
+promoted skills (https://github.com/ThiagoPanini/overpower/issues/45).
 
 **The recorded half runs against a fixture**, and that is not a shortcut — it is
 what makes a snapshot assertable at all. Measured on the Windows cells of the
@@ -275,7 +275,7 @@ that a recording moving when the table grew would spend the signal that says
 which screens a change had licence to move, and the wiring was asserted through
 the command in `test_cli.py` instead. That is exactly what let the cartesian
 product go unrecorded (#98): `targets_of` genuinely answers six pairs since
-https://github.com/panlabs-tech/overpower/issues/80, and a fixture that answered
+https://github.com/ThiagoPanini/overpower/issues/80, and a fixture that answered
 one could never have shown a screen paying for the other five, or the day the
 factoring in `_target_facts` stopped matching what the table actually returns.
 The signal a moving recording buys is worth less than the bug a static one hid.
@@ -288,7 +288,7 @@ def recorded_stdio_recipe() -> Recipe:
     A command, its arguments and one value of `[server.env]` — which is the
     distinction the schema exists for: the address of a panel is **not** a
     secret, so it is written literally, while a secret is a slot the product
-    refuses to write (https://github.com/panlabs-tech/overpower/issues/78).
+    refuses to write (https://github.com/ThiagoPanini/overpower/issues/78).
     Recorded separately from the HTTP one because the two draw different rows,
     and a screen with rows nobody recorded is a screen free to move unseen.
 
@@ -1573,7 +1573,7 @@ def test_the_mcp_screen_names_every_scope_the_table_has_a_document_for(
     """The screen promises exactly what the table can deliver — no more, no less.
 
     It used to assert that `global` never appeared, because no machine document
-    existed; https://github.com/panlabs-tech/overpower/issues/81 is where it
+    existed; https://github.com/ThiagoPanini/overpower/issues/81 is where it
     gained three. The property is the same one either way and it is derived, not
     typed: the screen is handed `targets_of`, so a scope reaches it only by
     being on the table.

@@ -1,8 +1,8 @@
 # The gate on every pull request. Seven checks, all blocking, across four jobs —
-# decided in https://github.com/panlabs-tech/overpower/issues/24 and grown twice
+# decided in https://github.com/ThiagoPanini/overpower/issues/24 and grown twice
 # since: `release-ready` in
-# https://github.com/panlabs-tech/overpower/issues/62 and P3 in
-# https://github.com/panlabs-tech/overpower/issues/71.
+# https://github.com/ThiagoPanini/overpower/issues/62 and P3 in
+# https://github.com/ThiagoPanini/overpower/issues/71.
 #
 # There is deliberately NO `on: pull_request` trigger, and the absence is the
 # decision. A check run is attached to the *SHA*, not to the event, so the run
@@ -53,10 +53,10 @@ jobs:
         run: uv run --group typecheck pyright
 
       # P1 — everything under content/ is really tracked by git.
-      # https://github.com/panlabs-tech/overpower/issues/11
+      # https://github.com/ThiagoPanini/overpower/issues/11
       #
       # Two assertions, and the first one is what
-      # https://github.com/panlabs-tech/overpower/issues/45 switched on. Measured,
+      # https://github.com/ThiagoPanini/overpower/issues/45 switched on. Measured,
       # with the directory absent `git ls-files --others --ignored` exits 0 with
       # empty output and puts its warning on stderr only — so while the content
       # root did not exist this gate passed by vacuity, which is precisely the
@@ -123,7 +123,7 @@ jobs:
           PY
 
       # P3 — the sdist carries exactly what it declared.
-      # https://github.com/panlabs-tech/overpower/issues/71
+      # https://github.com/ThiagoPanini/overpower/issues/71
       #
       # It costs no build: the P2 step above already ran `uv build --no-sources`,
       # which writes the sdist beside the wheel, so this reads `dist/` as it is.
@@ -236,7 +236,7 @@ jobs:
         run: uv run pytest
 
   # The SECOND required check, and it is deliberately not a step inside
-  # `static`. https://github.com/panlabs-tech/overpower/issues/62
+  # `static`. https://github.com/ThiagoPanini/overpower/issues/62
   #
   # `gate` means "the code is sound". A version step inside it would leave every
   # pull request red from the first draft push until the last commit, and the two

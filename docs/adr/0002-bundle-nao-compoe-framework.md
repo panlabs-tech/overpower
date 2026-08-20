@@ -14,6 +14,6 @@ Como efeito, **"perfil" saiu do vocabulário**: seria a composição nomeada de 
 
 ## Consequences
 
-Instalar um framework e um bundle que compartilham uma skill produz duas escritas no mesmo caminho, em comandos independentes, e o overpower não enxerga a sobreposição de antemão — o conteúdo pode até diferir, porque o artefato do pool é recortado e possivelmente customizado. A semântica dessa colisão é decidida em [Semântica de escrita: sobrescrita, symlink e fallback](https://github.com/panlabs-tech/overpower/issues/9).
+Instalar um framework e um bundle que compartilham uma skill produz duas escritas no mesmo caminho, em comandos independentes, e o overpower não enxerga a sobreposição de antemão — o conteúdo pode até diferir, porque o artefato do pool é recortado e possivelmente customizado. A semântica dessa colisão é decidida em [Semântica de escrita: sobrescrita, symlink e fallback](https://github.com/ThiagoPanini/overpower/issues/9).
 
 Um bundle pode **recomendar** um framework em prosa, na descrição. Preserva o conhecimento de que os dois casam, sem instalar nada e sem criar aresta de composição.

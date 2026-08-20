@@ -3,7 +3,7 @@
 # The gate is the ruleset on `main`, which has no `--no-verify`. What this file
 # does is catch the cheap error cheaply — measured, the whole hook is ~2.6 s,
 # and the CI job it pre-empts costs ~10 s of fixed overhead before doing any
-# work. Decided in https://github.com/panlabs-tech/overpower/issues/24.
+# work. Decided in https://github.com/ThiagoPanini/overpower/issues/24.
 #
 # WHY LEFTHOOK AND NOT PRE-COMMIT. They do not compete on the axis that decides.
 # `pre-commit` is an environment *manager*: it pins each tool in its own `rev:`,
@@ -39,12 +39,12 @@ pre-commit:
       run: uv run ruff check {staged_files}
 
     # P1, the cheap half of the content gate: nothing under `content/` may be
-    # hidden from git. https://github.com/panlabs-tech/overpower/issues/11
+    # hidden from git. https://github.com/ThiagoPanini/overpower/issues/11
     #
     # A subjectless P1 is a failure, not a pass — measured, with the directory
     # absent `git ls-files --others --ignored` exits 0 with empty output, which
     # is the very failure class this gate exists to catch. The content root is
-    # tracked since https://github.com/panlabs-tech/overpower/issues/45, so an
+    # tracked since https://github.com/ThiagoPanini/overpower/issues/45, so an
     # empty subject means something removed it.
     content-tracked:
       run: |

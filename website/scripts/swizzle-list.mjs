@@ -28,7 +28,7 @@
  *   node scripts/swizzle-list.mjs --verificar   falha se algo divergir
  *
  * A regra escrita que este portão cobra: `.claude/rules/swizzle-theme.md`.
- * https://github.com/panlabs-tech/overpower/issues/130
+ * https://github.com/ThiagoPanini/overpower/issues/130
  */
 
 import {execFileSync} from 'node:child_process';

@@ -1,6 +1,6 @@
 # Formatos de configuração de MCP por runtime
 
-**Ticket**: [Formatos de configuração de MCP por runtime](https://github.com/panlabs-tech/overpower/issues/17)
+**Ticket**: [Formatos de configuração de MCP por runtime](https://github.com/ThiagoPanini/overpower/issues/17)
 **Data**: 2026-08-01
 **Insumo**: [`docs/agents/domain.md`](../agents/domain.md), regra 4 — *o contrato de um artefato de enxerto é lógico, não literal*.
 
@@ -40,10 +40,10 @@ E o survey dos autores (Claude Code, VS Code, Cursor, Goose, Kiro, Codex, RooCod
 
 ### E não há denominador comum em `.agents/`
 
-A pesquisa de [Aterrissagem projeto × global](https://github.com/panlabs-tech/overpower/issues/5) estabeleceu que `.agents/skills/` é caminho de leitura oficial de quatro runtimes. **O análogo para MCP não existe**, e a resposta negativa tem quatro verificações independentes:
+A pesquisa de [Aterrissagem projeto × global](https://github.com/ThiagoPanini/overpower/issues/5) estabeleceu que `.agents/skills/` é caminho de leitura oficial de quatro runtimes. **O análogo para MCP não existe**, e a resposta negativa tem quatro verificações independentes:
 
 1. A spec do `AGENTS.md` (agents.md) não menciona MCP em lugar nenhum.
-2. A spec do Agent Skills (agentskills.io/specification) não menciona MCP — **e nem sequer padroniza `.agents/skills`**; ela descreve a pasta da skill, não onde o cliente a procura. `.agents/skills` é convergência *de facto* por fornecedor, não cláusula normativa. Isso refina o achado do [#5](https://github.com/panlabs-tech/overpower/issues/5).
+2. A spec do Agent Skills (agentskills.io/specification) não menciona MCP — **e nem sequer padroniza `.agents/skills`**; ela descreve a pasta da skill, não onde o cliente a procura. `.agents/skills` é convergência *de facto* por fornecedor, não cláusula normativa. Isso refina o achado do [#5](https://github.com/ThiagoPanini/overpower/issues/5).
 3. A mesma página do Cursor que enumera `.agents/skills/` põe MCP em `.cursor/mcp.json`. A mesma doc do Codex que enumera `.agents/skills` põe MCP em `.codex/config.toml`.
 4. Os sites `dotagentsprotocol.com` e `agentsstandard.com`, que propõem `~/.agents/mcp-settings.json` como "universal MCP config", **não são doc de fornecedor** — são terceiros propondo um padrão que nenhum runtime documenta ler.
 
@@ -546,11 +546,11 @@ Os slots **não têm como ser expressos**. O segredo só existe em `~/.copilot/m
 
 **Para o axioma 2 (sem estado no alvo)** — o enxerto de projeto é **duas escritas**, uma no repo e uma na máquina, nos dois runtimes que têm gate (Claude Code e Codex). A escrita de máquina não fere o axioma (não é o alvo), mas significa que "instalar um MCP no projeto" não é uma operação atômica no repositório, e que o `git diff` **não conta a história inteira** desse artefato — pela primeira vez no projeto.
 
-**Para o formato do catálogo ([#10](https://github.com/panlabs-tech/overpower/issues/10))** — se um dia o catálogo descrever enxertos, o campo não é "conteúdo do fragmento", é uma **declaração lógica**: transporte, comando/url, e a lista de slots com o papel de cada um. E precisa de um eixo que ainda não existe no vocabulário: **quais alvos esse artefato consegue atender**, porque `ws` só existe no Claude Code e segredo em `.mcp.json` compartilhado não existe em lugar nenhum.
+**Para o formato do catálogo ([#10](https://github.com/ThiagoPanini/overpower/issues/10))** — se um dia o catálogo descrever enxertos, o campo não é "conteúdo do fragmento", é uma **declaração lógica**: transporte, comando/url, e a lista de slots com o papel de cada um. E precisa de um eixo que ainda não existe no vocabulário: **quais alvos esse artefato consegue atender**, porque `ws` só existe no Claude Code e segredo em `.mcp.json` compartilhado não existe em lugar nenhum.
 
-**Para a semântica de escrita ([#9](https://github.com/panlabs-tech/overpower/issues/9))** — aquela decisão fixou escrita **incondicional** para colisão de **caminho** (cópia). Para colisão de **chave** (enxerto) ela não vale automaticamente: o Claude Code **recusa** duplicata, o Codex e o VS Code **sobrescrevem calados**, e o arquivo é do usuário. Sobrescrever a chave de um servidor homônimo do dev é destruir configuração que não é nossa.
+**Para a semântica de escrita ([#9](https://github.com/ThiagoPanini/overpower/issues/9))** — aquela decisão fixou escrita **incondicional** para colisão de **caminho** (cópia). Para colisão de **chave** (enxerto) ela não vale automaticamente: o Claude Code **recusa** duplicata, o Codex e o VS Code **sobrescrevem calados**, e o arquivo é do usuário. Sobrescrever a chave de um servidor homônimo do dev é destruir configuração que não é nossa.
 
-**Para a integridade de referência cruzada ([#16](https://github.com/panlabs-tech/overpower/issues/16))** — o ticket pergunta se a dependência vale para enxerto. Vale, e com um agravante que a cópia não tem: um artefato de enxerto pode depender de um **slot preenchido**, não de outro artefato. O `codex doctor` já faz essa verificação de graça, e é o único runtime que faz.
+**Para a integridade de referência cruzada ([#16](https://github.com/ThiagoPanini/overpower/issues/16))** — o ticket pergunta se a dependência vale para enxerto. Vale, e com um agravante que a cópia não tem: um artefato de enxerto pode depender de um **slot preenchido**, não de outro artefato. O `codex doctor` já faz essa verificação de graça, e é o único runtime que faz.
 
 **Sobre `server.json` do registro oficial** — ele é normativo e resolve **outro** problema: é template de publicação, não config de cliente. A tabela do SEP-2633 formaliza a divisão: `server.json` é *"highly configurable — variables, templates"*, o arquivo do cliente é *"fully resolved — only auth secrets remain as interpolatable variables"*. **Não serve como formato de saída do overpower, mas é o modelo interno certo**: um artefato de enxerto de MCP é conceitualmente um `server.json` resolvido, renderizado para N dialetos. Ele já tem o campo `isSecret` em `environmentVariables[]` e `headers[]` — exatamente o conceito de slot que a regra 4 precisa.
 

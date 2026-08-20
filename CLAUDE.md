@@ -24,6 +24,14 @@ Estes documentos não se deduzem olhando a árvore. Leia a **seção**, não o a
 
 **No código, o índice é o docstring.** Todo módulo de `src/overpower/` abre com uma linha que declara sua responsabilidade — `head` nelas localiza mais barato que `grep`.
 
+## O código é em inglês
+
+**Todo artefato de código aqui é inglês** — identificador, comentário, docstring, mensagem de log, nome de módulo e nome de arquivo. Idioma misto produz identificador híbrido (`parse_lancamento`), e aí a fronteira entre os dois idiomas deixa de morar numa camada e passa a morar em cada assinatura. É a regra 43 do padrão panlabs, e a medição que a dispensa de trava está em `src/overpower/content/pool/skills/panlabs-python-standards/references/06-regua-de-maquina.md` § 7 — **sem mecanismo: confere-se em review.**
+
+Escapam duas coisas, e nenhuma delas é código deste repositório: **interface alheia, grafada como o dono a grafa** — `npm run pino -- --verificar` é script do `panlabs-docs` — e **copy dirigida a quem lê em outra língua** — o prompt que `scripts/overpower-docs-update.sh` manda para a skill em português do irmão. Cada uma carrega no lugar o comentário que diz por quê.
+
+**Prosa não é código.** Mensagem de commit, ticket, ADR, este arquivo e `docs/agents/` são português — o `commitlint.config.mjs` já dizia isso, e é lá que a metade lintável da convenção mora. Os nomes dos arquivos de `docs/adr/` são a dívida conhecida da regra.
+
 ## Pegadinhas
 
 - **Nada entra na `main` sem PR.** É ruleset, com a lista de bypass vazia inclusive para o dono; `gate` e `release-ready` são required checks.

@@ -23,6 +23,19 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.27.1] - 2026-08-20
+
+### Fixed
+
+- **`--dry-run` now says what it actually does.** Its help read *"Print the plan and
+  write nothing"*, which is true but incomplete: a dry run also turns an
+  already-occupied global destination from a question into an exit 3, the same way
+  `--yes` does, and paired with `--from` it still fetches the remote before it can
+  report anything. The behaviour is unchanged — a dry run has never asked and has
+  always resolved the remote — what changes is that the screen a user consults now
+  says so. ([#157](https://github.com/ThiagoPanini/overpower/issues/157))
+
+
 ## [0.27.0] - 2026-08-20
 
 ### Changed

@@ -141,6 +141,10 @@ class ExitCode(IntEnum):
     `doctor` usable as a CI gate: *"could not compute the plan"* and *"computed
     it, and the answer is no"* have to be distinguishable, or a pipeline cannot
     tell whether to alert the team or try again.
+
+    `--version` answers and exits before the rest of the line is parsed, so `0`
+    can precede a subcommand invocation Click would otherwise refuse with `2` —
+    `--version` did what was asked; nothing checked the rest.
     """
 
     OK = 0

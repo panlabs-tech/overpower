@@ -23,6 +23,19 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.27.3] - 2026-08-20
+
+### Fixed
+
+- **`ExitCode`'s docstring now documents that `--version` exits before the rest of
+  the line is parsed.** `overpower --version install --nope` exits `0`, the same
+  as a lone `--version` — Click resolves `--version` in the group callback and
+  never reaches the subcommand's own argument parsing, so the `2` a malformed
+  `install` line would otherwise earn never fires. The docstring now names the
+  exception; `--version` still exits `0` for what it did, not for what came after
+  it. ([#158](https://github.com/ThiagoPanini/overpower/issues/158))
+
+
 ## [0.27.2] - 2026-08-20
 
 ### Fixed

@@ -150,6 +150,19 @@ def test_an_unknown_flag_exits_two(capsys: pytest.CaptureFixture[str]) -> None:
     assert code == 2
 
 
+def test_the_version_flag_before_a_malformed_line_still_exits_zero(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Documented in `ExitCode`: `--version` exits before the rest parses.
+
+    `0` here does not vouch for the line that follows it — only for `--version`
+    itself, which is what was asked and what ran.
+    """
+    code, _ = output_of(capsys, ["--version", "install", "--nope"])
+
+    assert code == 0
+
+
 @pytest.mark.parametrize(
     ("terminal", "expected"),
     [pytest.param(True, True, id="tty"), pytest.param(False, False, id="pipe")],

@@ -1,7 +1,7 @@
 """The wizard: a terminal, a line that does not add up to a plan, one `Request` out.
 
 Artifacts, then scope, then runtimes, then confirmation
-(https://github.com/panlabs-tech/overpower/issues/41). The order is not
+(https://github.com/ThiagoPanini/overpower/issues/41). The order is not
 aesthetic: the runtime probe depends on scope — project probes the target
 repository, global probes `~` — so asking runtimes before scope would probe
 the wrong root (ADR 0008). Confirmation is the fourth step and needs no code
@@ -10,7 +10,7 @@ draws, once this module hands `overpower.cli` the same `Request` type the
 flags would have built.
 
 **The trigger is the gap and not the empty line**
-(https://github.com/panlabs-tech/overpower/issues/57): a line missing a
+(https://github.com/ThiagoPanini/overpower/issues/57): a line missing a
 selection *or* a runtime opens the wizard, and the wizard opens only the steps
 that line left open. `install --ai-framework matt-pocock` therefore asks scope
 and runtimes and never artifacts, which is what makes the command the catalog
@@ -150,7 +150,7 @@ def run_wizard(  # noqa: PLR0913 — the five the steps need, plus the console t
 ) -> tuple[Request, Path] | None:
     """`asked` with its gaps filled, or `None` when the user backs out of any step.
 
-    **Gaps, not steps** (https://github.com/panlabs-tech/overpower/issues/57):
+    **Gaps, not steps** (https://github.com/ThiagoPanini/overpower/issues/57):
     what the flags already fixed is not asked again, and what they did not is
     asked in the order #18 locked — artifacts, scope, runtimes, confirmation.
     `catalog` is `None` exactly when the artifacts step cannot open, and

@@ -17,7 +17,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
     Rewriting a recorded screen is a deliberate act, never a side effect of a
     green run: the flag is the whole update path decided in
-    https://github.com/panlabs-tech/overpower/issues/30, and it exists instead of
+    https://github.com/ThiagoPanini/overpower/issues/30, and it exists instead of
     a snapshot plugin.
     """
     parser.addoption(

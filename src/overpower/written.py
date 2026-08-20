@@ -14,7 +14,7 @@ entry, no agent entry and no path: those are discovered by walking the tree
 (`overpower.discovery`).
 
 **The decoder returns `object`, and that is a tripwire rather than a style.**
-Measured in https://github.com/panlabs-tech/overpower/issues/2: pyright strict
+Measured in https://github.com/ThiagoPanini/overpower/issues/2: pyright strict
 has a blind spot on `Any`, so `return data["name"]` inside a `-> str` function
 type-checks and blows up at runtime. The YAML reader hands back `Any`, so the
 decode is confined to `overpower.yamlio` — which declares `object` — and every
@@ -23,7 +23,7 @@ same discipline `pyproject.toml` bans `json.load` to enforce, and `yaml.load`
 beside it.
 
 **The format is YAML, and the format before it was TOML.** The move
-(https://github.com/panlabs-tech/overpower/issues/136) buys one thing: the
+(https://github.com/ThiagoPanini/overpower/issues/136) buys one thing: the
 manifest a homemade repository federates reaches *this* reader, so there is
 never a second validator to disagree with the first. It costs one guarantee.
 TOML had no key type but string; YAML has, so `_table` below **checks** the key

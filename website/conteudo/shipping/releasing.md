@@ -42,7 +42,7 @@ The level itself is not a judgement call — it is read from the *types* of the 
 
 While the project is `0.x`, a break does not promote the first digit — that is Semantic Versioning §4 read literally: nothing is stable yet, so nothing can break stability. Reaching `1.0.0` stays a deliberate act of its own: a pull request that sets `uv version 1.0.0` passes, because the check enforces a **floor**, never equality. Bumping higher than the fragments strictly require is always allowed; bumping lower than they require is refused.
 
-The full argument — the three designs that were tried and rejected, and the measurements behind each one — is in [ADR 0012](https://github.com/panlabs-tech/overpower/blob/main/docs/adr/0012-o-bump-e-ato-do-autor-e-o-portao-o-ensina.md).
+The full argument — the three designs that were tried and rejected, and the measurements behind each one — is in [ADR 0012](https://github.com/ThiagoPanini/overpower/blob/main/docs/adr/0012-o-bump-e-ato-do-autor-e-o-portao-o-ensina.md).
 
 ## Two gates, two different remedies
 

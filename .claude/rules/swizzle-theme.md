@@ -42,6 +42,6 @@ Três coisas diferentes convivem nesta pasta e não se misturam: componente swiz
 
 ## De onde isto veio
 
-Transplantado de [`panlabs-tech/shinydoc-docusaurus`](https://github.com/panlabs-tech/shinydoc-docusaurus) na [issue #130](https://github.com/panlabs-tech/overpower/issues/130), sem o `ApiDocItem`: ele servia referência **gerada** de um contrato JSON, e a geração ficou de fora por decisão — trazer o layout sem o gerador seria tema sem consumidor.
+Transplantado de [`panlabs-tech/shinydoc-docusaurus`](https://github.com/panlabs-tech/shinydoc-docusaurus) na [issue #130](https://github.com/ThiagoPanini/overpower/issues/130), sem o `ApiDocItem`: ele servia referência **gerada** de um contrato JSON, e a geração ficou de fora por decisão — trazer o layout sem o gerador seria tema sem consumidor.
 
 O número 7 do portão veio com o gabarito. Este site tem **quatro** portões — 1, 2, 3 e 7 —, e o buraco na numeração é deliberado: renumerar não compraria nada e quebraria a leitura cruzada com o repositório de onde o mecanismo veio.

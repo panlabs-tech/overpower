@@ -44,6 +44,6 @@ A varredura cobre `website/src/` inteiro, **CSS Module de componente incluído**
 
 ## De onde isto veio
 
-O tema foi transplantado inteiro de [`panlabs-tech/shinydoc-docusaurus`](https://github.com/panlabs-tech/shinydoc-docusaurus) na [issue #130](https://github.com/panlabs-tech/overpower/issues/130). Os comentários do CSS citam `shinydoc-docusaurus/docs/design/*.md` e "ADR *n* do shinydoc": esses arquivos moram no gabarito, não aqui, e o prefixo existe justamente para que o ponteiro continue resolvível. A spec de design **não** foi transplantada — o que precisava valer aqui está escrito nesta regra e no cabeçalho de `tokens.css`.
+O tema foi transplantado inteiro de [`panlabs-tech/shinydoc-docusaurus`](https://github.com/panlabs-tech/shinydoc-docusaurus) na [issue #130](https://github.com/ThiagoPanini/overpower/issues/130). Os comentários do CSS citam `shinydoc-docusaurus/docs/design/*.md` e "ADR *n* do shinydoc": esses arquivos moram no gabarito, não aqui, e o prefixo existe justamente para que o ponteiro continue resolvível. A spec de design **não** foi transplantada — o que precisava valer aqui está escrito nesta regra e no cabeçalho de `tokens.css`.
 
 Junto com ela ficaram de fora os portões que dependiam daquela spec: `espelho-tokens`, `contraste`, `paridade` e os portões 4 e 5. Reintroduzir qualquer um deles significa trazer o `docs/design/` correspondente — não vale acrescentar o script sozinho e deixá-lo reprovando por falta do arquivo que ele compara.

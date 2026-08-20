@@ -23,7 +23,7 @@
  * do site — não 404. É recurso de build, e quem o verifica é o portão 6 rota 2,
  * contra o host real. `npm run build && npm run serve` mostra o mesmo.
  *
- * https://github.com/panlabs-tech/overpower/issues/129
+ * https://github.com/ThiagoPanini/overpower/issues/129
  */
 
 import fs from 'node:fs/promises';

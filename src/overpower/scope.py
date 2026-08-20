@@ -5,7 +5,7 @@ repository, a wrong scope costs a `git checkout` and `git status` says so; outsi
 one, nothing on the machine audits what `install` wrote. That is the whole reason
 the default scope is conditional rather than always-project: `overpower.cli`
 reads `git_root` and, finding none, refuses instead of guessing
-(https://github.com/panlabs-tech/overpower/issues/40).
+(https://github.com/ThiagoPanini/overpower/issues/40).
 
 **A walk-up, not a subprocess.** `git rev-parse --show-toplevel` would answer the
 same question, but at the cost the transport-versus-installer line of axiom 1

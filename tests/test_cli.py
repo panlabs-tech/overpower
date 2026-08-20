@@ -195,7 +195,7 @@ def test_the_list_command_shows_the_four_blocks(capsys: pytest.CaptureFixture[st
 
     Whoever has never read the documentation learns the class exists from the
     catalog itself, which is what the block buys
-    (https://github.com/panlabs-tech/overpower/issues/77).
+    (https://github.com/ThiagoPanini/overpower/issues/77).
     """
     code, output = output_of(capsys, ["list"])
 
@@ -220,7 +220,7 @@ def test_the_install_help_announces_the_wizard(capsys: pytest.CaptureFixture[str
     """`--runtime` says "no default" and "not every runtime is in both", which reads as
     a hard requirement; in a terminal the gap opens the wizard instead, and the one
     screen a user consults to find out never said so
-    (https://github.com/panlabs-tech/overpower/issues/147).
+    (https://github.com/ThiagoPanini/overpower/issues/147).
     """
     code, output = output_of(capsys, ["install", "--help"])
 
@@ -233,7 +233,7 @@ def test_the_yes_help_says_it_does_not_accept_an_overwrite(
 ) -> None:
     """`--yes` documented itself as skipping the confirmation "and nothing else", while
     it also turns an occupied global destination from a question into exit 3
-    (https://github.com/panlabs-tech/overpower/issues/145).
+    (https://github.com/ThiagoPanini/overpower/issues/145).
     """
     code, output = output_of(capsys, ["install", "--help"])
 

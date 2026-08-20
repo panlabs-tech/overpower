@@ -2,7 +2,7 @@
   // Which tool runs — the one thing `.editorconfig` has no vocabulary for, and
   // the problem actually measured: a machine with `ms-python.pylint` installed
   // and no ruff extension lints this repository with a linter its toolchain
-  // never chose. https://github.com/panlabs-tech/overpower/issues/24
+  // never chose. https://github.com/ThiagoPanini/overpower/issues/24
   //
   // No rule is redefined here. The ruff extension reads `pyproject.toml`, so
   // `line-length`, the rule set and the per-file ignores keep exactly one home.

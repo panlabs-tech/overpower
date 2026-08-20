@@ -6,7 +6,7 @@ A regra vale para qualquer framework futuro. Ela foi decidida com um caso real n
 
 ## Considered Options
 
-O `specify init --integration claude --script sh` produz 28 arquivos, e eles se separam em três grupos, medidos em [Anatomia dos AI Frameworks candidatos](https://github.com/panlabs-tech/overpower/issues/6):
+O `specify init --integration claude --script sh` produz 28 arquivos, e eles se separam em três grupos, medidos em [Anatomia dos AI Frameworks candidatos](https://github.com/ThiagoPanini/overpower/issues/6):
 
 | grupo | arquivos | o que é |
 | --- | ---: | --- |
@@ -25,14 +25,14 @@ O que renderizar na curadoria compra, medido:
 - **O conteúdo encolhe 26%.** Vendorizar a fonte são 31 arquivos / 297.259 bytes (`templates/` 16 + `scripts/` 15, com bash *e* PowerShell *e* Python). Vendorizar a saída são **24 arquivos / ~215 KiB**, porque as variantes não escolhidas não viajam.
 - **O axioma 1 fica intocado.** Ele proíbe o *overpower* invocar instalador de terceiro. O `specify` roda na mão do curador — o mesmo lugar onde a [ADR 0001](0001-frameworks-autocontidos-e-pool-apartado.md) já admite conteúdo *"recortado e possivelmente customizado"*.
 
-O custo é real e foi aceito: **o vendorizado deixa de ser a árvore do upstream** e passa a ser saída de ferramenta de terceiro, o que torna o diff de refresh mais barulhento. Não fere nenhuma verificação, porque [Onde os assets vivem e como entram no wheel](https://github.com/panlabs-tech/overpower/issues/11) já **recusou o P3** — diff byte-idêntico contra o upstream — sob o argumento de que *"o que estiver lá dentro será replicado"* não admite espelho a verificar.
+O custo é real e foi aceito: **o vendorizado deixa de ser a árvore do upstream** e passa a ser saída de ferramenta de terceiro, o que torna o diff de refresh mais barulhento. Não fere nenhuma verificação, porque [Onde os assets vivem e como entram no wheel](https://github.com/ThiagoPanini/overpower/issues/11) já **recusou o P3** — diff byte-idêntico contra o upstream — sob o argumento de que *"o que estiver lá dentro será replicado"* não admite espelho a verificar.
 
 ## Consequences
 
-**O catálogo tem uma transformação só: cópia.** Não há campo de "transformação" a inventar no [formato do catálogo](https://github.com/panlabs-tech/overpower/issues/10), e essa simplicidade é resultado de desenho, não de ter tirado o caso difícil da frente.
+**O catálogo tem uma transformação só: cópia.** Não há campo de "transformação" a inventar no [formato do catálogo](https://github.com/ThiagoPanini/overpower/issues/10), e essa simplicidade é resultado de desenho, não de ter tirado o caso difícil da frente.
 
 **Um runtime não pré-renderizado não é suportável.** O catálogo declara o que sabe atender; não há render em tempo de instalação para cobrir o que a curadoria não cobriu.
 
 **Mudança nas regras do upstream só aparece no refresh de curadoria** — o mesmo regime de qualquer conteúdo vendorizado.
 
-**A regra é o terceiro portão de elegibilidade.** Um candidato cujo conteúdo aterrissado dependa de uma resposta do usuário — o `_bmad/config.toml` do BMAD sai de entrevista — não é transformável na curadoria, e reprova aqui. Ver [Critério de elegibilidade e o conjunto de frameworks da v0.1.0](https://github.com/panlabs-tech/overpower/issues/15).
+**A regra é o terceiro portão de elegibilidade.** Um candidato cujo conteúdo aterrissado dependa de uma resposta do usuário — o `_bmad/config.toml` do BMAD sai de entrevista — não é transformável na curadoria, e reprova aqui. Ver [Critério de elegibilidade e o conjunto de frameworks da v0.1.0](https://github.com/ThiagoPanini/overpower/issues/15).

@@ -176,7 +176,7 @@ def test_a_graft_only_runtime_is_refused_in_the_scope_that_has_no_document(
     real and the destination is not.
 
     This used to be `vscode --global`, which the machine documents of
-    https://github.com/panlabs-tech/overpower/issues/81 turned into a *landing*.
+    https://github.com/ThiagoPanini/overpower/issues/81 turned into a *landing*.
     The refusal it guards did not move — the pair it is asserted on did.
     """
     # given
@@ -225,7 +225,7 @@ def test_the_machine_scope_lands_in_the_personal_file_and_not_in_the_repository(
 
     `--global` is not the project document under another root: it is
     `~/.claude.json`, a different file with the same root key
-    (https://github.com/panlabs-tech/overpower/issues/81). The repository is
+    (https://github.com/ThiagoPanini/overpower/issues/81). The repository is
     asserted **empty** in the same breath, because a machine install that also
     touched the tree would be the failure ADR 0008 refuses to inherit.
     """

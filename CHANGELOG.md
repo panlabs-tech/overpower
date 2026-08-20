@@ -23,6 +23,13 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.26.0] - 2026-08-20
+
+### Changed
+
+- **The project moved out of the `panlabs-tech` organization and into the personal profile.** The name is unchanged; the owner is not. `[project.urls]` now declares `github.com/ThiagoPanini/overpower`, and both `Homepage` and `Documentation` point at [thiagopanini.github.io/overpower](https://thiagopanini.github.io/overpower/), where the site is published from now on. The old addresses survive only as GitHub redirects, which this repository does not treat as an answer: every reference inside the tree — 420 of them, from the towncrier `issue_format` that stamps the owner into every future CHANGELOG entry down to the issue links in docstrings — was rewritten to the new one. ([#149](https://github.com/ThiagoPanini/overpower/issues/149))
+
+
 ## [0.25.2] - 2026-08-19
 
 ### Fixed
@@ -35,14 +42,14 @@ navigable index of the decisions that produced it.
   unchanged — the flag that accepts an overwrite is `--force`, and only `--force`,
   because a `-y` that silently deletes would move this command next to `apt-get`
   when it was built to stand next to `pip`. What changes is that the screen a user
-  consults now names which of the two lifts the refusal. ([#145](https://github.com/panlabs-tech/overpower/issues/145))
+  consults now names which of the two lifts the refusal. ([#145](https://github.com/ThiagoPanini/overpower/issues/145))
 - The comment that keeps the `--from` help text ASCII-only quoted a denominator that
   no longer exists: it justified itself against *"three of the twelve cells"*, and
   the CI matrix is 3 OS x 3 Python, which is **nine**. The constraint itself is
   untouched — the cp1252 decode on the Windows runners is real, and it is three
   cells either way — but a measurement quoted in a comment that exists to justify a
   constraint is exactly the kind of number that gets copied forward, so it now names
-  the matrix it was read off. ([#146](https://github.com/panlabs-tech/overpower/issues/146))
+  the matrix it was read off. ([#146](https://github.com/ThiagoPanini/overpower/issues/146))
 - **`install --help` mentions the wizard.** `--runtime` announces *"No default"* and
   *"not every runtime is in both"*, which together read as a hard requirement, and
   nothing else on that screen said otherwise — so the one surface a user goes to in
@@ -50,7 +57,7 @@ navigable index of the decisions that produced it.
   is refused. In a terminal it is not: since #57 the trigger is the gap, and a line
   that does not add up to a plan opens the wizard on exactly the steps it left open.
   The command's own description says so now, next to the sentence that a line off a
-  terminal is still refused instead. ([#147](https://github.com/panlabs-tech/overpower/issues/147))
+  terminal is still refused instead. ([#147](https://github.com/ThiagoPanini/overpower/issues/147))
 
 
 ## [0.25.1] - 2026-08-19
@@ -66,7 +73,7 @@ navigable index of the decisions that produced it.
   tree in a runtime path, including one made by hand — so leaving grafts out
   applied to one class a rule the other never had. The two are counted apart and
   added, never merged into one set: the pool namespaces by type, so a skill and a
-  server may share a name, and a union would answer one where the disk holds two. ([#75](https://github.com/panlabs-tech/overpower/issues/75))
+  server may share a name, and a union would answer one where the disk holds two. ([#75](https://github.com/ThiagoPanini/overpower/issues/75))
 - A configuration file with no JSON in it is refused in this product's words
   instead of the parser's. A 0-byte `.mcp.json` answered *"Expecting value: line 1
   column 1 (char 0)"* — about a file that has no line 1 and no column 1 — and
@@ -74,7 +81,7 @@ navigable index of the decisions that produced it.
   line the user got could not tell the two apart. Empty and whitespace-only are now
   named before the reader is called, each in its own words. **The refusal itself
   does not move**: a document that exists is the user's, which is why the same
-  command still creates the file when nothing is there at all. ([#75](https://github.com/panlabs-tech/overpower/issues/75))
+  command still creates the file when nothing is there at all. ([#75](https://github.com/ThiagoPanini/overpower/issues/75))
 
 
 ## [0.25.0] - 2026-08-19
@@ -96,7 +103,7 @@ navigable index of the decisions that produced it.
   report goes to whoever wrote the manifest. Unlike `--skill` and `--mcp`, the
   manifest is read at the repository root, and a subfolder in the URL does not
   interfere. It is **optional**: a repository that has not written one keeps its
-  skills listed and installable, and simply omits the section. ([#137](https://github.com/panlabs-tech/overpower/issues/137))
+  skills listed and installable, and simply omits the section. ([#137](https://github.com/ThiagoPanini/overpower/issues/137))
 
 ### Changed
 
@@ -105,7 +112,7 @@ navigable index of the decisions that produced it.
   folder of overpower's own wheel, so there is nothing in a third-party repository
   for the flag to name; the message says so, and the line still exits `2` before
   anything is fetched. It is the last of the four units outside `--from`, and it
-  stays outside by decision. ([#137](https://github.com/panlabs-tech/overpower/issues/137))
+  stays outside by decision. ([#137](https://github.com/ThiagoPanini/overpower/issues/137))
 
 
 ## [0.24.0] - 2026-08-19
@@ -124,7 +131,7 @@ navigable index of the decisions that produced it.
   validator can never disagree with the first. It costs one guarantee: TOML had no
   key type but string, so a table key is now checked where it used to be cast. The
   recipe of an MCP server did not move and will not — `.overpower/` is a
-  namespace, not a format. ([#136](https://github.com/panlabs-tech/overpower/issues/136))
+  namespace, not a format. ([#136](https://github.com/ThiagoPanini/overpower/issues/136))
 
 ### Fixed
 
@@ -136,14 +143,14 @@ navigable index of the decisions that produced it.
   real one is the weak form of the two-readers defect. It was invisible while the
   product only read its own content — 0 of the 26 embedded `SKILL.md` use a block,
   and all 26 read byte-identically before and after — and it would have surfaced
-  the first time somebody else's frontmatter rendered. ([#136](https://github.com/panlabs-tech/overpower/issues/136))
+  the first time somebody else's frontmatter rendered. ([#136](https://github.com/ThiagoPanini/overpower/issues/136))
 
 
 ## [0.23.0] - 2026-08-19
 
 ### Changed
 
-- **The documentation site is now canonical, and `README.md` shrinks to point at it.** The `Contributing` sidebar's six pages carry real prose — the development loop and local hooks, the testing doctrine, how a screen is snapshot-tested, the module map and the two sibling content roots, how vendored content is curated, and how a release ships. `README.md` shrinks to the pitch, the install line, one screen showing the catalog format, and a link to the site; `pyproject.toml [project.urls]` gains `Homepage` and `Documentation`, both pointing at [panlabs-tech.github.io/overpower](https://panlabs-tech.github.io/overpower/). ([#132](https://github.com/panlabs-tech/overpower/issues/132))
+- **The documentation site is now canonical, and `README.md` shrinks to point at it.** The `Contributing` sidebar's six pages carry real prose — the development loop and local hooks, the testing doctrine, how a screen is snapshot-tested, the module map and the two sibling content roots, how vendored content is curated, and how a release ships. `README.md` shrinks to the pitch, the install line, one screen showing the catalog format, and a link to the site; `pyproject.toml [project.urls]` gains `Homepage` and `Documentation`, both pointing at [thiagopanini.github.io/overpower](https://thiagopanini.github.io/overpower/). ([#132](https://github.com/ThiagoPanini/overpower/issues/132))
 
 
 ## [0.22.0] - 2026-08-18
@@ -171,7 +178,7 @@ navigable index of the decisions that produced it.
   A repository with nothing installable is refused at **exit 3** naming the URL,
   rather than opening a wizard with no choices in it: the problem is the address,
   not any answer the person could have given. `--bundle` and `--ai-framework`
-  alongside `--from` still exit 2 before anything is obtained. ([#135](https://github.com/panlabs-tech/overpower/issues/135))
+  alongside `--from` still exit 2 before anything is obtained. ([#135](https://github.com/ThiagoPanini/overpower/issues/135))
 
 ### Fixed
 
@@ -193,7 +200,7 @@ navigable index of the decisions that produced it.
   `data/skills`) are ordinary folder names something could genuinely be offering
   from. Two real offers of the same name under one root are still refused, and
   still name every candidate.
-  ([#135](https://github.com/panlabs-tech/overpower/issues/135))
+  ([#135](https://github.com/ThiagoPanini/overpower/issues/135))
 
 
 ## [0.21.4] - 2026-08-17
@@ -214,7 +221,7 @@ navigable index of the decisions that produced it.
   in the document is still none of the product's business, the same way every
   other thing in a file that is not ours to repair is not. RFC 8259 § 4 calls the
   result of a duplicate *unpredictable*, and ADR 0013 now carries the amendment
-  that says why that makes it a broken file rather than a collision to overwrite. ([#125](https://github.com/panlabs-tech/overpower/issues/125))
+  that says why that makes it a broken file rather than a collision to overwrite. ([#125](https://github.com/ThiagoPanini/overpower/issues/125))
 - **A trailing comma or a comment in a document whose runtime parses strict JSON is
   refused instead of written into.** `.mcp.json` and Devin's `mcp_config.json` are
   read on the other side by a strict parser, so a file carrying either is already
@@ -228,78 +235,78 @@ navigable index of the decisions that produced it.
   one that knows a server is born pending. It is a fact of the file and is never
   derived from the dialect, which spells keys and not syntax: the Copilot CLI
   reads a strict `.mcp.json` and a JSONC `~/.copilot/mcp-config.json` under one
-  spelling of the root key, so a dialect would have to answer twice. ([#126](https://github.com/panlabs-tech/overpower/issues/126))
+  spelling of the root key, so a dialect would have to answer twice. ([#126](https://github.com/ThiagoPanini/overpower/issues/126))
 
 
 ## [0.21.3] - 2026-08-16
 
 ### Fixed
 
-- Um comentario de fim de linha fica na entrada que ele anota. A insercao movia o rabo de whitespace inteiro do ultimo par para o servidor recem-escrito, entao um `// nota` que estava na linha de um servidor passava a anotar o que o overpower acabou de escrever — o diff deixava de ser aditivo, com uma linha removida. O comentario em linha propria, que anota o objeto e nao uma entrada, continua descendo com o fecho. ([#122](https://github.com/panlabs-tech/overpower/issues/122))
-- Um arquivo de configuracao que existe e nao pode ser lido produz um erro nomeado, dizendo qual arquivo e o que o sistema respondeu. Antes caia no painel de excecao inesperada e o produto se acusava — "This is a bug in the overpower, not in what you typed" — por uma permissao que outra pessoa pos. O exit code nao muda: continua 1, e a parada continua sendo antes do primeiro byte. ([#123](https://github.com/panlabs-tech/overpower/issues/123))
+- Um comentario de fim de linha fica na entrada que ele anota. A insercao movia o rabo de whitespace inteiro do ultimo par para o servidor recem-escrito, entao um `// nota` que estava na linha de um servidor passava a anotar o que o overpower acabou de escrever — o diff deixava de ser aditivo, com uma linha removida. O comentario em linha propria, que anota o objeto e nao uma entrada, continua descendo com o fecho. ([#122](https://github.com/ThiagoPanini/overpower/issues/122))
+- Um arquivo de configuracao que existe e nao pode ser lido produz um erro nomeado, dizendo qual arquivo e o que o sistema respondeu. Antes caia no painel de excecao inesperada e o produto se acusava — "This is a bug in the overpower, not in what you typed" — por uma permissao que outra pessoa pos. O exit code nao muda: continua 1, e a parada continua sendo antes do primeiro byte. ([#123](https://github.com/ThiagoPanini/overpower/issues/123))
 
 
 ## [0.21.2] - 2026-08-16
 
 ### Fixed
 
-- Os dois contadores do sumario reconciliam com o documento. Um MCP no VS Code contava `2 writes` pelo par servidor + `inputs[]` que a spec define como uma escrita so, "porque aterrissam no mesmo lugar"; e varios MCPs no mesmo documento contavam um arquivo cada, onde o `git status` mostra um. O caso federado — clone mais enxerto, dois lugares — continua contando duas escritas, como sempre contou. ([#119](https://github.com/panlabs-tech/overpower/issues/119))
-- A linha de fecho que sai por um pipe passa a pluralizar como o painel do terminal ja pluralizava: `1 write · 1 file` nos dois, onde a versao pipada dizia `1 writes · 1 files`. Eram duas grafias da mesma frase, que e como as duas deixam de ser a mesma frase. ([#120](https://github.com/panlabs-tech/overpower/issues/120))
+- Os dois contadores do sumario reconciliam com o documento. Um MCP no VS Code contava `2 writes` pelo par servidor + `inputs[]` que a spec define como uma escrita so, "porque aterrissam no mesmo lugar"; e varios MCPs no mesmo documento contavam um arquivo cada, onde o `git status` mostra um. O caso federado — clone mais enxerto, dois lugares — continua contando duas escritas, como sempre contou. ([#119](https://github.com/ThiagoPanini/overpower/issues/119))
+- A linha de fecho que sai por um pipe passa a pluralizar como o painel do terminal ja pluralizava: `1 write · 1 file` nos dois, onde a versao pipada dizia `1 writes · 1 files`. Eram duas grafias da mesma frase, que e como as duas deixam de ser a mesma frase. ([#120](https://github.com/ThiagoPanini/overpower/issues/120))
 
 
 ## [0.21.1] - 2026-08-16
 
 ### Fixed
 
-- A tela de `list --mcp` para de prometer o que o install recusa. Uma receita que traz codigo-fonte nao e mais oferecida em escopo de projeto — o install ja recusava e o wizard ja obedecia, so a tela nao. E a linha que `list --mcp <slug> --from <url>` manda copiar carrega a origem: sem ela, colada de volta, saia com exit 2 dizendo que nao existe MCP com esse nome. ([#115](https://github.com/panlabs-tech/overpower/issues/115))
-- Dois slots de nomes distintos que chegam ao mesmo prompt sao recusados na leitura da receita. A derivacao do identificador de prompt nao e injetiva — baixa a caixa e troca `_` por `-` —, entao `API_KEY` e `API-KEY` viravam um prompt so: a segunda declaracao apagava a primeira e os dois lugares recebiam calados o mesmo segredo, em exit 0. Dois slots com o **mesmo** nome continuam valendo, que e justamente o ponto de derivar o identificador: um segredo, perguntado uma vez. ([#116](https://github.com/panlabs-tech/overpower/issues/116))
-- A tabela de runtimes para de dizer que a linha do Devin e doc do fornecedor "e nao uma medicao", com o binario "ausente da maquina". Desde a medicao em sandbox as duas frases sao falsas, e o commit da medicao nao tinha tocado este arquivo. O que continua em aberto — os valores de `transport` e se um servidor nasce pendente, ambos atras do login obrigatorio — segue marcado como aberto, agora por afirmacao e nao por linha inteira. ([#117](https://github.com/panlabs-tech/overpower/issues/117))
+- A tela de `list --mcp` para de prometer o que o install recusa. Uma receita que traz codigo-fonte nao e mais oferecida em escopo de projeto — o install ja recusava e o wizard ja obedecia, so a tela nao. E a linha que `list --mcp <slug> --from <url>` manda copiar carrega a origem: sem ela, colada de volta, saia com exit 2 dizendo que nao existe MCP com esse nome. ([#115](https://github.com/ThiagoPanini/overpower/issues/115))
+- Dois slots de nomes distintos que chegam ao mesmo prompt sao recusados na leitura da receita. A derivacao do identificador de prompt nao e injetiva — baixa a caixa e troca `_` por `-` —, entao `API_KEY` e `API-KEY` viravam um prompt so: a segunda declaracao apagava a primeira e os dois lugares recebiam calados o mesmo segredo, em exit 0. Dois slots com o **mesmo** nome continuam valendo, que e justamente o ponto de derivar o identificador: um segredo, perguntado uma vez. ([#116](https://github.com/ThiagoPanini/overpower/issues/116))
+- A tabela de runtimes para de dizer que a linha do Devin e doc do fornecedor "e nao uma medicao", com o binario "ausente da maquina". Desde a medicao em sandbox as duas frases sao falsas, e o commit da medicao nao tinha tocado este arquivo. O que continua em aberto — os valores de `transport` e se um servidor nasce pendente, ambos atras do login obrigatorio — segue marcado como aberto, agora por afirmacao e nao por linha inteira. ([#117](https://github.com/ThiagoPanini/overpower/issues/117))
 
 
 ## [0.21.0] - 2026-08-16
 
 ### Added
 
-- A tela de `list --mcp <slug>` mostra os slots que a receita exige, com o papel de cada um, e as precondicoes que ela declara. Eram as duas unicas coisas que a secao Descobrir da spec pedia por escrito e que a tela nunca mostrou: quem avaliava um servidor descobria o segredo que falta num 401 e o ferramental que falta num erro do agente. ([#113](https://github.com/panlabs-tech/overpower/issues/113))
+- A tela de `list --mcp <slug>` mostra os slots que a receita exige, com o papel de cada um, e as precondicoes que ela declara. Eram as duas unicas coisas que a secao Descobrir da spec pedia por escrito e que a tela nunca mostrou: quem avaliava um servidor descobria o segredo que falta num 401 e o ferramental que falta num erro do agente. ([#113](https://github.com/ThiagoPanini/overpower/issues/113))
 
 ### Fixed
 
-- As receitas `coolify` e `hostinger-vps` declaram que precisam do `npx`. Instalar qualquer uma numa maquina sem Node recusava nada: escrevia a configuracao, saia 0, e a falta so aparecia depois, como erro obscuro do agente. Agora a recusa vem antes do primeiro byte, nomeando o que falta. ([#112](https://github.com/panlabs-tech/overpower/issues/112))
+- As receitas `coolify` e `hostinger-vps` declaram que precisam do `npx`. Instalar qualquer uma numa maquina sem Node recusava nada: escrevia a configuracao, saia 0, e a falta so aparecia depois, como erro obscuro do agente. Agora a recusa vem antes do primeiro byte, nomeando o que falta. ([#112](https://github.com/ThiagoPanini/overpower/issues/112))
 
 
 ## [0.20.0] - 2026-08-14
 
 ### Added
 
-- **`doctor` conhece enxerto.** Quatro checagens novas sobre servidor MCP, lidas de volta do documento — `doctor` não tem `Plan`. **Exit 3:** um servidor escrito em `.mcp.json` que o Claude Code ainda não aprovou, contra o registro que ele mesmo grava em `.claude/settings.local.json`/`.claude/settings.json` (ADR 0014); e uma configuração ainda apontando para um clone `[source]` que sumiu da máquina. **Exit 0, informativo:** um slot cujo nome não está no ambiente de quem roda o `doctor`, e um clone órfão em `~/.overpower/mcp/` que configuração nenhuma referencia mais — nomeado, nunca apagado. ([#86](https://github.com/panlabs-tech/overpower/issues/86))
+- **`doctor` conhece enxerto.** Quatro checagens novas sobre servidor MCP, lidas de volta do documento — `doctor` não tem `Plan`. **Exit 3:** um servidor escrito em `.mcp.json` que o Claude Code ainda não aprovou, contra o registro que ele mesmo grava em `.claude/settings.local.json`/`.claude/settings.json` (ADR 0014); e uma configuração ainda apontando para um clone `[source]` que sumiu da máquina. **Exit 0, informativo:** um slot cujo nome não está no ambiente de quem roda o `doctor`, e um clone órfão em `~/.overpower/mcp/` que configuração nenhuma referencia mais — nomeado, nunca apagado. ([#86](https://github.com/ThiagoPanini/overpower/issues/86))
 
 
 ## [0.19.1] - 2026-08-14
 
 ### Fixed
 
-- **As docstrings do renderizador do Devin trocam citação especulativa por medida.** `_devin` e `_devin_reference` justificavam a grafia emitida citando "os vizinhos medidos" por analogia — o binário não estava nesta máquina quando foram escritas. Medido depois, em sandbox: chave raiz errada, campo desconhecido e até JSON malformado no `.devin/mcp_config.json` saem calados, exit 0, confirmando a suposição que a docstring só inferia. O comportamento emitido não muda; a citação que o justifica passa a apontar para medição, não para doc do fornecedor. ([#87](https://github.com/panlabs-tech/overpower/issues/87))
+- **As docstrings do renderizador do Devin trocam citação especulativa por medida.** `_devin` e `_devin_reference` justificavam a grafia emitida citando "os vizinhos medidos" por analogia — o binário não estava nesta máquina quando foram escritas. Medido depois, em sandbox: chave raiz errada, campo desconhecido e até JSON malformado no `.devin/mcp_config.json` saem calados, exit 0, confirmando a suposição que a docstring só inferia. O comportamento emitido não muda; a citação que o justifica passa a apontar para medição, não para doc do fornecedor. ([#87](https://github.com/ThiagoPanini/overpower/issues/87))
 
 
 ## [0.19.0] - 2026-08-14
 
 ### Added
 
-- **MCP aparece no passo de artefatos do wizard.** `overpower install` pelado num terminal passa a oferecer MCP como a quarta classe no mesmo passo que já mostrava AI Frameworks, bundles e pool skills — a seleção produz exatamente o `Request` que `--mcp` produziria, e o contador da sessão passa a contar as quatro classes do catálogo, não três. Uma receita com `[source]` escolhida ali dentro também restringe o passo de escopo seguinte, a mesma leitura que ADR 0009 e ADR 0015 já aplicavam a uma receita nomeada por `--mcp`: o wizard não oferece "This project" quando a resposta já está decidida. ([#85](https://github.com/panlabs-tech/overpower/issues/85))
+- **MCP aparece no passo de artefatos do wizard.** `overpower install` pelado num terminal passa a oferecer MCP como a quarta classe no mesmo passo que já mostrava AI Frameworks, bundles e pool skills — a seleção produz exatamente o `Request` que `--mcp` produziria, e o contador da sessão passa a contar as quatro classes do catálogo, não três. Uma receita com `[source]` escolhida ali dentro também restringe o passo de escopo seguinte, a mesma leitura que ADR 0009 e ADR 0015 já aplicavam a uma receita nomeada por `--mcp`: o wizard não oferece "This project" quando a resposta já está decidida. ([#85](https://github.com/ThiagoPanini/overpower/issues/85))
 
 
 ## [0.18.0] - 2026-08-14
 
 ### Added
 
-- **Receita com `[source]` clona o próprio código para a máquina.** `[source]` numa receita de MCP declara um repositório GitHub a clonar — o clone é uma escrita do plano, com caminho e contagem de arquivos, e aparece tanto no `--dry-run` quanto no relatório do que aterrissou. `{source}` em `command`, `args`, `url` ou `[server.env]` resolve para o caminho absoluto do clone em `~/.overpower/mcp/<slug>/`. Uma receita com `[source]` só aterrissa em escopo de máquina — pedir escopo de projeto recusa com **exit 3**, nomeando o conserto (`--global`). Reinstalar re-clona incondicionalmente, sem cache; uma receita sem `[source]` continua indo para os dois escopos. ([#84](https://github.com/panlabs-tech/overpower/issues/84))
+- **Receita com `[source]` clona o próprio código para a máquina.** `[source]` numa receita de MCP declara um repositório GitHub a clonar — o clone é uma escrita do plano, com caminho e contagem de arquivos, e aparece tanto no `--dry-run` quanto no relatório do que aterrissou. `{source}` em `command`, `args`, `url` ou `[server.env]` resolve para o caminho absoluto do clone em `~/.overpower/mcp/<slug>/`. Uma receita com `[source]` só aterrissa em escopo de máquina — pedir escopo de projeto recusa com **exit 3**, nomeando o conserto (`--global`). Reinstalar re-clona incondicionalmente, sem cache; uma receita sem `[source]` continua indo para os dois escopos. ([#84](https://github.com/ThiagoPanini/overpower/issues/84))
 
 
 ## [0.17.0] - 2026-08-14
 
 ### Added
 
-- **`--from` alcança `--mcp`: a receita federada, no mesmo schema da embutida.** `install --mcp <slug> --from <url>` acha a receita em `.overpower/mcp/<slug>.toml` no repositório apontado — raiz do repo, subpasta ou a pasta da receita dão o mesmo resultado, e uma receita não encontrada recusa com **exit 3** sem o fallback rodar. `list --mcp <slug> --from <url>` mostra a receita sem instalar nada. O canal é o mesmo do `--skill`: exclusivo, sem cache, e o `git` roda de verdade contra o remoto apontado. ([#83](https://github.com/panlabs-tech/overpower/issues/83))
+- **`--from` alcança `--mcp`: a receita federada, no mesmo schema da embutida.** `install --mcp <slug> --from <url>` acha a receita em `.overpower/mcp/<slug>.toml` no repositório apontado — raiz do repo, subpasta ou a pasta da receita dão o mesmo resultado, e uma receita não encontrada recusa com **exit 3** sem o fallback rodar. `list --mcp <slug> --from <url>` mostra a receita sem instalar nada. O canal é o mesmo do `--skill`: exclusivo, sem cache, e o `git` roda de verdade contra o remoto apontado. ([#83](https://github.com/ThiagoPanini/overpower/issues/83))
 
 
 ## [0.16.0] - 2026-08-14
@@ -312,14 +319,14 @@ navigable index of the decisions that produced it.
   linha inteira com **exit 3**, nomeando qual precondição e por quê, zero byte escrito; `--dry-run`
   roda a mesma checagem, para que o relatório não fale de uma máquina diferente da que instala de
   verdade. `instructions` chegou junto: a prosa que a receita carrega para o que não dá para
-  automatizar sai impressa ao lado do plano, antes da confirmação. ([#82](https://github.com/panlabs-tech/overpower/issues/82))
+  automatizar sai impressa ao lado do plano, antes da confirmação. ([#82](https://github.com/ThiagoPanini/overpower/issues/82))
 
 
 ## [0.15.0] - 2026-08-14
 
 ### Changed
 
-- Numa linha que mistura `--skill`/`--ai-framework`/`--bundle` com `--mcp`, a recusa deixa de ser por linha inteira e passa a ser por runtime: só é recusado quem não tem destino em nenhuma das duas classes; quem tem destino numa e não na outra recebe o que pode e a tela nomeia o que ficou de fora. ([#100](https://github.com/panlabs-tech/overpower/issues/100))
+- Numa linha que mistura `--skill`/`--ai-framework`/`--bundle` com `--mcp`, a recusa deixa de ser por linha inteira e passa a ser por runtime: só é recusado quem não tem destino em nenhuma das duas classes; quem tem destino numa e não na outra recebe o que pode e a tela nomeia o que ficou de fora. ([#100](https://github.com/ThiagoPanini/overpower/issues/100))
 
 
 ## [0.14.0] - 2026-08-14
@@ -330,7 +337,7 @@ navigable index of the decisions that produced it.
 
   **A validação sobe para antes da primeira tela.** Slug de MCP inexistente, slug que na verdade é de outra classe (`--mcp` nomeando um skill, por exemplo) e linha que mistura skill e MCP sem `--runtime` saem em exit 2 sem desenhar banner nem passo algum, em vez de custar o wizard inteiro para falhar no fim.
 
-  **`vscode` ganha linha em `RUNTIMES`, sem destino de skill** (ADR 0018, que revisita e não repete a ADR 0017): é o que deixa o novo passo nomear `VS Code`. Pertencer à tabela deixou de provar destino de skill — `runtimes_in` passa a filtrar pelo campo, e a tabela cresce de 76 para 77 linhas. ([#97](https://github.com/panlabs-tech/overpower/issues/97))
+  **`vscode` ganha linha em `RUNTIMES`, sem destino de skill** (ADR 0018, que revisita e não repete a ADR 0017): é o que deixa o novo passo nomear `VS Code`. Pertencer à tabela deixou de provar destino de skill — `runtimes_in` passa a filtrar pelo campo, e a tabela cresce de 76 para 77 linhas. ([#97](https://github.com/ThiagoPanini/overpower/issues/97))
 
 ### Fixed
 
@@ -338,14 +345,14 @@ navigable index of the decisions that produced it.
 
   **O painel `installed` recupera a chave do enxerto.** A última tela, a que confirma o que já foi escrito, degradava um enxerto ao caminho do documento e jogava a chave fora; passa a imprimir `documento › chave`, como o plano e o portão já fazem — a única defesa do leitor sob sobrescrita incondicional.
 
-  Os goldens de `list --mcp`, `summary` e `installed` passam a ser gravados com o que o produto realmente produz — alvos reais e uma variante com enxerto — em vez de um par construído à mão, que é o que deixou o produto cartesiano invisível em snapshot até agora. ([#98](https://github.com/panlabs-tech/overpower/issues/98))
+  Os goldens de `list --mcp`, `summary` e `installed` passam a ser gravados com o que o produto realmente produz — alvos reais e uma variante com enxerto — em vez de um par construído à mão, que é o que deixou o produto cartesiano invisível em snapshot até agora. ([#98](https://github.com/ThiagoPanini/overpower/issues/98))
 
 
 ## [0.13.0] - 2026-08-14
 
 ### Changed
 
-- O help de `--runtime` passa a dizer que skill e MCP moram em tabelas separadas, e nem todo runtime está nas duas. ([#99](https://github.com/panlabs-tech/overpower/issues/99))
+- O help de `--runtime` passa a dizer que skill e MCP moram em tabelas separadas, e nem todo runtime está nas duas. ([#99](https://github.com/ThiagoPanini/overpower/issues/99))
 
 
 ## [0.12.0] - 2026-08-14
@@ -383,7 +390,7 @@ navigable index of the decisions that produced it.
   máquina que já rodou o runtime, e ele carrega `userID`, `machineID` e o estado de onboarding —
   perguntar *"já existe, sobrescrevo?"* teria travado o caso ordinário para pedir permissão de
   **acrescentar** uma chave. Um enxerto não substitui arquivo: insere a chave e deixa os outros
-  bytes onde estavam, formatação inclusive. ([#81](https://github.com/panlabs-tech/overpower/issues/81))
+  bytes onde estavam, formatação inclusive. ([#81](https://github.com/ThiagoPanini/overpower/issues/81))
 
 
 ## [0.11.0] - 2026-08-14
@@ -416,19 +423,19 @@ navigable index of the decisions that produced it.
   `docs/research/mcp-config-formats.md`. A mais cara delas: se `${env:}` alcança `env` ou só os
   campos de OAuth. Se não alcançar, a referência chega crua ao servidor e falha alto na primeira
   chamada — que ainda é o lado certo de errar, porque o outro é escrever o segredo num arquivo
-  versionado com exit 0. ([#80](https://github.com/panlabs-tech/overpower/issues/80))
+  versionado com exit 0. ([#80](https://github.com/ThiagoPanini/overpower/issues/80))
 
 
 ## [0.10.0] - 2026-08-14
 
 ### Added
 
-- O VS Code entra como alvo de enxerto: `.vscode/mcp.json`, chave raiz `servers`, e o slot renderizado como `${input:<id>}` mais uma entrada em `inputs[]` marcada `password: true` — a única grafia do espaço medido em que o segredo fica no cofre do sistema operacional em vez de em texto puro. `--runtime vscode` passa a ser nomeável, ainda que o VS Code não tenha linha na tabela de skills. ([#79](https://github.com/panlabs-tech/overpower/issues/79))
+- O VS Code entra como alvo de enxerto: `.vscode/mcp.json`, chave raiz `servers`, e o slot renderizado como `${input:<id>}` mais uma entrada em `inputs[]` marcada `password: true` — a única grafia do espaço medido em que o segredo fica no cofre do sistema operacional em vez de em texto puro. `--runtime vscode` passa a ser nomeável, ainda que o VS Code não tenha linha na tabela de skills. ([#79](https://github.com/ThiagoPanini/overpower/issues/79))
 
 ### Fixed
 
 - O enxerto passou a achar uma chave escrita com aspas simples. A busca só reconhecia a grafia com aspas duplas, e um falso "não achei" custa uma **duplicata**: a entrada era acrescentada ao lado da que devia substituir — um segundo `inputs`, ou o mesmo segredo perguntado duas vezes.
-  Um documento que termina a última entrada com vírgula não ganha mais uma `,` órfã numa linha só. Em JSONC a vírgula final é idiomática, e o espaço antes da chave de fechamento pendura nela e não no último valor — movê-lo deixava para trás uma linha que ninguém escreveu. ([#79](https://github.com/panlabs-tech/overpower/issues/79))
+  Um documento que termina a última entrada com vírgula não ganha mais uma `,` órfã numa linha só. Em JSONC a vírgula final é idiomática, e o espaço antes da chave de fechamento pendura nela e não no último valor — movê-lo deixava para trás uma linha que ninguém escreveu. ([#79](https://github.com/ThiagoPanini/overpower/issues/79))
 
 
 ## [0.9.0] - 2026-08-13
@@ -478,7 +485,7 @@ navigable index of the decisions that produced it.
   configuração que quatro repositórios desta organização já mantêm à mão — a mesma que produziu
   cinco versões que discordam entre si. Todas **pinam versão exata**: `@latest` numa receita
   embutida faria o servidor mudar de comportamento sem ninguém ter mudado nada, e a versão em
-  que ele mudou não ficaria escrita em lugar nenhum. ([#78](https://github.com/panlabs-tech/overpower/issues/78))
+  que ele mudou não ficaria escrita em lugar nenhum. ([#78](https://github.com/ThiagoPanini/overpower/issues/78))
 
 
 ## [0.8.0] - 2026-08-13
@@ -503,14 +510,14 @@ navigable index of the decisions that produced it.
   **sem tocar na receita**, e uma receita que declarasse `targets` é recusada pelo leitor,
   por nome. Um alvo é um **par** — runtime *e* escopo —, porque o `claude-code` lê `.mcp.json`
   dentro do repositório e ainda não lê nada na máquina
-  ([#81](https://github.com/panlabs-tech/overpower/issues/81)): a tela diz `claude-code ·
+  ([#81](https://github.com/ThiagoPanini/overpower/issues/81)): a tela diz `claude-code ·
   project` e não promete a metade que não existe. Receita que alvo nenhum atende diz `none`
   em vez de mostrar uma linha vazia.
 
   Nome fora do catálogo sai **exit 2** com a lista fechada na mensagem, dois seletores na
   mesma linha saem 2 nomeando os dois, e sob pipe continua **zero** sequência ANSI. Nada
   truncado a 80 nem a 60 colunas, e as duas telas novas entram como snapshot nas duas
-  larguras, sem cor. ([#77](https://github.com/panlabs-tech/overpower/issues/77))
+  larguras, sem cor. ([#77](https://github.com/ThiagoPanini/overpower/issues/77))
 
 
 ## [0.7.0] - 2026-08-13
@@ -528,7 +535,7 @@ navigable index of the decisions that produced it.
   desconhecida sobrevive, e um servidor que já estava lá **não é reformatado** — nem os
   `args` que ele mantinha numa linha. Isso custou uma dependência (`json-five`) e a
   proibição do `json.dumps` como escritor de enxerto, decidida na
-  [ADR 0016](https://github.com/panlabs-tech/overpower/blob/main/docs/adr/0016-o-diff-aditivo-e-requisito.md):
+  [ADR 0016](https://github.com/ThiagoPanini/overpower/blob/main/docs/adr/0016-o-diff-aditivo-e-requisito.md):
   medido, reserializar no melhor caso possível já reflui um servidor que ninguém tocou, e
   aí o `git diff` deixa de responder o que a ferramenta fez. Indentação por tabs continua
   tabs, `CRLF` continua `CRLF`, e um comentário no fim do objeto sobrevive à vírgula que a
@@ -537,7 +544,7 @@ navigable index of the decisions that produced it.
   **O plano nomeia arquivo e chave antes de confirmar** — `.mcp.json ›
   mcpServers.cloudflare ← claude-code` —, e essa linha é requisito e não ornamento: chave
   homônima é **sobrescrita** sem perguntar e sem `--force`
-  ([ADR 0013](https://github.com/panlabs-tech/overpower/blob/main/docs/adr/0013-a-chave-alheia-e-sobrescrita.md)),
+  ([ADR 0013](https://github.com/ThiagoPanini/overpower/blob/main/docs/adr/0013-a-chave-alheia-e-sobrescrita.md)),
   então ela é a única defesa que o leitor tem. A identidade de três vias ganhou a metade
   que faltava: toda chave que o plano nomeou existe no documento depois, e nenhuma que ele
   não nomeou apareceu. **Arquivo de configuração já quebrado é recusado, nunca reparado**,
@@ -545,7 +552,7 @@ navigable index of the decisions that produced it.
   primeiro byte.
 
   **O servidor nasce desligado e o produto diz isso**
-  ([ADR 0014](https://github.com/panlabs-tech/overpower/blob/main/docs/adr/0014-o-enxerto-nasce-desligado-e-o-produto-diz-isso.md)):
+  ([ADR 0014](https://github.com/ThiagoPanini/overpower/blob/main/docs/adr/0014-o-enxerto-nasce-desligado-e-o-produto-diz-isso.md)):
   no Claude Code um servidor vindo do `.mcp.json` nasce pendente de aprovação e **não
   conecta**, sem mensagem e sem exit code, então o comando avisa ao final — com exit 0,
   porque a escrita aconteceu e o que falta é ato do usuário. O aviso só sai onde é verdade.
@@ -557,7 +564,7 @@ navigable index of the decisions that produced it.
   campo que esta versão não renderiza são **erro nomeado no leitor**, nunca aceitação
   parcial. O primeiro corte tem **um alvo** (Claude Code, escopo de projeto) e **uma
   receita**, `cloudflare`, que não é inventada: é a configuração que três repositórios
-  desta organização já mantêm à mão, em três cópias que por acaso concordam. ([#76](https://github.com/panlabs-tech/overpower/issues/76))
+  desta organização já mantêm à mão, em três cópias que por acaso concordam. ([#76](https://github.com/ThiagoPanini/overpower/issues/76))
 
 
 ## [0.6.0] - 2026-08-13
@@ -584,7 +591,7 @@ navigable index of the decisions that produced it.
 
   **Quem empacotava a partir do sdist para rodar a suíte passa a precisar do
   repositório**, e a divergência está registrada na
-  [ADR 0013](https://github.com/panlabs-tech/overpower/blob/main/docs/adr/0013-o-sdist-declara-o-que-carrega.md). ([#71](https://github.com/panlabs-tech/overpower/issues/71))
+  [ADR 0013](https://github.com/ThiagoPanini/overpower/blob/main/docs/adr/0013-o-sdist-declara-o-que-carrega.md). ([#71](https://github.com/ThiagoPanini/overpower/issues/71))
 
 ### Fixed
 
@@ -599,40 +606,40 @@ navigable index of the decisions that produced it.
   Nada disso chegou ao PyPI: os sdists publicados `0.1.0` e `0.5.0` têm **zero**
   entradas `.claude`, porque o release builda em runner limpo e o `actions/checkout`
   só materializa o que o git rastreia. O que estava exposto era o build da máquina do
-  mantenedor, para o dia em que um `uv build && uv publish` saísse dali. ([#72](https://github.com/panlabs-tech/overpower/issues/72))
+  mantenedor, para o dia em que um `uv build && uv publish` saísse dali. ([#72](https://github.com/ThiagoPanini/overpower/issues/72))
 
 
 ## [0.5.0] - 2026-08-12
 
 ### Changed
 
-- `install --global` deixa de recusar duro (`DestinationExistsError`, exit 3) quando um destino já existe: num terminal real, sem `--force`, a mesma pergunta que já perguntava `Write these paths?` passa a nomear os paths em conflito e perguntar se deve sobrescrever — `Y` instala tudo e sobrescreve onde há conflito, `N` cancela sem escrever nada (exit `CANNOT_RUN`, 1, a mesma convenção que toda recusa interativa já usava). Fora de terminal, com `--yes`, ou sob `--dry-run` — que é relatório, nunca sessão — o comportamento continua idêntico ao de antes: recusa antes de qualquer tela, exit 3. `--force` continua sobrescrevendo em silêncio, em qualquer contexto. ([#69](https://github.com/panlabs-tech/overpower/issues/69))
+- `install --global` deixa de recusar duro (`DestinationExistsError`, exit 3) quando um destino já existe: num terminal real, sem `--force`, a mesma pergunta que já perguntava `Write these paths?` passa a nomear os paths em conflito e perguntar se deve sobrescrever — `Y` instala tudo e sobrescreve onde há conflito, `N` cancela sem escrever nada (exit `CANNOT_RUN`, 1, a mesma convenção que toda recusa interativa já usava). Fora de terminal, com `--yes`, ou sob `--dry-run` — que é relatório, nunca sessão — o comportamento continua idêntico ao de antes: recusa antes de qualquer tela, exit 3. `--force` continua sobrescrevendo em silêncio, em qualquer contexto. ([#69](https://github.com/ThiagoPanini/overpower/issues/69))
 
 
 ## [0.4.0] - 2026-08-12
 
 ### Changed
 
-- O comando sob cada entrada do `list` (`AI Frameworks`, `Bundles`, `Pool skills`) deixa de usar a mesma tinta cyan do nome do artefato acima dele — novo token `op.command` (`#5f819d`, o azul-acinzentado que já era o `qmark` do wizard) marca o comando como subordinado ao nome, sem virar ilegível. Os prompts do wizard `install` (`questionary`) ganham um `Style` próprio, harmonizado com o `THEME` do resto do produto: `qmark` e a moldura (rail, hints, grupo travado) na mesma tinta de `op.brand`/`op.dim`, a resposta selecionada e a linha destacada na mesma tinta de `op.key` — em vez do azul-acinzentado e do laranja que a biblioteca usava por padrão. A pergunta de escopo ganha uma linha em branco antes do hint de navegação, que estavam colados, e as opções mudam de "This repository"/"This machine (~/), every project" para "This project"/"Global". ([#67](https://github.com/panlabs-tech/overpower/issues/67))
+- O comando sob cada entrada do `list` (`AI Frameworks`, `Bundles`, `Pool skills`) deixa de usar a mesma tinta cyan do nome do artefato acima dele — novo token `op.command` (`#5f819d`, o azul-acinzentado que já era o `qmark` do wizard) marca o comando como subordinado ao nome, sem virar ilegível. Os prompts do wizard `install` (`questionary`) ganham um `Style` próprio, harmonizado com o `THEME` do resto do produto: `qmark` e a moldura (rail, hints, grupo travado) na mesma tinta de `op.brand`/`op.dim`, a resposta selecionada e a linha destacada na mesma tinta de `op.key` — em vez do azul-acinzentado e do laranja que a biblioteca usava por padrão. A pergunta de escopo ganha uma linha em branco antes do hint de navegação, que estavam colados, e as opções mudam de "This repository"/"This machine (~/), every project" para "This project"/"Global". ([#67](https://github.com/ThiagoPanini/overpower/issues/67))
 
 ### Removed
 
-- A dica de atalho `alias op='overpower'` sai do banner. A linha misturava pt-BR ("atalho") com o resto do banner em en-US e, sem um segundo executável instalado para o alias (#58), não sobrava nada além de mais uma linha para o olho descartar. ([#67](https://github.com/panlabs-tech/overpower/issues/67))
+- A dica de atalho `alias op='overpower'` sai do banner. A linha misturava pt-BR ("atalho") com o resto do banner em en-US e, sem um segundo executável instalado para o alias (#58), não sobrava nada além de mais uma linha para o olho descartar. ([#67](https://github.com/ThiagoPanini/overpower/issues/67))
 
 
 ## [0.3.0] - 2026-08-11
 
 ### Added
 
-- Fora de repositório git o escopo passa a ser **relatado** em vez de decidido em silêncio: a sessão mostra `Where should this install write to? / This machine (~/) — outside a git repository` onde antes não havia etapa nenhuma. Cada runtime da lista passa a nomear a árvore que lê, como o `npx skills` faz — e a busca passa a casar o caminho junto com o nome. ([#65](https://github.com/panlabs-tech/overpower/issues/65))
+- Fora de repositório git o escopo passa a ser **relatado** em vez de decidido em silêncio: a sessão mostra `Where should this install write to? / This machine (~/) — outside a git repository` onde antes não havia etapa nenhuma. Cada runtime da lista passa a nomear a árvore que lê, como o `npx skills` faz — e a busca passa a casar o caminho junto com o nome. ([#65](https://github.com/ThiagoPanini/overpower/issues/65))
 
 ### Changed
 
-- O wizard de `install` passa a desenhar a dinâmica de sessão do `npx skills add`: moldura `┌`/`└`, trilho `│` entre etapas, marcas `◆`/`◇`/`●`, e a etapa respondida colapsando em pergunta sobre resposta. A lista de runtimes ganha viewport de 8 linhas com contador `↓ N mais` e rodapé de seleção viva; o grupo universal sai da lista e vira bloco estático que nomeia quatro e conta o resto. Medido a 80x24: a etapa mostrava **1** linha selecionável e passa a mostrar **8**. ([#65](https://github.com/panlabs-tech/overpower/issues/65))
+- O wizard de `install` passa a desenhar a dinâmica de sessão do `npx skills add`: moldura `┌`/`└`, trilho `│` entre etapas, marcas `◆`/`◇`/`●`, e a etapa respondida colapsando em pergunta sobre resposta. A lista de runtimes ganha viewport de 8 linhas com contador `↓ N mais` e rodapé de seleção viva; o grupo universal sai da lista e vira bloco estático que nomeia quatro e conta o resto. Medido a 80x24: a etapa mostrava **1** linha selecionável e passa a mostrar **8**. ([#65](https://github.com/ThiagoPanini/overpower/issues/65))
 
 ### Fixed
 
-- O portão de confirmação cabe na tela. Medido a 80x24, o plano detalhado tem 34 linhas contra as 24 do terminal, então as 11 primeiras — incluindo a linha que nomeia o que está sendo aceito — já tinham rolado quando `Write these paths?` aparecia. O portão passa a listar destinos; `--dry-run` e a saída sob cano mantêm a lista de artefatos inteira, e as duas são a mesma função a um flag de distância. ([#65](https://github.com/panlabs-tech/overpower/issues/65))
+- O portão de confirmação cabe na tela. Medido a 80x24, o plano detalhado tem 34 linhas contra as 24 do terminal, então as 11 primeiras — incluindo a linha que nomeia o que está sendo aceito — já tinham rolado quando `Write these paths?` aparecia. O portão passa a listar destinos; `--dry-run` e a saída sob cano mantêm a lista de artefatos inteira, e as duas são a mesma função a um flag de distância. ([#65](https://github.com/ThiagoPanini/overpower/issues/65))
 
 
 ## [0.2.0] - 2026-08-11
@@ -647,7 +654,7 @@ navigable index of the decisions that produced it.
   because `op` is the binary of the 1Password CLI and a second entry point would
   shadow a credential tool out of a `~/.local/bin` that sits ahead of it on the
   `PATH` — with `uv` refusing the whole package if it noticed at all. Occupying the
-  name is a decision for whoever knows their own machine. ([#58](https://github.com/panlabs-tech/overpower/issues/58))
+  name is a decision for whoever knows their own machine. ([#58](https://github.com/ThiagoPanini/overpower/issues/58))
 
 ### Changed
 
@@ -677,7 +684,7 @@ navigable index of the decisions that produced it.
   lock is of the screen and never of the plan: `install --runtime claude-code` on
   the flag line still writes `.claude/skills/` and nothing else. The *Additional
   agents* list now filters as you type, matching in the middle of a word, which
-  costs the `j`/`k` navigation keys because the library cannot offer both. ([#57](https://github.com/panlabs-tech/overpower/issues/57))
+  costs the `j`/`k` navigation keys because the library cannot offer both. ([#57](https://github.com/ThiagoPanini/overpower/issues/57))
 - The plan **names every artifact it is about to write**, instead of counting them.
   Between the head line of a selection and the places it lands, `install` now
   stacks the artifacts the same way `list --ai-framework` does — the type as the
@@ -689,7 +696,7 @@ navigable index of the decisions that produced it.
   and the measured alternatives all cost more — a three-column grid needs 91
   characters and a two-column one 62, so neither fits the widths this screen is
   recorded at, and a wrapped run of names fits but drops the type prefix that a
-  framework of mixed types is read by. ([#58](https://github.com/panlabs-tech/overpower/issues/58))
+  framework of mixed types is read by. ([#58](https://github.com/ThiagoPanini/overpower/issues/58))
 - **Release cadence now follows implementation.** A new version comes out of every
   pull request that changes what goes inside the wheel, instead of out of somebody
   remembering to move a literal: a required check, `release-ready`, refuses the
@@ -706,7 +713,7 @@ navigable index of the decisions that produced it.
   bump, the tagger found the tag already there, wrote a notice and went green all
   three times — nothing published, no error anywhere, and the only symptom was a
   `pip install --upgrade` that brought nothing back. The tagger now fails loudly in
-  that case. The sections below are the work that had been dammed up behind it. ([#62](https://github.com/panlabs-tech/overpower/issues/62))
+  that case. The sections below are the work that had been dammed up behind it. ([#62](https://github.com/ThiagoPanini/overpower/issues/62))
 
 ### Fixed
 
@@ -716,7 +723,7 @@ navigable index of the decisions that produced it.
   `skill improve-codebase-architec…`: a name nobody can type back into `--skill`.
   It folds across lines instead, at every width. Leaving `no_wrap` off was not
   enough and that was the trap — it lets rich *try* to wrap, and a name is a single
-  unbreakable word, so what it did instead was crop. ([#58](https://github.com/panlabs-tech/overpower/issues/58))
+  unbreakable word, so what it did instead was crop. ([#58](https://github.com/ThiagoPanini/overpower/issues/58))
 
 
 ## [0.1.0] - 2026-08-08
@@ -733,7 +740,7 @@ navigable index of the decisions that produced it.
   directory: no path is registered anywhere, and a directory outside the closed set
   of type names is a named error carrying the offending path. The error model
   starts here too: a wrong flag exits 2, and an unhandled exception becomes an
-  error panel and exit 1 — a traceback never reaches the user. ([#36](https://github.com/panlabs-tech/overpower/issues/36))
+  error panel and exit 1 — a traceback never reaches the user. ([#36](https://github.com/ThiagoPanini/overpower/issues/36))
 - `overpower list` gains the three screens that answer the question preceding an
   install — one per installable unit. `list --ai-framework matt-pocock` shows the
   artifacts **inside** it, stacked, with the **type of each one as its prefix**
@@ -745,7 +752,7 @@ navigable index of the decisions that produced it.
   reason none of the three truncates — all of them re-wrap inside the frame at 80
   columns and at 60, because a narrow terminal is where reading matters most. A
   name outside the catalog exits **2** with the closed list in the message: the
-  list is closed, so the defect is in what was typed. ([#37](https://github.com/panlabs-tech/overpower/issues/37))
+  list is closed, so the defect is in what was typed. ([#37](https://github.com/ThiagoPanini/overpower/issues/37))
 - `overpower install --skill <a>,<b> --runtime <x> --runtime <y>` writes curated
   pool skills into a repository. Comma and repeated flag are both accepted and
   both accumulate, there is no positional, and there is **no default runtime**:
@@ -764,7 +771,7 @@ navigable index of the decisions that produced it.
   version survives; a failure part-way through leaves what it wrote and reports
   how far it got and where it stopped, with exit 1. What the plan announces, the
   real run announces and the disk carries are asserted to be the same set of
-  paths, on all nine cells of the matrix. ([#38](https://github.com/panlabs-tech/overpower/issues/38))
+  paths, on all nine cells of the matrix. ([#38](https://github.com/ThiagoPanini/overpower/issues/38))
 - `overpower install` gains `--ai-framework` and `--bundle`, joining `--skill` as
   independent selectors that a single line may freely mix — both accept comma and
   repeated flag, accumulating, the same as `--skill` already does.
@@ -777,7 +784,7 @@ navigable index of the decisions that produced it.
   individual artifact. An intra-command collision, where two selectors would write
   the same destination, is not detected — it is decided: the order makes the
   individual artifact, the most specific unit, always the last write, so the
-  content that survives a collided destination is the individual artifact's. ([#39](https://github.com/panlabs-tech/overpower/issues/39))
+  content that survives a collided destination is the individual artifact's. ([#39](https://github.com/ThiagoPanini/overpower/issues/39))
 - `overpower install` now has a scope. Inside a git repository the default stays
   the repository, unchanged; **outside one, the command refuses and exits 2**
   unless `--global`/`-g` says explicitly to write under the home directory —
@@ -814,7 +821,7 @@ navigable index of the decisions that produced it.
   The plan now carries **mode** alongside path, and the identity that ties the
   plan, the screen and the disk together grows with it: what the screen calls a
   link has to be a link on disk, in every scope, on every platform the writer
-  runs on. ([#40](https://github.com/panlabs-tech/overpower/issues/40))
+  runs on. ([#40](https://github.com/ThiagoPanini/overpower/issues/40))
 - `overpower install` typed bare in a terminal now opens a wizard instead of
   refusing with *"nothing to install"*. Four steps, in a fixed order: **artifacts,
   then scope, then runtimes, then confirmation** — the order is not aesthetic,
@@ -842,7 +849,7 @@ navigable index of the decisions that produced it.
   so the selection logic downstream is unchanged and stays tested over values,
   never over keystrokes. Without a terminal, a bare invocation still exits 2
   without ever touching the prompt library — no prompt library degrades alone
-  under no-TTY, so the check is the overpower's own, ahead of every call into it. ([#41](https://github.com/panlabs-tech/overpower/issues/41))
+  under no-TTY, so the check is the overpower's own, ahead of every call into it. ([#41](https://github.com/ThiagoPanini/overpower/issues/41))
 - `overpower install` gains `--from <url>`, which points `--skill` at **any GitHub
   repository, with no registration**: the vendored copy ages by construction, and
   this is the escape hatch that does not wait for a curation refresh. It is
@@ -881,7 +888,7 @@ navigable index of the decisions that produced it.
   and **there is no cache**: remote content is fresh by decision. `--dry-run
   --from` resolves the remote exactly as the real run does and still writes
   nothing, because a dry run that does not fetch is a report about a different
-  installation. **Zero new dependencies.** ([#42](https://github.com/panlabs-tech/overpower/issues/42))
+  installation. **Zero new dependencies.** ([#42](https://github.com/ThiagoPanini/overpower/issues/42))
 - `overpower doctor` answers two questions in one output: how the terminal is,
   and how what was installed is. The terminal half reports **TTY, colour, width
   and `NO_COLOR`** — the four facts that explain a screen that came out strange
@@ -912,19 +919,19 @@ navigable index of the decisions that produced it.
   have to be distinguishable. The whole answer is phrased in **writes** rather than
   in artifacts — one artifact occupies as many places as it landed in, and the
   screen counts both — so the graft of v0.2, where an artifact costs a second
-  write possibly outside the repository, is a sum and not a rewrite. ([#43](https://github.com/panlabs-tech/overpower/issues/43))
+  write possibly outside the repository, is a sum and not a rewrite. ([#43](https://github.com/ThiagoPanini/overpower/issues/43))
 - The vendored content ships inside the wheel, in two sibling roots with opposite
   invariants: `content/`, which lands whole in the target — the `matt-pocock` AI
   Framework and one pool skill, `panlabs-python-standards` — and `catalog/`, which
   never lands and carries only what the tree cannot know: the `api-python` bundle
   and one description line per framework. No path is written anywhere. Attribution
-  travels in the package metadata, never in the target. ([#45](https://github.com/panlabs-tech/overpower/issues/45))
+  travels in the package metadata, never in the target. ([#45](https://github.com/ThiagoPanini/overpower/issues/45))
 
 ### Changed
 
 - Everything the product says is English — the README that becomes the PyPI page,
   the package description, and everything the command prints. pt-BR stays in
-  tickets, resolutions and ADRs. ([#14](https://github.com/panlabs-tech/overpower/issues/14))
+  tickets, resolutions and ADRs. ([#14](https://github.com/ThiagoPanini/overpower/issues/14))
 - The `0.0.x` series ends. `0.1.0` is the first version that installs anything, and
   the notice saying the series is not the product leaves the README and the package
   docstring with it. The README **is** the PyPI page, so it now describes the
@@ -938,7 +945,7 @@ navigable index of the decisions that produced it.
   end-to-end test against the real GitHub under `OVERPOWER_NETWORK_TESTS=1`, which
   runs in no CI job by decision. `Development Status` moves off `1 - Planning`,
   which is the same claim as the notice and would have outlived it on the sidebar
-  of the page. ([#44](https://github.com/panlabs-tech/overpower/issues/44))
+  of the page. ([#44](https://github.com/ThiagoPanini/overpower/issues/44))
 
 
 ## [0.0.2] - 2026-08-05
@@ -946,7 +953,7 @@ navigable index of the decisions that produced it.
 ### Fixed
 
 - Publishing metadata pointed at a repository that answered 404 to anonymous
-  callers. ([#24](https://github.com/panlabs-tech/overpower/issues/24))
+  callers. ([#24](https://github.com/ThiagoPanini/overpower/issues/24))
 
 ## [0.0.1] - 2026-08-05
 
@@ -957,7 +964,7 @@ the publishing pipeline end to end; it installs nothing.
 
 - Name reserved on PyPI, published from GitHub Actions through a trusted
   publisher, with no credential stored anywhere.
-  ([#13](https://github.com/panlabs-tech/overpower/issues/13))
+  ([#13](https://github.com/ThiagoPanini/overpower/issues/13))
 - `overpower` reports the version that arrived, the interpreter that ran it, the
   platform and the payload that crossed — the four facts only a real execution
-  can answer. ([#13](https://github.com/panlabs-tech/overpower/issues/13))
+  can answer. ([#13](https://github.com/ThiagoPanini/overpower/issues/13))

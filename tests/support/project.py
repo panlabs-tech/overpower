@@ -129,7 +129,7 @@ equipment — and `GIT_CONFIG_GLOBAL` joins them because `overpower.inspection`
 honours it when it looks for `core.symlinks`.
 
 **Both tables, not just the skills one.** The machine documents of
-https://github.com/panlabs-tech/overpower/issues/81 brought `APPDATA` in, which
+https://github.com/ThiagoPanini/overpower/issues/81 brought `APPDATA` in, which
 is *always* set on the Windows cell of the matrix — an unscrubbed one there is a
 suite that writes into the runner's real roaming profile and asserts nothing.
 
@@ -303,7 +303,7 @@ def target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str = "project
 
     `tmp_path` itself carries a `.git` marker, and `root` is a subdirectory of
     it — a repository with the command run from inside it, the ordinary case
-    (https://github.com/panlabs-tech/overpower/issues/40). The marker sits
+    (https://github.com/ThiagoPanini/overpower/issues/40). The marker sits
     *above* `root`, never inside it, so every existing `root.iterdir()`
     assertion keeps seeing exactly what `install` wrote and nothing else. A
     test of the *outside-a-repository* refusal builds its own bare directory
@@ -476,7 +476,7 @@ def files_under(root: Path) -> set[str]:
 
     `Path.walk(follow_symlinks=True)`, not `rglob` — a global-scope landing may
     be a symlink, and the whole point of the central identity
-    (https://github.com/panlabs-tech/overpower/issues/40) is that content
+    (https://github.com/ThiagoPanini/overpower/issues/40) is that content
     reachable *through* one still counts. `rglob`'s own `recurse_symlinks` is
     3.13+ only; `Path.walk` carries the same option since 3.12, which is the
     floor here. A junction needs no opt-in: it is not a symlink

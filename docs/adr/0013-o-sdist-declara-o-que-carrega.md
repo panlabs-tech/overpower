@@ -4,7 +4,7 @@ O `pyproject.toml` do overpower passa a ter um `[tool.hatch.build.targets.sdist]
 
 Esta ADR existe por causa da [ADR 0004](0004-build-nao-forca-inclusao-de-conteudo.md), que registrou uma **ausência** como decisão: *"o `pyproject.toml` não tem `force-include`, não tem `artifacts`, não tem `ignore-vcs` e não tem `packages`"*, e mandou tratar como regressão qualquer configuração de build que aparecesse ali. Quem abrir o arquivo depois desta mudança acha um bloco de build e lê exatamente a regressão que a 0004 avisa. Não é: **a 0004 proíbe forçar inclusão, e isto é o oposto**.
 
-Levantado em [O sdist publicado é o repositório inteiro](https://github.com/panlabs-tech/overpower/issues/64) e decidido em [O sdist declara o que carrega](https://github.com/panlabs-tech/overpower/issues/71).
+Levantado em [O sdist publicado é o repositório inteiro](https://github.com/ThiagoPanini/overpower/issues/64) e decidido em [O sdist declara o que carrega](https://github.com/ThiagoPanini/overpower/issues/71).
 
 ## O achado não era o do título
 
@@ -36,7 +36,7 @@ Perde, e não por tamanho: os dois entregam o mesmo sdist hoje. Uma denylist **o
 
 ### Portão sozinho, sem mexer no build
 
-Foi o que o [#64](https://github.com/panlabs-tech/overpower/issues/64) pediu no item 4 — um irmão do P2 que assertasse o conteúdo do sdist e nada mais. **Fica vacuamente verde para sempre.** O único ambiente onde ele roda é a CI, e a CI é justamente onde o vazamento não pode ocorrer, pelo mesmo `actions/checkout` medido acima. É a armadilha que o [#45](https://github.com/panlabs-tech/overpower/issues/45) achou no P1 enquanto a raiz de conteúdo não existia: `exit 0`, saída vazia, portão sem sujeito. Rejeitado como *substituto*; entra como complemento, com a razão trocada — ver abaixo.
+Foi o que o [#64](https://github.com/ThiagoPanini/overpower/issues/64) pediu no item 4 — um irmão do P2 que assertasse o conteúdo do sdist e nada mais. **Fica vacuamente verde para sempre.** O único ambiente onde ele roda é a CI, e a CI é justamente onde o vazamento não pode ocorrer, pelo mesmo `actions/checkout` medido acima. É a armadilha que o [#45](https://github.com/ThiagoPanini/overpower/issues/45) achou no P1 enquanto a raiz de conteúdo não existia: `exit 0`, saída vazia, portão sem sujeito. Rejeitado como *substituto*; entra como complemento, com a razão trocada — ver abaixo.
 
 ### Allowlist — `include = ["src/"]`
 

@@ -19,8 +19,8 @@ Half an installation is a diagnosis instead: *"wrote 14 of 22, stopped here,
 disk full"* is actionable, and that sentence is `WriteFailedError`.
 
 Three mechanical traps are mandatory, not optional, and every write path
-exercises them (https://github.com/panlabs-tech/overpower/issues/9 and
-https://github.com/panlabs-tech/overpower/issues/19):
+exercises them (https://github.com/ThiagoPanini/overpower/issues/9 and
+https://github.com/ThiagoPanini/overpower/issues/19):
 
 1. `rmtree(ignore_errors=True)` over a symlink **removes nothing and says
    nothing**, and the `copytree` that follows writes *through* the link,
@@ -37,7 +37,7 @@ https://github.com/panlabs-tech/overpower/issues/19):
 Plus `symlinks=True` on the `copytree`, or a link inside the skill arrives
 dereferenced as a second copy.
 
-**Global scope climbs a ladder** (https://github.com/panlabs-tech/overpower/issues/40):
+**Global scope climbs a ladder** (https://github.com/ThiagoPanini/overpower/issues/40):
 a `WriteMode.LINK` or `WriteMode.JUNCTION` write points at the canonical
 landing's *destination*, which by plan order has already been written as a real
 copy by the time a link write runs. Either rung can fail — a filesystem with no
@@ -261,7 +261,7 @@ def _land_junction(source: Path, destination: Path) -> WriteMode:
     """Point `destination` at `source` with a junction, or copy if it fails.
 
     No privilege probe first: measured in
-    https://github.com/panlabs-tech/overpower/issues/19, a junction works with
+    https://github.com/ThiagoPanini/overpower/issues/19, a junction works with
     or without `SeCreateSymbolicLinkPrivilege` — there is no rung to choose, only
     one to attempt. The catch is broad on purpose: an audit hook on
     `_winapi.CreateJunction` can raise from outside the `OSError` hierarchy, and

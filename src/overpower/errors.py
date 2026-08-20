@@ -1,7 +1,7 @@
 """The one exception the product raises on purpose, and the seam the CLI catches.
 
 The error model of v0.1.0 has four codes, and the axis between `2` and `3` is
-*whose defect it is* (https://github.com/panlabs-tech/overpower/issues/8):
+*whose defect it is* (https://github.com/ThiagoPanini/overpower/issues/8):
 
 | code | meaning |
 | --- | --- |

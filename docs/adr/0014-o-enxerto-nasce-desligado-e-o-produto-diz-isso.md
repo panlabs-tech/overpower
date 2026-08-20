@@ -4,11 +4,11 @@ O overpower escreve o servidor MCP e **não o liga**. A aprovação do Claude Co
 
 > Uma escrita por alvo, e mais nenhuma. Onde está medido que o artefato nasce inerte — Claude Code, escopo de projeto —, um **aviso ao final, exit 0**. O `doctor` responde **exit 3** para enxerto escrito e não aprovado.
 
-Decidido na sessão de grilling que produziu a spec de MCP, fechando [Ativação do enxerto: a segunda escrita fora do repositório](https://github.com/panlabs-tech/overpower/issues/21).
+Decidido na sessão de grilling que produziu a spec de MCP, fechando [Ativação do enxerto: a segunda escrita fora do repositório](https://github.com/ThiagoPanini/overpower/issues/21).
 
 ## O fato que criou a pergunta
 
-Medido em [Formatos de configuração de MCP por runtime](https://github.com/panlabs-tech/overpower/issues/17): servidor vindo de `.mcp.json` nasce `⏸ Pending approval` no Claude Code e **não conecta**. Nenhuma mensagem, nenhum exit code, nenhum sinal na sessão normal. É a primeira vez no produto em que o `git diff` não conta a história inteira de um artefato — e o [axioma 2](../agents/domain.md#axiomas) faz dele o manifesto.
+Medido em [Formatos de configuração de MCP por runtime](https://github.com/ThiagoPanini/overpower/issues/17): servidor vindo de `.mcp.json` nasce `⏸ Pending approval` no Claude Code e **não conecta**. Nenhuma mensagem, nenhum exit code, nenhum sinal na sessão normal. É a primeira vez no produto em que o `git diff` não conta a história inteira de um artefato — e o [axioma 2](../agents/domain.md#axiomas) faz dele o manifesto.
 
 ## Considered Options
 
@@ -32,7 +32,7 @@ Qualquer uma das opções acima entregaria *"às vezes ativamos, às vezes não"
 
 ## Consequences
 
-**O aviso é requisito, não cortesia.** Sem ele o produto entrega exatamente o modo de falha que a pesquisa nomeou: arquivo escrito, exit 0, servidor inerte, nenhum sinal. É a classe *"sucesso com conteúdo errado"* que o [problema do mapa](https://github.com/panlabs-tech/overpower/issues/35) mediu no `npx skills` e existe para não cometer.
+**O aviso é requisito, não cortesia.** Sem ele o produto entrega exatamente o modo de falha que a pesquisa nomeou: arquivo escrito, exit 0, servidor inerte, nenhum sinal. É a classe *"sucesso com conteúdo errado"* que o [problema do mapa](https://github.com/ThiagoPanini/overpower/issues/35) mediu no `npx skills` e existe para não cometer.
 
 **E ele só aparece onde é verdade.** Claude Code em escopo de projeto. No VS Code o usuário já atravessa o Workspace Trust ao abrir a pasta; no Devin não há portão documentado — e imprimir um aviso ali seria inventar um fato que a doc não dá. Aviso que aparece sempre não é lido.
 

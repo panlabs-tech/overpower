@@ -1,12 +1,12 @@
 # Formato de hook por runtime
 
-**Ticket**: [Formato de hook por runtime](https://github.com/panlabs-tech/overpower/issues/23)
+**Ticket**: [Formato de hook por runtime](https://github.com/ThiagoPanini/overpower/issues/23)
 **Data**: 2026-08-03
 **Insumo**: [`docs/agents/domain.md`](../agents/domain.md), regra 4 — *o contrato de um artefato de enxerto é lógico, não literal*. Molde de rigor: [`docs/research/mcp-config-formats.md`](mcp-config-formats.md).
 
 ## Enquadramento — esta pesquisa não desbloqueia mais a v0.1.0
 
-O ticket foi escrito quando o `obra/superpowers` era candidato à v0.1.0. O [#15](https://github.com/panlabs-tech/overpower/issues/15) fechou depois e mudou a premissa: **a v0.1.0 leva um único AI Framework, `mattpocock/skills`, 22 skills promovidas, Markdown puro, zero hook, zero MCP.** O superpowers não entra.
+O ticket foi escrito quando o `obra/superpowers` era candidato à v0.1.0. O [#15](https://github.com/ThiagoPanini/overpower/issues/15) fechou depois e mudou a premissa: **a v0.1.0 leva um único AI Framework, `mattpocock/skills`, 22 skills promovidas, Markdown puro, zero hook, zero MCP.** O superpowers não entra.
 
 Logo a pergunta deixa de ser *"o superpowers pode entrar?"* e passa a ser a que este documento responde: **quando o enxerto de hook for implementado, qual é o formato de cada runtime, e o que o hook do superpowers exigiria?** A medição existe para que a v0.2 comece com ela pronta, não do zero.
 
@@ -504,11 +504,11 @@ O superpowers **desliga** o hook no Codex de propósito (`"hooks": {}`), então 
 
 **Para o axioma 2 (o git é o manifesto)** — pior que no MCP. Lá o enxerto de projeto era duas escritas, uma no repo e uma na máquina. Aqui, **para o Copilot CLI o repositório não funciona** (medido): a escrita é só na máquina, com caminho absoluto. O `git diff` não conta nada dessa história. Isso não reabre o mapa — a v0.1.0 não tem hook — mas a v0.2 precisa decidir se "instalar um framework com hook" é uma operação que o repositório consegue descrever.
 
-**Para o critério de elegibilidade ([#15](https://github.com/panlabs-tech/overpower/issues/15))** — a distinção entre superpowers e GSD **se sustenta**, e a pesquisa mostra exatamente onde ela é fina. O superpowers proíbe editar config do usuário por escrito, e o GSD reescreve `settings.local.json` com 15 hooks. Mas isso vale para os *instaladores deles*. Quando o overpower aterrissa por cópia, **é o overpower que escreve na config do usuário** — e a diferença vira "quantos hooks, em quantos eventos, com que caminho". Um critério que hoje é binário ("o instalador escreve?") precisará virar graduado ("o que escrevemos, e o usuário consegue ver?").
+**Para o critério de elegibilidade ([#15](https://github.com/ThiagoPanini/overpower/issues/15))** — a distinção entre superpowers e GSD **se sustenta**, e a pesquisa mostra exatamente onde ela é fina. O superpowers proíbe editar config do usuário por escrito, e o GSD reescreve `settings.local.json` com 15 hooks. Mas isso vale para os *instaladores deles*. Quando o overpower aterrissa por cópia, **é o overpower que escreve na config do usuário** — e a diferença vira "quantos hooks, em quantos eventos, com que caminho". Um critério que hoje é binário ("o instalador escreve?") precisará virar graduado ("o que escrevemos, e o usuário consegue ver?").
 
-**Para a semântica de escrita ([#9](https://github.com/panlabs-tech/overpower/issues/9))** — o merge acumulativo medido no Claude Code cria um caso que a colisão de caminho não tinha: rodar o overpower duas vezes **duplica o hook** se ele não for idempotente por identidade. Não há chave natural — a entrada é um objeto num array. O renderizador precisa de uma marca própria para reconhecer o que ele mesmo escreveu.
+**Para a semântica de escrita ([#9](https://github.com/ThiagoPanini/overpower/issues/9))** — o merge acumulativo medido no Claude Code cria um caso que a colisão de caminho não tinha: rodar o overpower duas vezes **duplica o hook** se ele não for idempotente por identidade. Não há chave natural — a entrada é um objeto num array. O renderizador precisa de uma marca própria para reconhecer o que ele mesmo escreveu.
 
-**Para a integridade de referência cruzada ([#16](https://github.com/panlabs-tech/overpower/issues/16))** — um artefato de hook depende de **dois** alvos, não um: o arquivo de config e o script que o comando invoca. Se a cópia da árvore falhar, o hook continua declarado e passa a executar um caminho inexistente a cada sessão.
+**Para a integridade de referência cruzada ([#16](https://github.com/ThiagoPanini/overpower/issues/16))** — um artefato de hook depende de **dois** alvos, não um: o arquivo de config e o script que o comando invoca. Se a cópia da árvore falhar, o hook continua declarado e passa a executar um caminho inexistente a cada sessão.
 
 **Para o risco, que o ticket pediu explicitamente** — hook é execução de código no início da sessão, e **o conjunto está partido ao meio**. O Codex trata isso como decisão de segurança: dois gates, hash por hook, revisão nomeada, aviso de que hook confiado roda **fora do sandbox**, e a garantia de que *"project, managed, and plugin layers … do not get to write user hook state"* — um repositório não pode se auto-confiar. O Claude Code não tem gate nenhum (medido): um `.claude/settings.json` num repo clonado executa na primeira sessão, sem prompt e sem registro. Cursor e VS Code ficam no meio, apoiados em workspace trust genérico [doc].
 

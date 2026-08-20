@@ -9,7 +9,7 @@
 # guarda. O racional abaixo é o de lá e continua valendo aqui porque o CSS é o
 # mesmo — os números de issue citados na prosa são do gabarito, não deste repo.
 # A regra escrita que este portão cobra mora em `.claude/rules/css-tokens.md`.
-# https://github.com/panlabs-tech/overpower/issues/130
+# https://github.com/ThiagoPanini/overpower/issues/130
 #
 # Nenhum CSS do projeto escreve duração ou curva fora dos seis movimentos
 # nomeados. Não é higiene: é o que faz `prefers-reduced-motion` alcançar o

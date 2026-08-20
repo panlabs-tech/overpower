@@ -34,7 +34,7 @@ Estes documentos não se deduzem olhando a árvore. Leia a **seção**, não o a
 
 ### Issue tracker
 
-Issues no GitHub, repo `panlabs-tech/overpower`. Ver `docs/agents/issue-tracker.md`.
+Issues no GitHub, repo `ThiagoPanini/overpower`. Ver `docs/agents/issue-tracker.md`.
 
 ### Domain docs
 

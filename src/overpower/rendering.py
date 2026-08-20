@@ -167,7 +167,7 @@ class Target:
     Two fields and never the runtime alone, because the pair is the unit the
     table is keyed by: `claude-code` reads `.mcp.json` in a repository and reads
     nothing at all on the machine
-    (https://github.com/panlabs-tech/overpower/issues/81), so a target that
+    (https://github.com/ThiagoPanini/overpower/issues/81), so a target that
     named only the runtime would promise the half that does not exist.
     """
 

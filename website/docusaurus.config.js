@@ -15,7 +15,7 @@
  * P2 do `ci.yml` assere que o wheel carrega exatamente o que o git rastreia sob
  * `src/`. Um `src/css/tokens.css` versionado e ausente do wheel reprovaria o P2.
  *
- * Procedência: https://github.com/panlabs-tech/overpower/issues/129
+ * Procedência: https://github.com/ThiagoPanini/overpower/issues/129
  */
 
 /**
@@ -76,9 +76,9 @@ const ABAS = ['default'];
 const config = {
   title: 'overpower',
   tagline: 'Curated agent equipment, installed into a repository or a machine',
-  url: 'https://panlabs-tech.github.io',
+  url: 'https://thiagopanini.github.io',
   baseUrl: '/overpower/',
-  organizationName: 'panlabs-tech',
+  organizationName: 'ThiagoPanini',
   projectName: 'overpower',
   favicon: 'favicon.svg',
 
@@ -181,7 +181,7 @@ const config = {
           },
           {type: 'search', position: 'right'},
           {
-            href: 'https://github.com/panlabs-tech/overpower',
+            href: 'https://github.com/ThiagoPanini/overpower',
             label: 'GitHub',
             position: 'right',
           },
@@ -196,7 +196,7 @@ const config = {
         links: [
           {
             label: 'Changelog',
-            href: 'https://github.com/panlabs-tech/overpower/blob/main/CHANGELOG.md',
+            href: 'https://github.com/ThiagoPanini/overpower/blob/main/CHANGELOG.md',
           },
           {label: 'llms.txt', href: 'pathname:///llms.txt', target: '_self'},
         ],

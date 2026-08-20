@@ -6,7 +6,7 @@ the (runtime, scope) half of that function is this table.
 
 **The table is transcribed, not measured.** It mirrors `src/agents.ts` of
 `vercel-labs/skills` at the pinned commit below, decided in
-https://github.com/panlabs-tech/overpower/issues/18 and bounded by ADR 0008:
+https://github.com/ThiagoPanini/overpower/issues/18 and bounded by ADR 0008:
 the table, the branches and the screen are inherited; the *writing* is not.
 Attribution rides in the repository `NOTICE`, which travels into the wheel via
 PEP 639 `license-files`.
@@ -71,8 +71,8 @@ class Dialect(StrEnum):
 
     Three members, and each one arrived exactly as designed: the set is closed
     and matched with `assert_never` in `overpower.rendering`, so
-    https://github.com/panlabs-tech/overpower/issues/79 and
-    https://github.com/panlabs-tech/overpower/issues/80 each landed as a
+    https://github.com/ThiagoPanini/overpower/issues/79 and
+    https://github.com/ThiagoPanini/overpower/issues/80 each landed as a
     compiler-visible hole in every `match` rather than as a silent default.
 
     **Three members that share one root key twice and agree on nothing else** is
@@ -144,7 +144,7 @@ class McpDocument:
     born_pending: bool = False
     """Whether a server written here is inert until the user approves it.
 
-    Measured in https://github.com/panlabs-tech/overpower/issues/17: a server
+    Measured in https://github.com/ThiagoPanini/overpower/issues/17: a server
     coming from `.mcp.json` is born `⏸ Pending approval` in Claude Code and
     **does not connect** — no message, no exit code, no sign in a normal
     session. It is a column of this table and not a fact of the CLI because it
@@ -177,7 +177,7 @@ class McpDocument:
     rather than being derived from the `scope` argument at the call site — the
     same authority rule 8 gives the table everywhere else. A row that says
     nothing hangs off the repository, which is what every project row does
-    (https://github.com/panlabs-tech/overpower/issues/81).
+    (https://github.com/ThiagoPanini/overpower/issues/81).
     """
 
 
@@ -431,7 +431,7 @@ def _join(base: Path, relative: str) -> Path:
     The separator matters on Windows, where the transcribed `.factory/skills`
     has to become `.factory\\skills` before it reaches an API that only accepts
     a string — measured in
-    https://github.com/panlabs-tech/overpower/issues/19.
+    https://github.com/ThiagoPanini/overpower/issues/19.
     """
     return base.joinpath(*PurePosixPath(relative).parts)
 
@@ -495,11 +495,11 @@ def _override(value: str | None) -> Path | None:
 _MEASURED_PROJECT_DIRS = frozenset(
     {
         # `.claude/skills`, measured against Claude Code 2.1.223 on 2026-08-06
-        # in https://github.com/panlabs-tech/overpower/issues/18.
+        # in https://github.com/ThiagoPanini/overpower/issues/18.
         "claude-code",
         # `.agents/skills` is a documented read path of each of these three,
         # read in each vendor's own documentation in
-        # https://github.com/panlabs-tech/overpower/issues/5.
+        # https://github.com/ThiagoPanini/overpower/issues/5.
         "cursor",
         "codex",
         "github-copilot",
@@ -515,7 +515,7 @@ _MEASURED_GLOBAL_DIRS = frozenset(
     {
         # `~/.claude/skills`, the "personal" tier of the precedence Claude Code
         # documents — enterprise over personal over project — read in
-        # https://github.com/panlabs-tech/overpower/issues/5.
+        # https://github.com/ThiagoPanini/overpower/issues/5.
         "claude-code",
     }
 )
@@ -782,7 +782,7 @@ RUNTIMES_BY_KEY: Mapping[str, Runtime] = MappingProxyType(
 MCP_DOCUMENTS: Mapping[tuple[str, Scope], McpDocument] = MappingProxyType(
     {
         # Measured against Claude Code 2.1.220 in
-        # https://github.com/panlabs-tech/overpower/issues/17: `.mcp.json` at the
+        # https://github.com/ThiagoPanini/overpower/issues/17: `.mcp.json` at the
         # root of the project, strict JSON, `mcpServers`, and the server born
         # pending approval.
         ("claude-code", Scope.PROJECT): McpDocument(
@@ -791,7 +791,7 @@ MCP_DOCUMENTS: Mapping[tuple[str, Scope], McpDocument] = MappingProxyType(
             dialect=Dialect.CLAUDE,
             born_pending=True,
         ),
-        # Measured in https://github.com/panlabs-tech/overpower/issues/17:
+        # Measured in https://github.com/ThiagoPanini/overpower/issues/17:
         # `.vscode/mcp.json`, JSONC, `servers`, and the secret held by the OS
         # keychain through `inputs[]`. Nothing is born pending here — what VS
         # Code gates is Workspace Trust, which is a fact of the folder and not of
@@ -803,11 +803,11 @@ MCP_DOCUMENTS: Mapping[tuple[str, Scope], McpDocument] = MappingProxyType(
             tolerates_jsonc=True,
         ),
         # Measured, in `docs/research/mcp-config-formats.md` § Medição
-        # 2026-08-14 (https://github.com/panlabs-tech/overpower/issues/87):
+        # 2026-08-14 (https://github.com/ThiagoPanini/overpower/issues/87):
         # `devin mcp list/get/add` read and write `.devin/mcp_config.json` at the
         # root of the project, under `mcpServers`, with no login and no trust
         # prompt. The row was vendor documentation when it was written
-        # (https://github.com/panlabs-tech/overpower/issues/80); the binary has
+        # (https://github.com/ThiagoPanini/overpower/issues/80); the binary has
         # since been run.
         #
         # `born_pending` stays false, and that clause is **unchanged by the
@@ -822,7 +822,7 @@ MCP_DOCUMENTS: Mapping[tuple[str, Scope], McpDocument] = MappingProxyType(
             root_key="mcpServers",
             dialect=Dialect.DEVIN,
         ),
-        # --- machine scope, https://github.com/panlabs-tech/overpower/issues/81
+        # --- machine scope, https://github.com/ThiagoPanini/overpower/issues/81
         #
         # `~/.claude.json`, `mcpServers` at the **root** of the file — the same
         # key the project document uses, in a file that is not the project's
@@ -919,14 +919,14 @@ copied from a list.
 **That sentence used to say "rendered and measured", and the second row is what
 moved it.** Said plainly rather than edited quietly: `.mcp.json` was executed
 against Claude Code 2.1.220, while the Devin row was written from the vendor's
-documentation alone (https://github.com/panlabs-tech/overpower/issues/80). The
+documentation alone (https://github.com/ThiagoPanini/overpower/issues/80). The
 bar that survives is *primary source, read directly* — which the research already
 treats as a grade it carries, and lists among its own weaknesses. What the bar
 still refuses is the thing it was written against: a path transcribed from
 somebody's list.
 
 **The Devin row has since been measured, and only in part**
-(https://github.com/panlabs-tech/overpower/issues/87,
+(https://github.com/ThiagoPanini/overpower/issues/87,
 `docs/research/mcp-config-formats.md` § Medição 2026-08-14). `devin 3000.4.25`
 was installed into a sandbox and run: the file, the root key and the absence of
 any trust prompt on read and write are now executed facts. Two things are not,
@@ -950,7 +950,7 @@ is what keeps this a pair of tables rather than a hierarchy. The key stays a
 `str` and not a `Runtime` regardless: presence in `RUNTIMES` answers "does this
 key have a display name", never "which classes can it receive" — that is still
 per-class, this table for the graft half and `runtimes_in` for the copy half
-(https://github.com/panlabs-tech/overpower/issues/79, ADR 0018).
+(https://github.com/ThiagoPanini/overpower/issues/79, ADR 0018).
 
 Where the pair has no row the pair **does not exist**: `overpower.planning`
 refuses the whole line with exit 3 rather than inventing a file, which is ADR
@@ -961,7 +961,7 @@ and has no MCP document anywhere.
 **A machine row is not the project row under another root.** It carries its own
 `anchor`, because the three targets disagree about where the personal file is
 and two of them disagree with themselves across operating systems
-(https://github.com/panlabs-tech/overpower/issues/81).
+(https://github.com/ThiagoPanini/overpower/issues/81).
 """
 
 
@@ -992,7 +992,7 @@ def mcp_document_of(key: str, scope: Scope) -> McpDocument | None:
     destination, `cursor` has one and no MCP document anywhere. Taking a
     `Runtime` would read as a promise that the argument's other fields mean
     something here, which since ADR 0018 is not even true of the row's own
-    `project_dir` (https://github.com/panlabs-tech/overpower/issues/79).
+    `project_dir` (https://github.com/ThiagoPanini/overpower/issues/79).
     """
     return MCP_DOCUMENTS.get((key, scope))
 
@@ -1162,7 +1162,7 @@ def _reads_universally(runtime: Runtime, scope: Scope) -> bool:
 def detected_runtimes(scope: Scope, root: Path, environment: Environment) -> frozenset[str]:
     """Runtime keys whose destination already exists on disk — the wizard's pre-mark.
 
-    No state file survives an install (ADR 0008, https://github.com/panlabs-tech/overpower/issues/41):
+    No state file survives an install (ADR 0008, https://github.com/ThiagoPanini/overpower/issues/41):
     versioning a schema, migrating it and handling its corruption do not pay for
     themselves to save two taps of space. What stands in for memory is disk
     itself.

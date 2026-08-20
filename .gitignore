@@ -225,7 +225,7 @@ __marimo__/
 # `.gitignore` e nunca o `info/exclude` — empacotava as quatro que existiam.
 # `mailbox/` guarda mensagem trocada entre agentes e `checkpoints/` guarda estado
 # de sessão: conteúdo, não metadado.
-# https://github.com/panlabs-tech/overpower/issues/72
+# https://github.com/ThiagoPanini/overpower/issues/72
 # Worktrees de subagentes, aninhados no próprio repo:
 .claude/worktrees/
 # Estado de sessão e de fila:
@@ -242,6 +242,6 @@ __marimo__/
 # O site de documentação (`website/`) é um projeto Node dentro de um repositório
 # Python. `build/` e `lib/` acima já casam em qualquer nível e pegam a saída do
 # Docusaurus; o cache incremental e as dependências não estavam cobertos.
-# https://github.com/panlabs-tech/overpower/issues/130
+# https://github.com/ThiagoPanini/overpower/issues/130
 node_modules/
 website/.docusaurus/

@@ -20,7 +20,7 @@
  *   3. **Toda folha carrega ícone**, e categoria não carrega. São seis famílias,
  *      uma por categoria, resolvidas por `mask-image` em `src/css/chrome.css`.
  *
- * Procedência: https://github.com/panlabs-tech/overpower/issues/129
+ * Procedência: https://github.com/ThiagoPanini/overpower/issues/129
  */
 
 /*

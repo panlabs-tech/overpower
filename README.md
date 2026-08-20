@@ -26,4 +26,4 @@ whole, never truncated, with the exact line that installs it:
 
 Full documentation — every command, every flag, the runtime table, how content
 is curated and how a release ships — lives at
-**[panlabs-tech.github.io/overpower](https://panlabs-tech.github.io/overpower/)**.
+**[thiagopanini.github.io/overpower](https://thiagopanini.github.io/overpower/)**.

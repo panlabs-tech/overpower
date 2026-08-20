@@ -592,7 +592,7 @@ def test_the_plan_the_screen_and_the_document_name_the_same_keys(
     Slots do not change the shape of it and that is the claim being made: what
     they add lives *inside* the server's value, so a fragment with a secret in it
     still names exactly one key — and the run still exits 0 with the variable
-    unset (https://github.com/panlabs-tech/overpower/issues/78).
+    unset (https://github.com/ThiagoPanini/overpower/issues/78).
     """
     # given
     catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": kind})
@@ -1585,7 +1585,7 @@ def test_the_second_target_refuses_a_document_its_reader_could_not_parse(
 ) -> None:
     """Devin enters the table strict, and this is where that decision is written down.
 
-    Measured in https://github.com/panlabs-tech/overpower/issues/87: a malformed
+    Measured in https://github.com/ThiagoPanini/overpower/issues/87: a malformed
     `.devin/mcp_config.json` answers *"No MCP servers configured"* at exit 0 —
     the graft disappears with no error at all, which is the worst class the spec
     names. The row's grade of evidence is vendor documentation and not a

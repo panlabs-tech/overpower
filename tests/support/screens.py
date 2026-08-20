@@ -1,6 +1,6 @@
 """Render one screen the way the doctrine asserts it: as a screen, not as bytes.
 
-Measured in https://github.com/panlabs-tech/overpower/issues/30: in the captures
+Measured in https://github.com/ThiagoPanini/overpower/issues/30: in the captures
 of the prototype the *only* ANSI sequences present are two lines of cursor
 control from the transient `Progress` — `ESC[?25l`, `ESC[2K`, `ESC[1A`,
 `ESC[?25h` — and none of colour. Two consequences, and both are why this module
@@ -10,7 +10,7 @@ exists instead of a raw-stdout capture:
   `ESC[1A` plus `ESC[2K` mean the final result has one line where the capture
   has two;
 - layout is entirely present without colour, which is what reproduces the
-  property measured in https://github.com/panlabs-tech/overpower/issues/12 —
+  property measured in https://github.com/ThiagoPanini/overpower/issues/12 —
   changing the brand colour broke zero of nine tests, because the snapshot froze
   layout and not colour.
 

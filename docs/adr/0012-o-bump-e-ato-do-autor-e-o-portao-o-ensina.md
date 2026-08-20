@@ -1,8 +1,8 @@
 # O bump é ato do autor, e o portão é quem o ensina
 
-Publicar continua sendo mergear — a decisão do [#24](https://github.com/panlabs-tech/overpower/issues/24) segue de pé. O que muda é que **mover a versão deixa de ser disciplina e passa a ser portão**: um required check próprio, `release-ready`, reprova o pull request que muda o wheel sem mover a versão, e **imprime na falha o nível calculado e os dois comandos a rodar**. Nenhum bot escreve na branch, nenhuma credencial entra no repositório, e nenhuma skill de mercado é modificada.
+Publicar continua sendo mergear — a decisão do [#24](https://github.com/ThiagoPanini/overpower/issues/24) segue de pé. O que muda é que **mover a versão deixa de ser disciplina e passa a ser portão**: um required check próprio, `release-ready`, reprova o pull request que muda o wheel sem mover a versão, e **imprime na falha o nível calculado e os dois comandos a rodar**. Nenhum bot escreve na branch, nenhuma credencial entra no repositório, e nenhuma skill de mercado é modificada.
 
-Decidido em [Publicação automática: o bump de versão vira portão, não ato manual](https://github.com/panlabs-tech/overpower/issues/62).
+Decidido em [Publicação automática: o bump de versão vira portão, não ato manual](https://github.com/ThiagoPanini/overpower/issues/62).
 
 ## O defeito era o silêncio, não a falta de automação
 
@@ -10,12 +10,12 @@ A cadeia `merge → tag → publish` já era automática e já não tinha creden
 
 | | |
 | --- | --- |
-| `v0.1.0` aponta para | `66ecdeb` ([#56](https://github.com/panlabs-tech/overpower/issues/56)) |
-| merges na `main` depois disso | [#59](https://github.com/panlabs-tech/overpower/issues/59), [#60](https://github.com/panlabs-tech/overpower/issues/60), [#61](https://github.com/panlabs-tech/overpower/issues/61) |
+| `v0.1.0` aponta para | `66ecdeb` ([#56](https://github.com/ThiagoPanini/overpower/issues/56)) |
+| merges na `main` depois disso | [#59](https://github.com/ThiagoPanini/overpower/issues/59), [#60](https://github.com/ThiagoPanini/overpower/issues/60), [#61](https://github.com/ThiagoPanini/overpower/issues/61) |
 | desses, moveram a versão | **zero** |
 | fragmentos pendurados em `changelog.d/` | **4** |
 
-Nas três vezes o `tag.yml` leu a versão, achou `v0.1.0` já tagueada, escreveu `::notice::v0.1.0 is already tagged; nothing to release` e **saiu verde**. Três merges, nenhum erro em lugar nenhum, nada publicado. A falha só apareceu num `pip install --upgrade` que não trouxe nada — que é a definição da classe *sucesso carregando o conteúdo errado* que este mapa persegue desde o [#2](https://github.com/panlabs-tech/overpower/issues/2).
+Nas três vezes o `tag.yml` leu a versão, achou `v0.1.0` já tagueada, escreveu `::notice::v0.1.0 is already tagged; nothing to release` e **saiu verde**. Três merges, nenhum erro em lugar nenhum, nada publicado. A falha só apareceu num `pip install --upgrade` que não trouxe nada — que é a definição da classe *sucesso carregando o conteúdo errado* que este mapa persegue desde o [#2](https://github.com/ThiagoPanini/overpower/issues/2).
 
 Daí a forma da correção. O problema não era *"a inferência de versão erra"*; era *"ninguém deu o bump e o repositório não reclamou"*. A pergunta certa é **como isso vira impossível de esquecer**, e portão é a resposta que este repositório já usa em todo lugar — o mesmo raciocínio do `lefthook.yml`, onde o hook é o atalho e o ruleset é o portão.
 
@@ -26,11 +26,11 @@ Antes de qualquer preferência, duas mecânicas fecham o desenho óbvio de *"um 
 1. **O ruleset `main: PR obrigatorio e gate verde` tem lista de bypass vazia**, verificado e não inferido. Nada empurra commit na `main` sem pull request e sem `gate` verde.
 2. **Push feito com `GITHUB_TOKEN` não dispara workflow nenhum** — o `tag.yml` já documenta isso e já contorna por `workflow_dispatch`. Consequência: um bot que commite o bump na branch do pull request deixa o SHA novo **sem** o check requerido, e o pull request trava para sempre em *"Expected — waiting for status to be reported"*.
 
-Existe contorno (dispatch do `ci.yml` a partir do bot), e ele foi descartado por medição, não por gosto: **`towncrier build` é destrutivo e não é idempotente.** Ele apaga os fragmentos de `changelog.d/` e insere a seção no `CHANGELOG.md`. Um bot em `on: pull_request` roda a cada `synchronize`: no primeiro push consome os fragmentos e fecha a seção; o fragmento que o autor escrever depois — e escreve, porque o corpo do pull request é redigido no fim, por quem tem o ticket na mão — vira **segunda** seção com o mesmo número de versão, ou fica órfão. Somando o resto: um trigger novo, `actions: write`, guarda de idempotência, a reabertura da decisão do [#24](https://github.com/panlabs-tech/overpower/issues/24) de não ter `on: pull_request`, e um `CHANGELOG.md` que corrompe em silêncio.
+Existe contorno (dispatch do `ci.yml` a partir do bot), e ele foi descartado por medição, não por gosto: **`towncrier build` é destrutivo e não é idempotente.** Ele apaga os fragmentos de `changelog.d/` e insere a seção no `CHANGELOG.md`. Um bot em `on: pull_request` roda a cada `synchronize`: no primeiro push consome os fragmentos e fecha a seção; o fragmento que o autor escrever depois — e escreve, porque o corpo do pull request é redigido no fim, por quem tem o ticket na mão — vira **segunda** seção com o mesmo número de versão, ou fica órfão. Somando o resto: um trigger novo, `actions: write`, guarda de idempotência, a reabertura da decisão do [#24](https://github.com/ThiagoPanini/overpower/issues/24) de não ter `on: pull_request`, e um `CHANGELOG.md` que corrompe em silêncio.
 
 ## Por que a versão não nasce na tag
 
-A alternativa sem commit nenhum era o `tag.yml` calcular a próxima versão a partir da última tag e o `release.yml` escrevê-la **só no runner**. Ela cai porque cobra o preço que o `pyproject.toml` já recusou uma vez: o literal deixa de ser verdade, `uv version --short` passa a mentir na máquina do dev, o guard *tag == versão do pyproject* perde sujeito, e o `CHANGELOG.md` sai do arquivo para o corpo do GitHub Release. É a mesma classe do `hatch-vcs` medido no [#2](https://github.com/panlabs-tech/overpower/issues/2) — a versão construída não é visível na árvore que a produziu.
+A alternativa sem commit nenhum era o `tag.yml` calcular a próxima versão a partir da última tag e o `release.yml` escrevê-la **só no runner**. Ela cai porque cobra o preço que o `pyproject.toml` já recusou uma vez: o literal deixa de ser verdade, `uv version --short` passa a mentir na máquina do dev, o guard *tag == versão do pyproject* perde sujeito, e o `CHANGELOG.md` sai do arquivo para o corpo do GitHub Release. É a mesma classe do `hatch-vcs` medido no [#2](https://github.com/ThiagoPanini/overpower/issues/2) — a versão construída não é visível na árvore que a produziu.
 
 ## `release-ready` é check próprio, e não um passo do `gate`
 
@@ -102,6 +102,6 @@ O que restou foi tornar o `tag.yml` alto. O predicado passou de dois ramos para 
 
 **Pull request de colaborador externo ficaria vermelho no `release-ready`**, porque ninguém pede a um estranho que bumpe versão. Zero ocorrências até hoje, e o `docs/agents/issue-tracker.md` já declara que PR externo não é superfície de triagem deste repositório. Declarado em vez de resolvido por especulação.
 
-**Um ato manual, uma vez:** `release-ready` entra no ruleset **depois** de o job existir e ter reportado. A ordem é a mesma lição do [#24](https://github.com/panlabs-tech/overpower/issues/24) — required check que ainda não publicou trava todo pull request esperando um nome que ninguém reporta.
+**Um ato manual, uma vez:** `release-ready` entra no ruleset **depois** de o job existir e ter reportado. A ordem é a mesma lição do [#24](https://github.com/ThiagoPanini/overpower/issues/24) — required check que ainda não publicou trava todo pull request esperando um nome que ninguém reporta.
 
 **Esta ADR se reabre** se o GitHub passar a permitir que um push com `GITHUB_TOKEN` dispare workflow, porque aí o bot volta a ser possível e o único argumento contra ele passa a ser a destrutividade do `towncrier`, que tem conserto. Reabre também se o repositório ganhar mais de um mantenedor com pull requests concorrentes rotineiros, porque aí o mutex do `CHANGELOG.md` deixa de ser barato e vira atrito. E reabre no `1.0.0`, quando o teto do `0.x` sai e `breaking` passa a mover o primeiro dígito de verdade.

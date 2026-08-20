@@ -13,7 +13,7 @@ Two properties follow, and both are asserted rather than promised:
   the first call, with the offending path in the message — never a silent
   omission;
 - **only a directory is an artifact.** The one blind spot measured in
-  https://github.com/panlabs-tech/overpower/issues/10 is a loose file in the type
+  https://github.com/ThiagoPanini/overpower/issues/10 is a loose file in the type
   folder becoming an artifact, and it closes by ignoring what is not a directory.
 
 **A skill's description comes from its own `SKILL.md`, whole.** Deriving a short
@@ -24,7 +24,7 @@ remote path describe an artifact identically, because both read the artifact.
 
 **The frontmatter is read by a real YAML reader**, `overpower.yamlio`, and the
 hand-rolled parser that used to stand here is gone
-(https://github.com/panlabs-tech/overpower/issues/136). Keeping one by hand next
+(https://github.com/ThiagoPanini/overpower/issues/136). Keeping one by hand next
 to a real one is the weak form of the two-readers defect, and the hand-rolled
 one was wrong: `description: >` and `description: |` arrived with the block
 marker as the first word of the text. It was invisible while the product only
@@ -313,7 +313,7 @@ def discover_mcps(mcps_root: Path) -> tuple[Recipe, ...]:
     so a recipe registers nothing anywhere and adding one is adding a file.
     Anything that is not a `.toml` is ignored the way a loose file in a type
     folder is — the measured blind spot of discovery-by-convention
-    (https://github.com/panlabs-tech/overpower/issues/10) — and a root that does
+    (https://github.com/ThiagoPanini/overpower/issues/10) — and a root that does
     not exist yields nothing, because a content tree may legitimately carry no
     recipes at all.
     """

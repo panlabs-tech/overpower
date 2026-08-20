@@ -23,6 +23,19 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.27.2] - 2026-08-20
+
+### Fixed
+
+- **`RuntimeUnavailableInScopeError`'s docstring now names the right set.** It read
+  *"the set `--runtime` accepts is a function of scope — 76 in project, 74 in
+  global"*, which was the size of `runtimes_in(scope)`, the skills table alone. The
+  flag actually validates against the union with `mcp_runtimes_in(scope)` — 77 in
+  project, 75 in global — because `vscode` (ADR 0018) reaches through the MCP half
+  in both scopes despite carrying no skills row of its own. The docstring now names
+  that union instead of a table size, and behaviour is unchanged throughout. ([#156](https://github.com/ThiagoPanini/overpower/issues/156))
+
+
 ## [0.27.1] - 2026-08-20
 
 ### Fixed

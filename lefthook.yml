@@ -19,6 +19,19 @@
 # CI carries what costs time or needs a build.** So `pyright`, `pytest` and P2
 # run only there.
 #
+# THE `post-merge` STAGE BENDS THAT RULE, AND THE BEND IS DELIBERATE. What it
+# runs is instant — measured 0.00 s, all guards local — but what it *launches*
+# is neither instant nor offline: a detached agent that reads the network and
+# runs for minutes. The rule survives because it is a rule about what a hook
+# makes you wait for, and nothing waits for that process; the network call that
+# decides whether to sweep happens **inside** the detached process, on purpose,
+# because doing it here would have put up to 30 s of PyPI inside `git pull`.
+#
+# And it survives for a second reason: that stage is not a gate for anything in
+# this repository. It cannot fail a commit, a push or a merge, and it is in no
+# job's `needs`. What it protects lives in another repository and is gated
+# there. See `scripts/varredura-docs.sh` and issue #153.
+#
 # The tools themselves are equipment of the machine, not of the repository —
 # `lefthook`, `gitleaks` and whatever serves `npx` are provisioned globally.
 # Arm the hooks once per clone with `lefthook install`; worktrees inherit,
@@ -81,3 +94,25 @@ commit-msg:
         --package @commitlint/cli@20.1.0
         --package @commitlint/config-conventional@20.0.0
         commitlint --edit {1}
+
+# The documentation left this repository in #151 and lives in `panlabs-docs`.
+# What left with it was the coupling: changing behaviour and changing the page
+# that describes it used to be one PR, and now they are two repositories with
+# nothing tying them together. Measured 48 hours after the move, the changelog
+# page there had stopped three versions back and the command contract was
+# asserting something about `--yes` that 0.25.2 had made false — with every gate
+# on both sides green.
+#
+# This stage ties them back, from outside, without bringing the documentation
+# home. It launches and returns; it never blocks. Every guard is local and the
+# script exits 0 on every path, including the failing ones — a `git pull` that
+# hangs on documentation would be a worse defect than the one being fixed.
+#
+# Marker-gated, like `~/.claude/hooks/context-economy-injector.py`: without the
+# `../panlabs-docs` sibling on disk, without the sweep skill inside it, or
+# without `claude` on `PATH`, it exits silently. A machine that only has this
+# repository feels nothing.
+post-merge:
+  commands:
+    docs-sweep:
+      run: ./scripts/varredura-docs.sh

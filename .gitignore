@@ -238,3 +238,9 @@ __marimo__/
 .claude/agent-memory-local
 .claude/first-run
 .claude/assistant-daemon-state.json
+
+# Machine-local Claude Code settings. `defaultMode` and the permission allowlist
+# are properties of this checkout on this machine, not of the project: a
+# committed `bypassPermissions` would hand every clone a decision its owner
+# never made. The shared settings, if any, belong in `.claude/settings.json`.
+.claude/settings.local.json

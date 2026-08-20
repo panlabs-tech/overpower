@@ -30,7 +30,7 @@
 # And it survives for a second reason: that stage is not a gate for anything in
 # this repository. It cannot fail a commit, a push or a merge, and it is in no
 # job's `needs`. What it protects lives in another repository and is gated
-# there. See `scripts/varredura-docs.sh` and issue #153.
+# there. See `scripts/overpower-docs-update.sh` and issue #153.
 #
 # The tools themselves are equipment of the machine, not of the repository —
 # `lefthook`, `gitleaks` and whatever serves `npx` are provisioned globally.
@@ -115,4 +115,4 @@ commit-msg:
 post-merge:
   commands:
     docs-sweep:
-      run: ./scripts/varredura-docs.sh
+      run: ./scripts/overpower-docs-update.sh

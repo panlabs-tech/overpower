@@ -381,11 +381,11 @@ class RuntimeUnavailableInScopeError(RefusedError):
     """A `--runtime` value the table has, with no destination in this scope.
 
     ADR 0009: `eve` and `promptscript` declare no global destination, so the set
-    `--runtime` accepts is a function of scope — 76 in project, 74 in global —
-    and asking for one of the missing two in global scope is a **valid**
-    invocation with a **negative** answer. The value exists, the flag exists,
-    nothing about the line is malformed; what does not exist is the
-    *destination*, and destination is a fact of the table, not of the command
+    `--runtime` accepts is a function of scope — the union of `runtimes_in(scope)`
+    and `mcp_runtimes_in(scope)` — and asking for one of the missing two in global
+    scope is a **valid** invocation with a **negative** answer. The value exists,
+    the flag exists, nothing about the line is malformed; what does not exist is
+    the *destination*, and destination is a fact of the table, not of the command
     line. That is the axis against `UnknownRuntimeError`: this one names a real
     row, wrong scope.
     """

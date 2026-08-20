@@ -25,6 +25,7 @@ from overpower.runtimes import (
     Scope,
     detected_mcp_runtimes,
     detected_runtimes,
+    known_runtimes,
     mcp_document_of,
     mcp_places_of,
     mcp_runtimes_in,
@@ -214,6 +215,27 @@ def test_global_scope_preserves_upstream_declaration_order() -> None:
     assert [r.key for r in runtimes_in(Scope.GLOBAL)] == [
         r.key for r in RUNTIMES if r.key not in dropped
     ]
+
+
+def test_the_flag_accepts_the_union_not_the_skills_table_alone() -> None:
+    """77 in project, 75 in global — `runtimes_in` alone undercounts by exactly `vscode`.
+
+    `_selected_runtimes` validates a key against `{r.key for r in
+    runtimes_in(scope)} | set(mcp_runtimes_in(scope))` (ADR 0009, ADR 0017), and
+    `vscode` reaches through the MCP half in both scopes despite carrying no
+    skills row. Project loses nothing beyond that — the union equals
+    `known_runtimes()` there — and global drops only `eve` and `promptscript`.
+    """
+    in_project = {r.key for r in runtimes_in(Scope.PROJECT)}
+    in_global = {r.key for r in runtimes_in(Scope.GLOBAL)}
+
+    project = in_project | set(mcp_runtimes_in(Scope.PROJECT))
+    machine = in_global | set(mcp_runtimes_in(Scope.GLOBAL))
+
+    assert project == set(known_runtimes())
+    assert len(project) == 77
+    assert machine == set(known_runtimes()) - {"eve", "promptscript"}
+    assert len(machine) == 75
 
 
 def test_every_runtime_offered_in_a_scope_has_somewhere_to_land() -> None:

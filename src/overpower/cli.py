@@ -190,9 +190,9 @@ class UnsupportedRemoteUnitError(BadInvocationError):
 
     The list this refuses used to hold two units and now holds one. A federated
     recipe was the channel a home-made MCP had none of
-    (https://github.com/panlabs-tech/overpower/issues/83), and the federated
+    (https://github.com/ThiagoPanini/overpower/issues/83), and the federated
     manifest is the one a home-made **bundle** had none of
-    (https://github.com/panlabs-tech/overpower/issues/137); both crossed. The
+    (https://github.com/ThiagoPanini/overpower/issues/137); both crossed. The
     AI Framework does not follow, and `REMOTELY_ABSENT` is why.
 
     It lives here rather than in `overpower.remote` for the same reason
@@ -256,7 +256,7 @@ class MixedClassesWithoutRuntimeError(BadInvocationError):
     line naming both has no single shape for the wizard to open. `--runtime`
     named explicitly settles which runtimes each class reaches without asking
     the step to be two things at once; the other way out is two commands, one
-    per class (https://github.com/panlabs-tech/overpower/issues/97).
+    per class (https://github.com/ThiagoPanini/overpower/issues/97).
     """
 
     def __init__(self) -> None:
@@ -309,7 +309,7 @@ class _BannerGroup(TyperGroup):
 
     The banner lives here and nowhere else on this path, and that is what makes
     the **two gestures of discovery** — a bare `overpower` and `overpower --help`
-    — the same screen (https://github.com/panlabs-tech/overpower/issues/8): click
+    — the same screen (https://github.com/ThiagoPanini/overpower/issues/8): click
     answers `--help` from an eager option, *before* the callback below ever runs,
     so a banner printed in the callback reaches the bare gesture and misses the
     typed one. Formatting is the one moment both gestures pass through — the bare
@@ -631,7 +631,7 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
     # per class, and a line naming both has no single shape to open. Naming
     # `--runtime` explicitly settles which runtimes each class reaches;
     # splitting into two commands is the other way out
-    # (https://github.com/panlabs-tech/overpower/issues/97).
+    # (https://github.com/ThiagoPanini/overpower/issues/97).
     if mcps and (frameworks or bundles or skills) and not asked.runtimes:
         raise MixedClassesWithoutRuntimeError
 
@@ -653,7 +653,7 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
 
     selected = bool(frameworks or bundles or skills or mcps)
     # **The trigger is the gap, not the empty line**
-    # (https://github.com/panlabs-tech/overpower/issues/57): there is a
+    # (https://github.com/ThiagoPanini/overpower/issues/57): there is a
     # terminal, and what was typed does not add up to a plan — no selection, or
     # no runtime. Without a terminal the flag path below reaches the same two
     # errors it always did, so a partial invocation off a pipe exits 2 without
@@ -795,7 +795,7 @@ def _refuse_an_mcp_name_from_the_wrong_class(catalog: Catalog, mcps: Sequence[st
     `plan_for` already raises `UnknownNameError` for the plain miss through
     `catalog.mcp(name)` — this does not replace that lookup, it calls it early
     and sharpens the answer when the name turns out to be real, just filed
-    under a different flag (https://github.com/panlabs-tech/overpower/issues/97).
+    under a different flag (https://github.com/ThiagoPanini/overpower/issues/97).
     """
     for name in mcps:
         try:
@@ -857,16 +857,16 @@ def _perform(  # noqa: PLR0913 — one argument per thing `plan_for` itself take
     # runtime, or a global destination that already exists with no terminal to
     # ask about it, is exit 2 or exit 3 with nothing written and nothing
     # announced. `--dry-run` is a report, never a session, so it never asks
-    # either — https://github.com/panlabs-tech/overpower/issues/69.
+    # either — https://github.com/ThiagoPanini/overpower/issues/69.
     plan = plan_for(request, catalog, root, environment, sources)
     # Read before anything is drawn and before the first byte, and on **both**
     # paths: a `--dry-run` that answered 0 to a line the real run refuses with 3
     # would be a report about a different installation
-    # (https://github.com/panlabs-tech/overpower/issues/76).
+    # (https://github.com/ThiagoPanini/overpower/issues/76).
     refuse_broken_documents(plan, request.scope)
     # Same reasoning, a fact of the machine rather than of a document: a
     # `--dry-run` that skipped this would report on a different machine than
-    # the one that runs `install` for real (https://github.com/panlabs-tech/overpower/issues/82).
+    # the one that runs `install` for real (https://github.com/ThiagoPanini/overpower/issues/82).
     refuse_unmet_preconditions(plan, environment.variables)
     conflicts = existing_destinations(plan, request)
     if conflicts and (request.dry_run or not _asking(request)):
@@ -1222,7 +1222,7 @@ def _confirmed() -> bool:
 def _confirmed_overwrite(conflicts: Sequence[Path]) -> bool:
     """The same gate as `_confirmed`, naming what saying yes would clobber.
 
-    One prompt, not two (https://github.com/panlabs-tech/overpower/issues/69):
+    One prompt, not two (https://github.com/ThiagoPanini/overpower/issues/69):
     a caller that already knows some destinations exist folds that fact into
     the single yes-or-no gate instead of stacking a second one in front of it —
     so this is what `_perform` calls *instead of* `_confirmed`, never in

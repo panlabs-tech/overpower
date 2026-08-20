@@ -9,12 +9,12 @@ screen *by construction*, and no test written afterwards would close that.
 runtimes and the mode flags. `skills`, `ai_frameworks` and `bundles` are sibling
 tuples — the three units are chosen independently — and the wizard produces
 **the same type** from keystrokes
-(https://github.com/panlabs-tech/overpower/issues/41), so the selection logic is
+(https://github.com/ThiagoPanini/overpower/issues/41), so the selection logic is
 tested over values and never over keys.
 
 **A line may mix all three**, and the plan they produce has a fixed, documented
 order — framework, then bundle, then individual artifact
-(https://github.com/panlabs-tech/overpower/issues/39). That is also the order a
+(https://github.com/ThiagoPanini/overpower/issues/39). That is also the order a
 collided destination resolves in: an intra-command collision is not *detected* —
 `install --ai-framework matt-pocock --skill <x>` may write the same destination
 twice, once from each selector — but the order means the individual artifact,
@@ -80,12 +80,12 @@ class WriteMode(StrEnum):
     """How a write lands.
 
     The three are the ladder decided in
-    https://github.com/panlabs-tech/overpower/issues/9. **Project scope uses
+    https://github.com/ThiagoPanini/overpower/issues/9. **Project scope uses
     `COPY` and only `COPY`**: under `core.symlinks=false` — which git
     auto-detects and records into the clone, so the default on Windows — a link
     becomes a text file, `git status` stays *clean*, and the equipment is broken
     for whoever cloned. `LINK` and `JUNCTION` are the rungs the global scope
-    climbs (https://github.com/panlabs-tech/overpower/issues/40); they are
+    climbs (https://github.com/ThiagoPanini/overpower/issues/40); they are
     declared here because the plan is the vocabulary the screen and the writer
     share, and a mode the plan cannot spell is a mode the screen cannot show.
     """
@@ -229,7 +229,7 @@ class Landing:
         """The mode every write of this landing shares.
 
         Uniform by construction: mode is decided per *landing* — canonical or
-        rung of the ladder (https://github.com/panlabs-tech/overpower/issues/40)
+        rung of the ladder (https://github.com/ThiagoPanini/overpower/issues/40)
         — never per artifact, so every write inside one landing carries the same
         one.
         """
@@ -337,7 +337,7 @@ class Request:
     (`docs/agents/testing.md`, §7).
 
     `ai_frameworks`, `bundles` and `skills` are independent, and a line may name
-    any combination of the three (https://github.com/panlabs-tech/overpower/issues/39).
+    any combination of the three (https://github.com/ThiagoPanini/overpower/issues/39).
     """
 
     ai_frameworks: tuple[str, ...] = ()
@@ -448,7 +448,7 @@ class NothingSelectedError(BadInvocationError):
     request — answering it with an empty plan and exit 0 would be the *"success
     with the wrong content"* class this product exists to avoid. In a terminal
     the bare `install` is the wizard instead
-    (https://github.com/panlabs-tech/overpower/issues/41), which is a branch
+    (https://github.com/ThiagoPanini/overpower/issues/41), which is a branch
     this error gets replaced by rather than a case it competes with.
     """
 
@@ -551,14 +551,14 @@ class DestinationExistsError(RefusedError):
     """A global destination that already occupies the path, and no one to ask.
 
     The `--force` trigger has exactly one condition: global scope, and the path
-    already there — https://github.com/panlabs-tech/overpower/issues/40. Project
+    already there — https://github.com/ThiagoPanini/overpower/issues/40. Project
     scope has no such refusal (`overpower.writing` writes unconditionally, and
     `git status` is the safety net); global scope has no git to reveal or undo an
     overwrite, so an existing path is refused instead of clobbered — detectable
     in advance, the same reasoning ADR 0009 already used for the
     runtime-without-destination case. A real terminal turns the refusal into a
     question instead (`overpower.cli._confirmed_overwrite`,
-    https://github.com/panlabs-tech/overpower/issues/69); this is what fires
+    https://github.com/ThiagoPanini/overpower/issues/69); this is what fires
     when there is no terminal to ask, or `--yes`/`--dry-run` already declined
     that kind of interaction.
     """
@@ -583,7 +583,7 @@ def plan_for(
     the one the reader typed first.
 
     Selections are built framework, then bundle, then individual artifact — the
-    fixed collision order (module docstring, https://github.com/panlabs-tech/overpower/issues/39)
+    fixed collision order (module docstring, https://github.com/ThiagoPanini/overpower/issues/39)
     — and that order is what the writer executes, since `Plan.writes` flattens
     `selections` in place.
 
@@ -965,7 +965,7 @@ def existing_destinations(plan: Plan, request: Request) -> tuple[Path, ...]:
     to decide. What used to be decided here — refuse outright — is now the
     caller's call (`overpower.cli._perform`): whether there is a terminal to
     turn this into a question, or `DestinationExistsError` is still the answer,
-    https://github.com/panlabs-tech/overpower/issues/69.
+    https://github.com/ThiagoPanini/overpower/issues/69.
 
     **The graft class is not asked at all**, and that is a property of the class
     rather than an exemption. What this question protects is equipment that is
@@ -974,7 +974,7 @@ def existing_destinations(plan: Plan, request: Request) -> tuple[Path, ...]:
     document where it was (ADR 0016), overwriting only an entry carrying the
     same identity, unconditionally and by decision (ADR 0013). Asking here would
     have made the machine documents of
-    https://github.com/panlabs-tech/overpower/issues/81 unusable in the ordinary
+    https://github.com/ThiagoPanini/overpower/issues/81 unusable in the ordinary
     case: `~/.claude.json` exists on every machine that ever ran the runtime, so
     every `--global` graft would have stopped to ask permission to *add* a key.
 
@@ -1142,7 +1142,7 @@ def _grouped_selection(
     In project scope every landing is a real copy — #9 removed the canonical
     there. In global scope the **first place in table order** is the canonical
     — a real copy — and every subsequent place is a link pointing at it: the
-    escada https://github.com/panlabs-tech/overpower/issues/40 climbs, because
+    escada https://github.com/ThiagoPanini/overpower/issues/40 climbs, because
     `~/` has no git to deduplicate and duplicating bytes there is a real cost.
 
     `places` is never empty here: `plan_for` already refused an empty runtime

@@ -1,7 +1,7 @@
 """Where the two sibling roots live inside the package.
 
 They are siblings with **opposite invariants**, and that is the whole reason
-they are two (https://github.com/panlabs-tech/overpower/issues/11):
+they are two (https://github.com/ThiagoPanini/overpower/issues/11):
 
 - `content/` **100% lands** in the user's repository — the frameworks and the
   pool. P1 and P2 guard it, because content lost is lost *silently*: half a
@@ -31,7 +31,7 @@ CATALOG_DIR = "catalog"
 CATALOG_FILE = "catalog.yaml"
 """The one file in it, and the format is the reader's rather than this module's.
 
-It was `catalog.toml` until https://github.com/panlabs-tech/overpower/issues/136
+It was `catalog.toml` until https://github.com/ThiagoPanini/overpower/issues/136
 moved it, so that the manifest a homemade repository federates goes through the
 same reader as this one. The recipe of an MCP server, which lives in the sibling
 directory, stayed TOML.

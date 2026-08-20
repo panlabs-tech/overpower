@@ -743,7 +743,7 @@ def _target_facts(targets: Sequence[Target]) -> tuple[tuple[str, RenderableType]
     """Who can receive this server: the runtimes on one line, the scopes on another.
 
     **Target and scope are two axes, and the screen used to fold them into
-    one** (https://github.com/panlabs-tech/overpower/issues/98): a pair per
+    one** (https://github.com/ThiagoPanini/overpower/issues/98): a pair per
     line paid the full cross product — six lines for three runtimes across two
     scopes — for information that factors into two. Nothing here is redundant;
     the factoring was wrong. So this asserts the factoring holds — every
@@ -1258,7 +1258,7 @@ def _mode_suffix(mode: WriteMode) -> tuple[tuple[str, str], ...]:
 
     Project scope is copy-only and this renders nothing there, so no snapshot
     that predates the global scope moves. What it buys is the other half of the
-    central assertion (https://github.com/panlabs-tech/overpower/issues/40): the
+    central assertion (https://github.com/ThiagoPanini/overpower/issues/40): the
     plan now carries mode as well as path, so what the screen *calls* a link has
     something on screen to check against what is actually on disk.
     """

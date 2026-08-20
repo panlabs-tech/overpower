@@ -18,12 +18,12 @@ and not one: the clone's own config says links are off, *and* a file inside
 installed equipment reads as a link that became text. Either alone is a guess.
 
 **A link that does not resolve.** Global scope climbs the canonical + link ladder
-(https://github.com/panlabs-tech/overpower/issues/40), and a link whose target
+(https://github.com/ThiagoPanini/overpower/issues/40), and a link whose target
 went away is invisible equipment: the directory listing shows the name, and
 nothing is there.
 
 **Two copies of one artifact that disagree.** Project scope lands a **real copy**
-in every selected path (https://github.com/panlabs-tech/overpower/issues/9), and
+in every selected path (https://github.com/ThiagoPanini/overpower/issues/9), and
 that decision accepted losing the single point of truth **naming the `doctor` as
 its mitigation**. This check is the payment of that debt.
 

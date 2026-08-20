@@ -4,7 +4,7 @@ Sibling of `overpower.jsonio`, and the same tripwire for the same reason plus
 one of its own. `yaml.load` and `yaml.safe_load` are banned repo-wide (`TID251`,
 `pyproject.toml`) because they answer `Any`, and an `Any` crossing into a module
 checked with `pyright --strict` takes the checking with it — measured in
-https://github.com/panlabs-tech/overpower/issues/2, `return data["name"]` inside
+https://github.com/ThiagoPanini/overpower/issues/2, `return data["name"]` inside
 a `-> str` function passes the type checker and fails at runtime.
 
 The reason of its own is that `yaml.load` **without** a `Loader` constructs

@@ -5,8 +5,8 @@ in two days — so `--from` points at **any GitHub repository, with no
 registration**. It is exclusive: with it, only the remote is consulted, which is
 what extinguishes the question of precedence between embedded and remote before
 anyone has to answer it. It holds for **three of the four units** — `--skill`,
-`--mcp` (https://github.com/panlabs-tech/overpower/issues/83) and `--bundle`
-(https://github.com/panlabs-tech/overpower/issues/137) — and the one left out is
+`--mcp` (https://github.com/ThiagoPanini/overpower/issues/83) and `--bundle`
+(https://github.com/ThiagoPanini/overpower/issues/137) — and the one left out is
 left out **by decision rather than by adjournment**: an AI Framework is a folder
 of this wheel, so there is nothing in a third-party repository for the flag to
 name. The reason that once excluded bundle alongside it — *"they only exist in a
@@ -20,7 +20,7 @@ buys a shorter walk. `tree/<ref>/<path>` pins a branch, a tag **or a SHA** with
 no field of our own — reproducibility for free.
 
 **Two questions, and the URL means something different to each**
-(https://github.com/panlabs-tech/overpower/issues/135). Named a unit, the URL is
+(https://github.com/ThiagoPanini/overpower/issues/135). Named a unit, the URL is
 that search root and the walk is free-depth: *reach*. Named none, the question is
 the one before the name — *what does this repository offer?* — and the answer is
 **anchored** at `skills/` and `.overpower/mcp/` as direct children of the
@@ -46,7 +46,7 @@ the reasoning for. `.overpower/` holds two formats on purpose — it is a
 namespace, not a format (ADR 0020).
 
 **Obtention has two paths and one search** (ADR 0007,
-https://github.com/panlabs-tech/overpower/issues/25):
+https://github.com/ThiagoPanini/overpower/issues/25):
 
 - **primary** — `init` + `remote add` + `fetch --depth 1 origin <ref>` +
   `checkout FETCH_HEAD`, a full checkout, then a walk for `SKILL.md`.

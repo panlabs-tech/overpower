@@ -14,7 +14,7 @@ disagree with the first.
 
 The vocabulary of this version is **`description`, `transport`, `[server]`,
 `[[slots]]`, `[[preconditions]]`, `instructions` and `[source]`**
-(https://github.com/panlabs-tech/overpower/issues/76, /78, /82 and /84). A
+(https://github.com/ThiagoPanini/overpower/issues/76, /78, /82 and /84). A
 recipe that declares a field outside this set is refused **by name** rather
 than read half-way: silent partial acceptance is exactly the class of defect
 the graft exists not to commit, and it is the reason the unknown-field check
@@ -30,7 +30,7 @@ where to talk. It is the same line the official MCP registry draws with
 
 **The decoder returns `object`, and that is a tripwire rather than a style** —
 the same discipline `overpower.written` runs on, measured in
-https://github.com/panlabs-tech/overpower/issues/2: pyright strict has a blind
+https://github.com/ThiagoPanini/overpower/issues/2: pyright strict has a blind
 spot on `Any`, so `return data["name"]` inside a `-> str` function type-checks
 and blows up at runtime. `tomllib.load` hands back `dict[str, Any]`, so the
 decode is confined to `_loads` and every field is narrowed in the open.
@@ -66,7 +66,7 @@ differently and one of them has none at all
 is only known once (type, runtime, scope) are, which this reader never sees;
 resolving it into the absolute path of a real clone is
 `overpower.rendering.render`'s job, at plan-build time
-(https://github.com/panlabs-tech/overpower/issues/84).
+(https://github.com/ThiagoPanini/overpower/issues/84).
 """
 
 DESCRIPTION_KEY = "description"
@@ -389,7 +389,7 @@ class Recipe:
     restricts the scopes this recipe can land in to the machine — the URL is not
     resolved here, both because resolving it means fetching it (this reader does
     no I/O) and because *where* the clone lands is a fact of scope, which this
-    reader never sees (ADR 0015, https://github.com/panlabs-tech/overpower/issues/84).
+    reader never sees (ADR 0015, https://github.com/ThiagoPanini/overpower/issues/84).
     """
 
     @property
@@ -847,7 +847,7 @@ def _loads(path: Path, text: str) -> object:
     A syntax error is renamed on the way out: `tomllib` reports the line and the
     column and never the file, and *which recipe* is the first thing the reader
     of that message needs — the more so once the file is somebody else's
-    (https://github.com/panlabs-tech/overpower/issues/83).
+    (https://github.com/ThiagoPanini/overpower/issues/83).
     """
     try:
         return tomllib.loads(text)

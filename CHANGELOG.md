@@ -23,6 +23,13 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.26.0] - 2026-08-20
+
+### Changed
+
+- **The project moved out of the `panlabs-tech` organization and into the personal profile.** The name is unchanged; the owner is not. `[project.urls]` now declares `github.com/ThiagoPanini/overpower`, and both `Homepage` and `Documentation` point at [thiagopanini.github.io/overpower](https://thiagopanini.github.io/overpower/), where the site is published from now on. The old addresses survive only as GitHub redirects, which this repository does not treat as an answer: every reference inside the tree — 420 of them, from the towncrier `issue_format` that stamps the owner into every future CHANGELOG entry down to the issue links in docstrings — was rewritten to the new one. ([#149](https://github.com/ThiagoPanini/overpower/issues/149))
+
+
 ## [0.25.1] - 2026-08-19
 
 ### Fixed

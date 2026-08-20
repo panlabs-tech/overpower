@@ -9,7 +9,7 @@ name = "overpower"
 # from the VCS — measured in #2, `hatch-vcs` under `git clone --depth 1` (the
 # default of `actions/checkout`) fails to find the tag, warns, *succeeds*, and
 # publishes an invented version.
-version = "0.26.0"
+version = "0.27.0"
 description = "Installs curated AI Frameworks into a repository or a machine"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -82,8 +82,18 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://thiagopanini.github.io/overpower/"
-Documentation = "https://thiagopanini.github.io/overpower/"
+# Both point OUT OF THIS REPOSITORY, and that is the decision rather than an
+# accident of hosting. The documentation moved to `ThiagoPanini/panlabs-docs`
+# (https://github.com/ThiagoPanini/overpower/issues/151) and `website/` left with
+# it; keeping the origin here after the move would be two sources of truth for
+# one text, and the one in this tree is the one nobody updates.
+#
+# The path has no `overpower` in it because the overview page carries `slug: /`,
+# which puts it at the root of the `ferramentas` plugin instance. It is the
+# canonical URL — the site's own sitemap and `og:url` emit this one, and the
+# deeper `…/bibliotecas/overpower/visao-geral` spelling is a 404.
+Homepage = "https://thiagopanini.github.io/panlabs-docs/ferramentas"
+Documentation = "https://thiagopanini.github.io/panlabs-docs/ferramentas"
 Repository = "https://github.com/ThiagoPanini/overpower"
 Issues = "https://github.com/ThiagoPanini/overpower/issues"
 

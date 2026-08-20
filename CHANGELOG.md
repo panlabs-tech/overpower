@@ -23,6 +23,13 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.27.0] - 2026-08-20
+
+### Changed
+
+- **The documentation moved to [`panlabs-docs`](https://github.com/ThiagoPanini/panlabs-docs), and this repository no longer carries a copy.** The 19 pages that lived in `website/` are published there in Portuguese and English, and `[project.urls]` now declares both `Homepage` and `Documentation` as [thiagopanini.github.io/panlabs-docs/ferramentas](https://thiagopanini.github.io/panlabs-docs/ferramentas) — the canonical address, which has no `overpower` in the path because the overview page carries `slug: /` and lands at the root of the `ferramentas` instance. What left with the site is everything that only existed to serve it: the `deploy-site.yml` workflow, the `site` job and its four CSS gates in `ci.yml`, the two agent rules scoped to `website/src/**`, and the handoff document that specified the transplant. The old address, `thiagopanini.github.io/overpower`, is switched off rather than left frozen — a documentation site that nobody updates but search still indexes is worse than no site at all. `docs/` stays where it is: the ADRs, the agent documents and the research are engineering memory of this repository, they never migrated, and the navigation table in `CLAUDE.md` routes every agent through them. ([#151](https://github.com/ThiagoPanini/overpower/issues/151))
+
+
 ## [0.26.0] - 2026-08-20
 
 ### Changed

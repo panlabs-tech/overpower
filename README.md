@@ -25,5 +25,8 @@ whole, never truncated, with the exact line that installs it:
 ```
 
 Full documentation — every command, every flag, the runtime table, how content
-is curated and how a release ships — lives at
-**[thiagopanini.github.io/overpower](https://thiagopanini.github.io/overpower/)**.
+is curated and how a release ships — lives on the panlabs documentation site, at
+**[thiagopanini.github.io/panlabs-docs/ferramentas](https://thiagopanini.github.io/panlabs-docs/ferramentas)**.
+That address is Portuguese, which is the site's default locale; the same pages
+are written in
+[English](https://thiagopanini.github.io/panlabs-docs/en/ferramentas).

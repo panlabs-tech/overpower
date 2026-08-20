@@ -570,7 +570,8 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
             # ASCII only, and not a style point: this text is read back through a
             # subprocess whose stdout the Windows console encodes in cp1252, so a
             # single em dash here fails `test_the_install_help_still_fits_eighty_columns`
-            # on three of the twelve cells with a `UnicodeDecodeError`.
+            # on three of the nine cells with a `UnicodeDecodeError` — the three
+            # Windows ones of the 3 OS x 3 Python matrix in `.github/workflows/ci.yml`.
             help="Install from any GitHub repository instead of the embedded catalog. "
             "Bare, it opens the wizard on what that repository offers; with --skill or "
             "--mcp, the URL is a search root: the repository, a subfolder or the "
@@ -595,7 +596,19 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
         ),
     ] = False,
     yes: Annotated[
-        bool, typer.Option("--yes", "-y", help="Skip the confirmation, and nothing else.")
+        bool,
+        typer.Option(
+            "--yes",
+            "-y",
+            # It skips the confirmation and nothing else, and that "nothing else"
+            # is load-bearing: `_asking` is also the predicate that decides whether
+            # an occupied destination is a question or a refusal, so `--yes` turns
+            # a prompt that could have written into exit 3. The flag that lifts the
+            # refusal is `--force`, and the help has to say which is which.
+            help="Skip the confirmation. It does not accept an overwrite: an occupied "
+            "global destination is refused instead of asked, and --force is what "
+            "lifts that.",
+        ),
     ] = False,
     dry_run: Annotated[
         # No short form, on purpose: an audit flag typed out in full is part of
@@ -604,7 +617,11 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
         typer.Option("--dry-run", help="Print the plan and write nothing."),
     ] = False,
 ) -> None:
-    """Install curated equipment into the current repository, or onto the machine."""
+    """Install curated equipment into the current repository, or onto the machine.
+
+    In a terminal, what the line leaves open (no selection, no runtime, or both)
+    opens a wizard on exactly those steps; off a terminal it is refused instead.
+    """
     frameworks = _accumulated(ai_framework)
     bundles = _accumulated(bundle)
     skills = _accumulated(skill)

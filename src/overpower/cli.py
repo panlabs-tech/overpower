@@ -614,7 +614,12 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
         # No short form, on purpose: an audit flag typed out in full is part of
         # the gesture. It resolves everything and leaves nothing in the target.
         bool,
-        typer.Option("--dry-run", help="Print the plan and write nothing."),
+        typer.Option(
+            "--dry-run",
+            help="Print the plan and write nothing. An occupied global destination "
+            "is refused instead of asked, and --from still fetches the remote "
+            "to resolve the plan.",
+        ),
     ] = False,
 ) -> None:
     """Install curated equipment into the current repository, or onto the machine.

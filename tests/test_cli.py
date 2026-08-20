@@ -241,6 +241,22 @@ def test_the_yes_help_says_it_does_not_accept_an_overwrite(
     assert "It does not accept an overwrite" in project.joined(output)
 
 
+def test_the_dry_run_help_says_it_refuses_and_still_fetches(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`--dry-run` documented itself as printing the plan and writing nothing, while
+    it also turns an occupied global destination from a question into exit 3, and
+    still fetches the remote when paired with `--from`
+    (https://github.com/ThiagoPanini/overpower/issues/157).
+    """
+    code, output = output_of(capsys, ["install", "--help"])
+    joined = project.joined(output)
+
+    assert code == 0
+    assert "refused instead of asked" in joined
+    assert "still fetches the remote" in joined
+
+
 def test_the_install_help_still_fits_eighty_columns() -> None:
     result = piped("install", "--help")
 

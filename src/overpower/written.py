@@ -91,7 +91,7 @@ class WrittenCatalog:
     frameworks: Mapping[str, str]
     """Framework name to its one description line."""
 
-    mcps: tuple[Recipe, ...] = ()
+    mcps: tuple[Recipe, ...]
     """The recipes declared under `mcp:`, sorted by slug.
 
     Whole `Recipe` values and not subtrees: the contract is checked on the way
@@ -185,12 +185,13 @@ def _known(path: Path, document: Mapping[str, object]) -> None:
 
 def _bundles(path: Path, value: object) -> tuple[WrittenBundle, ...]:
     bundles: list[WrittenBundle] = []
-    for name, value_of in sorted(_table(path, "bundles", value, "a table of bundles").items()):
-        entry = _table(path, f"bundles.{name}", value_of, "a table")
+    listed = _table(path, BUNDLES_KEY, value, "a table of bundles")
+    for name, value_of in sorted(listed.items()):
+        entry = _table(path, f"{BUNDLES_KEY}.{name}", value_of, "a table")
         bundles.append(
             WrittenBundle(
                 name=name,
-                description=_description(path, f"bundles.{name}", entry.get("description")),
+                description=_description(path, f"{BUNDLES_KEY}.{name}", entry.get("description")),
                 items=_items(path, name, entry.get("items", [])),
             )
         )
@@ -199,20 +200,19 @@ def _bundles(path: Path, value: object) -> tuple[WrittenBundle, ...]:
 
 def _frameworks(path: Path, value: object) -> Mapping[str, str]:
     frameworks: dict[str, str] = {}
-    for name, value_of in sorted(
-        _table(path, "frameworks", value, "a table of frameworks").items()
-    ):
-        entry = _table(path, f"frameworks.{name}", value_of, "a table")
-        frameworks[name] = _description(path, f"frameworks.{name}", entry.get("description"))
+    listed = _table(path, FRAMEWORKS_KEY, value, "a table of frameworks")
+    for name, value_of in sorted(listed.items()):
+        entry = _table(path, f"{FRAMEWORKS_KEY}.{name}", value_of, "a table")
+        frameworks[name] = _description(path, f"{FRAMEWORKS_KEY}.{name}", entry.get("description"))
     return frameworks
 
 
 def _items(path: Path, bundle: str, value: object) -> tuple[str, ...]:
     if not isinstance(value, list):
-        raise MalformedWrittenCatalogError(path, f"bundles.{bundle}.items", "a list of names")
+        raise MalformedWrittenCatalogError(path, f"{BUNDLES_KEY}.{bundle}.items", "a list of names")
     items = cast("list[object]", value)
     if not all(isinstance(item, str) for item in items):
-        raise MalformedWrittenCatalogError(path, f"bundles.{bundle}.items", "a list of names")
+        raise MalformedWrittenCatalogError(path, f"{BUNDLES_KEY}.{bundle}.items", "a list of names")
     return tuple(str(item) for item in items)
 
 

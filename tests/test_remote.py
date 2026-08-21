@@ -659,6 +659,25 @@ def test_the_old_layout_with_no_declaration_beside_it_is_refused_naming_the_file
     assert ".overpower.yaml" in str(refused.value)
 
 
+def test_a_skill_is_still_reachable_in_a_repository_laid_out_the_old_way(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The refusal belongs to the declaration, and `--skill` never opens it.
+
+    A skill is found by **walking**, so nothing about it depends on the file the
+    old layout is missing. Refusing here would make a repository uninstallable
+    for a defect in a half the line never named — and the author of that line is
+    not the author of that repository.
+    """
+    # given
+    planted = {**git_remote.skill_files("alpha"), **git_remote.legacy_recipe_files("cloudflare")}
+    _planting(monkeypatch, planted)
+
+    with remote.catalog_from(ROOT_URL, ["alpha"]) as catalog:
+        assert [artifact.name for artifact in catalog.pool] == ["alpha"]
+        assert catalog.mcps == ()
+
+
 def test_the_old_layout_below_the_root_refuses_nothing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

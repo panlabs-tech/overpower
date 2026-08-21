@@ -51,8 +51,9 @@
 # Block style is the convention of this house and has no mechanism behind it:
 # `slots: [{name: X, role: env}]` is the same document to any parser, and
 # refusing to read it would cost a second parser to buy cosmetic uniformity in
-# somebody else's repository. It is rule 43 — *sem mecanismo, confere-se em
-# review*.
+# somebody else's repository. It is rule 43 of the panlabs standard: with no
+# mechanism, it is checked in review — and here there is not even a review,
+# because the file belongs to whoever publishes it.
 #
 # Short descriptions are quoted even when they would parse bare: a plain YAML
 # scalar may not carry `: `, and the framework line below already does. The long

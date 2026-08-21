@@ -469,13 +469,15 @@ class ForbiddenTransportError(RefusedError):
     the spec of the graft assigns to *"transporte proibido na receita"*.
     """
 
-    def __init__(self, path: Path, transport: str) -> None:
+    def __init__(self, path: Path, key: str, transport: str) -> None:
         """Name the recipe, the transport it declared, and the two that exist."""
         self.path = path
+        self.key = key
         self.transport = transport
         allowed = ", ".join(sorted(member.value for member in Transport))
         super().__init__(
-            f"{path}: transport `{transport}` is not one this product writes; the set is: {allowed}"
+            f"{path}: `{key}` is `{transport}`, which is not a transport this product writes; "
+            f"the set is: {allowed}"
         )
 
 
@@ -640,10 +642,11 @@ def _source(path: Path, at: str, document: Mapping[str, object]) -> str | None:
 
 def _transport(path: Path, at: str, value: object) -> Transport:
     """The declared transport, as a member of the closed set."""
+    key = f"{at}.{TRANSPORT_KEY}"
     if not isinstance(value, str):
-        raise MalformedRecipeError(path, f"{at}.{TRANSPORT_KEY}", "a string")
+        raise MalformedRecipeError(path, key, "a string")
     if value not in {member.value for member in Transport}:
-        raise ForbiddenTransportError(path, value)
+        raise ForbiddenTransportError(path, key, value)
     return Transport(value)
 
 
@@ -882,6 +885,14 @@ def _table(path: Path, key: str, value: object, expected: str) -> dict[str, obje
     to an integer and `true:` to a boolean — so the same cast would now be a lie,
     living in the module whose only reason to exist is being the type tripwire.
     The values stay `object`, which is the point of the whole module.
+
+    **A twin and not a shared helper, declared rather than overlooked.** What
+    differs between the two is the error class, and the error class is the one
+    thing a caller of either module catches by name — sharing the body means
+    passing the exception in as a parameter, which is a helper parameterised on
+    the only thing that distinguishes its two uses. Four lines of narrowing, said
+    twice, cost less than that; what must not diverge is the *contract*, and that
+    one really is in one place.
     """
     if not isinstance(value, dict):
         raise MalformedRecipeError(path, key, expected)

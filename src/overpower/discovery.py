@@ -63,8 +63,9 @@ class ArtifactType(StrEnum):
 
     It is the closed set of **type folders under a content root**, which is why
     the MCP server is not on it even though the operation that lands one now
-    exists: a recipe does not land, so it is not content, and it is discovered
-    from the other root by `discover_mcps`. The hook is still to come, and it
+    exists: a recipe does not land, so it is not content — and it is not
+    discovered at all, it is *written*, under the `mcp:` key of the one written
+    file (`overpower.written`, ADR 0021). The hook is still to come, and it
     *will* join this set — it is contract **and** tree, so part of it is content.
     """
 

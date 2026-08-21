@@ -311,8 +311,8 @@ def render(recipe: Recipe, document: McpDocument, source: Path | None = None) ->
     by the caller (`overpower.planning`) from (root, recipe.name) — no I/O, and
     no filesystem, the same discipline this whole module keeps: the path is
     computed, never read off a disk this function never touches. `None` for a
-    recipe that declares no `[source]`, which is every recipe read_recipe would
-    let `{source}` appear nowhere in.
+    recipe that declares no `source:`, which is every recipe the reader would let
+    `{source}` appear nowhere in.
     """
     match document.dialect:
         case Dialect.CLAUDE:

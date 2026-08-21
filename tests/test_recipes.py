@@ -127,7 +127,12 @@ def test_the_slug_comes_from_the_key_and_never_from_a_field(tmp_path: Path) -> N
 
 
 def test_a_message_about_a_recipe_names_which_recipe(tmp_path: Path) -> None:
-    """One file now holds several, so `transport` alone would cost a bisection."""
+    """One file now holds several, so `transport` alone would cost a bisection.
+
+    Asserted on `MalformedRecipeError` here and on `ForbiddenTransportError`
+    below, which is the pair that covers both halves of the module's error
+    model — the malformed and the refused.
+    """
     path = write_recipe(tmp_path, "broken", 'description: "x"\ntransport: 1\n')
 
     with pytest.raises(MalformedRecipeError) as refused:
@@ -164,6 +169,7 @@ def test_a_transport_outside_the_closed_set_is_refused_naming_it(
         read_recipe(path)
 
     assert refused.value.transport == transport
+    assert refused.value.key == "mcp.odd.transport"
     assert "stdio, http" in str(refused.value).replace("http, stdio", "stdio, http")
 
 
@@ -715,9 +721,9 @@ def test_flow_style_reads_as_the_same_recipe_block_style_does(tmp_path: Path) ->
 
     `slots: [{name: X, role: env}]` and the same thing in block style are one
     document to any parser, and this reader works on the parsed tree. Block style
-    is the convention of the house — rule 43, *sem mecanismo, confere-se em
-    review* — and here there is not even a review, because the file belongs to
-    the publisher.
+    is the convention of the house — rule 43 of the panlabs standard, where a
+    rule with no mechanism is checked in review — and here there is not even a
+    review, because the file belongs to whoever publishes it.
 
     Refusing flow style would cost a **second parser**: `yaml.safe_load` answers
     a tree and not positions, so telling the two apart means re-reading the bytes

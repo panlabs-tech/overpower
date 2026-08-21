@@ -530,11 +530,19 @@ def catalog_from(
         # fail anything either. The `tree` fallback is never read: without
         # `--skill`, the comprehension below is empty.
         root = search_root(tree, source) if skills else tree
+        # Read **once**, and only when something anchored was asked for. Once,
+        # because the file is one file and validating it per name would let the
+        # same document be admitted and refused in one invocation; only when
+        # asked, because a line whose sole selector is `--skill` never opens the
+        # declaration at all — a skill is found by walking, so a repository whose
+        # declaration is missing, malformed or laid out the old way still
+        # answers `--skill <name>`.
+        declared = _declared_by(tree, source) if mcps or bundles else _NOTHING_DECLARED
         yield Catalog(
             frameworks=(),
             pool=tuple(_skill_called(name, root, tree, source) for name in dict.fromkeys(skills)),
-            bundles=_bundles_called(dict.fromkeys(bundles), tree, source),
-            mcps=tuple(_mcp_called(name, tree, source) for name in dict.fromkeys(mcps)),
+            bundles=_bundles_called(dict.fromkeys(bundles), declared, tree, source),
+            mcps=tuple(_mcp_called(name, declared, source) for name in dict.fromkeys(mcps)),
         )
     finally:
         discard(scratch)
@@ -645,7 +653,9 @@ def _bundles_of(
     )
 
 
-def _bundles_called(names: Iterable[str], tree: Path, source: Source) -> tuple[Bundle, ...]:
+def _bundles_called(
+    names: Iterable[str], declared: WrittenCatalog, tree: Path, source: Source
+) -> tuple[Bundle, ...]:
     """The bundles named, in the order they were typed, out of the one declaration.
 
     The whole declaration is read and resolved even when one name was asked for,
@@ -656,8 +666,7 @@ def _bundles_called(names: Iterable[str], tree: Path, source: Source) -> tuple[B
     ticket exists to prevent.
     """
     offered = {
-        bundle.name: bundle
-        for bundle in _bundles_of(_declared_by(tree, source), _skills_offered(tree), source)
+        bundle.name: bundle for bundle in _bundles_of(declared, _skills_offered(tree), source)
     }
     chosen: list[Bundle] = []
     for name in names:
@@ -1039,20 +1048,20 @@ def _skill_called(name: str, root: Path, tree: Path, source: Source) -> Artifact
     return artifact_at(matches[0], ArtifactType.SKILL)
 
 
-def _mcp_called(name: str, tree: Path, source: Source) -> Recipe:
+def _mcp_called(name: str, declared: WrittenCatalog, source: Source) -> Recipe:
     """The recipe named `name` under the `mcp:` key of the repository's declaration.
 
-    `tree` and not the search root: a declaration is anchored, so `--mcp` reads
+    `declared` and not a search root: a declaration is anchored, so `--mcp` reads
     the same entry whether the URL named the repository or a folder inside it
     (ADR 0021). The subpath keeps narrowing `--skill`, which is the one selector
     that still walks.
 
-    Read through `_declared_by`, so the recipe passed the same contract the
-    embedded catalog's did — a recipe that gets past this function is a recipe
-    that renders, whether it came from the wheel or from someone else's
-    repository.
+    What arrives already went through `_declared_by`, so the recipe passed the
+    same contract the embedded catalog's did — a recipe that gets past this
+    function is a recipe that renders, whether it came from the wheel or from
+    someone else's repository.
     """
-    for recipe in _declared_by(tree, source).mcps:
+    for recipe in declared.mcps:
         if recipe.name == name:
             return recipe
     raise RemoteRecipeNotFoundError(name, source)

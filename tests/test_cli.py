@@ -19,7 +19,6 @@ from __future__ import annotations
 import io
 import os
 import shlex
-import stat
 import subprocess
 import sys
 from dataclasses import replace
@@ -1416,22 +1415,6 @@ source:
 """
 
 
-def _runner_on_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, name: str = "uvx") -> None:
-    """Put a stub `name` on `PATH`, so the runner's own precondition is met.
-
-    Real `uvx`/`npx` are not guaranteed on a test machine, and installing a
-    `source:` recipe now checks for the runner before the first byte (ADR
-    0023) — the same `shutil.which` walk `command_exists` already uses, so a
-    file with the execute bit set is indistinguishable from the real thing.
-    """
-    stubs = tmp_path / "stubs"
-    stubs.mkdir(exist_ok=True)
-    stub = stubs / name
-    stub.write_text("#!/bin/sh\n", encoding="utf-8")
-    stub.chmod(stub.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    monkeypatch.setenv("PATH", f"{stubs}{os.pathsep}{os.environ.get('PATH', '')}")
-
-
 def test_a_sourced_recipe_installs_deriving_the_command_from_its_runner(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:
@@ -1440,7 +1423,7 @@ def test_a_sourced_recipe_installs_deriving_the_command_from_its_runner(
     project.catalog_of(tmp_path, monkeypatch)
     project.custom_recipe(tmp_path, "homegrown", SOURCED)
     root = project.target(tmp_path, monkeypatch)
-    _runner_on_path(monkeypatch, tmp_path)
+    project.runner_on_path(monkeypatch, tmp_path)
 
     code, _ = project.run(capsys, "install", "--mcp", "homegrown", "--runtime", "claude-code")
 
@@ -1467,7 +1450,7 @@ def test_a_sourced_recipes_written_file_carries_no_absolute_machine_path(
     project.catalog_of(tmp_path, monkeypatch)
     project.custom_recipe(tmp_path, "homegrown", SOURCED)
     root = project.target(tmp_path, monkeypatch)
-    _runner_on_path(monkeypatch, tmp_path)
+    project.runner_on_path(monkeypatch, tmp_path)
 
     code, _ = project.run(capsys, "install", "--mcp", "homegrown", "--runtime", "claude-code")
 
@@ -1485,7 +1468,7 @@ def test_a_dry_run_of_a_sourced_recipe_lands_nothing(
     project.catalog_of(tmp_path, monkeypatch)
     project.custom_recipe(tmp_path, "homegrown", SOURCED)
     root = project.target(tmp_path, monkeypatch)
-    _runner_on_path(monkeypatch, tmp_path)
+    project.runner_on_path(monkeypatch, tmp_path)
 
     code, output = project.run(
         capsys, "install", "--mcp", "homegrown", "--runtime", "claude-code", "--dry-run"

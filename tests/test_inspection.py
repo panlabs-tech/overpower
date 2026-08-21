@@ -24,7 +24,6 @@ created link is *recorded* as one depends on the platform and on privilege.
 from __future__ import annotations
 
 import shutil
-import stat
 from typing import TYPE_CHECKING
 
 from overpower.writing import points_elsewhere
@@ -38,6 +37,7 @@ from tests.support.project import (
     custom_recipe,
     joined,
     run,
+    runner_on_path,
     workspace,
 )
 
@@ -605,14 +605,6 @@ source:
 """
 
 
-def _executable_stub(directory: Path, name: str) -> Path:
-    """A file on `PATH` that `shutil.which` resolves, whatever `name` is asked for."""
-    stub = directory / name
-    stub.write_text("#!/bin/sh\n", encoding="utf-8")
-    stub.chmod(stub.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    return stub
-
-
 def approve(root: Path, *names: str) -> None:
     """Write the registry Claude Code writes once a human passes the trust dialog.
 
@@ -682,10 +674,7 @@ def test_a_missing_runner_exits_three(
     catalog_of(tmp_path, monkeypatch)
     custom_recipe(tmp_path, "homegrown", SOURCED)
     workspace(tmp_path, monkeypatch)
-    stubs = tmp_path / "stubs"
-    stubs.mkdir()
-    _executable_stub(stubs, "uvx")
-    monkeypatch.setenv("PATH", str(stubs))
+    runner_on_path(monkeypatch, tmp_path)
     run(capsys, "install", "--mcp", "homegrown", "--runtime", "claude-code", "--global")
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
 
@@ -729,10 +718,7 @@ def test_a_present_runner_is_healthy(
     catalog_of(tmp_path, monkeypatch)
     custom_recipe(tmp_path, "homegrown", SOURCED)
     workspace(tmp_path, monkeypatch)
-    stubs = tmp_path / "stubs"
-    stubs.mkdir()
-    _executable_stub(stubs, "uvx")
-    monkeypatch.setenv("PATH", str(stubs))
+    runner_on_path(monkeypatch, tmp_path)
     run(capsys, "install", "--mcp", "homegrown", "--runtime", "claude-code", "--global")
 
     code, output = run(capsys, "doctor")

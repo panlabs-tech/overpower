@@ -23,11 +23,18 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
-## [0.28.0] - 2026-08-21
+## [0.29.0] - 2026-08-21
 
 ### Breaking
 
 - Um repositório caseiro passa a declarar tudo o que oferece num **único arquivo YAML na raiz**, `.overpower.yaml`, com `bundles:` e `mcp:` dentro. O `.overpower/catalog.yaml` e o `.overpower/mcp/<slug>.toml` deixaram de ser lidos, e não há janela de compatibilidade: achar a convenção antiga num repositório sem `.overpower.yaml` é **exit 3 nomeando o arquivo a escrever**. O catálogo embutido migrou junto — as quatro receitas entraram na chave `mcp:` de `catalog/catalog.yaml` e **o TOML saiu do produto** —, então as duas procedências passam pelo mesmo leitor. `--mcp --from <url>` deixou de andar pela árvore: a declaração é ancorada na raiz do repositório apontado, e a subpasta da URL segue estreitando apenas o alcance de `--skill`. ([#164](https://github.com/ThiagoPanini/overpower/issues/164))
+
+
+## [0.28.0] - 2026-08-21
+
+### Added
+
+- Em escopo de máquina, o `install` agora **pergunta o valor de cada slot e o escreve literal** no documento — uma execução, e a configuração fica completa, em vez de terminar avisando que a variável é sua para exportar. A entrada é mascarada, o valor nunca é ecoado e a variável já exportada é oferecida como default sem aparecer na tela. Em escopo de projeto o slot continua sendo `${VAR}` e nada mais, e o VS Code mantém o `inputs[]` com `password: true`, que é a única grafia medida em que o segredo fica guardado sob proteção do SO. Sem terminal ou com `--yes` nada é perguntado e o comportamento anterior fica intacto; valor já gravado é mantido e não perguntado de novo, com `--force` reabrindo a pergunta; resposta vazia grava a referência de volta. O `--dry-run` não pergunta e anuncia quantos segredos seriam pedidos. Ver [ADR 0024](https://github.com/ThiagoPanini/overpower/blob/main/docs/adr/0024-o-segredo-mora-onde-o-git-nao-alcanca.md). ([#167](https://github.com/ThiagoPanini/overpower/issues/167))
 
 ### Fixed
 

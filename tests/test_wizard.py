@@ -1037,7 +1037,7 @@ def test_run_wizard_asks_scope_naming_a_source_the_artifacts_step_just_picked(
 def test_run_wizard_asks_scope_naming_no_source_for_an_ordinary_recipe(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The ordinary case, unaffected: no `[source]`, the wizard still asks freely."""
+    """The ordinary case, unaffected: no `source:`, the wizard still asks freely."""
     # given
     content = catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": "https://mcp.example.com/mcp"})
     catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")

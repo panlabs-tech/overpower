@@ -1074,7 +1074,7 @@ def test_the_bundle_and_the_recipe_are_two_keys_of_one_file(
 
 
 # --------------------------------------------------------------------------- #
-# sources_for: the clone a [source] recipe brings, obtained outside plan_for
+# sources_for: the clone a `source:` recipe brings, obtained outside plan_for
 # --------------------------------------------------------------------------- #
 
 
@@ -1099,7 +1099,7 @@ def _plain(name: str) -> Recipe:
 
 
 def test_project_scope_obtains_nothing_at_all(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`overpower.planning` refuses a `[source]` recipe outside global scope anyway.
+    """`overpower.planning` refuses a `source:` recipe outside global scope anyway.
 
     The answer is already known from `scope` alone, so obtaining first would
     cost a real `git fetch` for a line already certain to be refused.
@@ -1120,7 +1120,7 @@ def test_project_scope_obtains_nothing_at_all(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_a_recipe_with_no_source_is_never_obtained(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No `[source]`, no network — the mapping simply carries nothing for it."""
+    """No `source:`, no network — the mapping simply carries nothing for it."""
     called: list[str] = []
 
     def fetch(url: str, ref: str, into: Path) -> Path:

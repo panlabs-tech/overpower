@@ -653,10 +653,10 @@ def _recipe_facts(
     `needs` is the one label that is not its field's name, and the width is why.
     Spelling it `preconditions` makes it the longest label on the screen, and
     since the rows share one grid every other value is pushed right by six
-    columns: measured at 60, that folds `[server.env]` mid-token — the address
+    columns: measured at 60, that folds `server.env` mid-token — the address
     a reader has to be able to take in breaks across two lines. The distinction
     the paragraph above rests on is *declared against derived*, and `needs`
-    keeps it: it names `[[preconditions]]`, which the recipe declares.
+    keeps it: it names `preconditions:`, which the recipe declares.
 
     The order is *what the server is*, then **what you must already have**, then
     where it can go. The two middle rows are the ones §Descobrir of the spec
@@ -675,8 +675,8 @@ def _recipe_facts(
 def _required(slots: Sequence[Slot]) -> tuple[tuple[str, RenderableType], ...]:
     """The secrets the recipe needs, each with the role that says where it goes.
 
-    In declaration order and never sorted, unlike `_pairs`: `[[slots]]` is an
-    array and the recipe chose the order, while `[server.env]` is a table and
+    In declaration order and never sorted, unlike `_pairs`: `slots:` is an
+    array and the recipe chose the order, while `server.env` is a table and
     has none to keep.
 
     The role is half the answer and not decoration — a secret bound into a
@@ -727,7 +727,7 @@ def _declared(server: Server) -> tuple[tuple[str, RenderableType], ...]:
 
 
 def _pairs(environment: Mapping[str, str]) -> RenderableType:
-    """`[server.env]` as it will be written: a name and the literal beside it.
+    """`server.env` as it will be written: a name and the literal beside it.
 
     Literal on purpose, and it is the distinction the schema exists for: the
     address of a panel is not a secret, so it lands in the user's file and has
@@ -1483,7 +1483,7 @@ def _stacked(rows: Sequence[tuple[str, RenderableType]]) -> RenderableType:
     The label column is dim and the value is cyan, so a line reads as *what kind*
     then *which one* without either rank being carried by colour alone. It draws
     the artifacts of a framework, the fields of a recipe and the values of a
-    `[server.env]`, and it is one function because the property below is one
+    `server.env`, and it is one function because the property below is one
     property.
 
     **`fold` on both columns, never the default `ellipsis`.** Measured at 40

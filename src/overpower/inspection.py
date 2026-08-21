@@ -35,7 +35,7 @@ it is gone: it reads the registry Claude Code itself writes to
 **exit 3** where the write-time warning could only answer exit 0.
 
 Two neighbours of that same graft axis are **informative, and never fail the
-gate**: a `[source]` clone the machine no longer has (`overpower.remote`,
+gate**: a `source:` clone the machine no longer has (`overpower.remote`,
 ADR 0015) still named by a config, and a slot the recipe reads out of the
 process environment that this one does not carry. Both are read back off the
 document exactly as the approval check is — `doctor` has no `Plan` to ask —
@@ -246,7 +246,7 @@ class PendingApproval:
 
 @dataclass(frozen=True)
 class MissingClone:
-    """A graft still naming a `[source]` clone that is no longer on the machine."""
+    """A graft still naming a `source:` clone that is no longer on the machine."""
 
     destination: DocumentKey
     name: str
@@ -868,7 +868,7 @@ def _pending_approvals(
 
 
 _CLONE_DIR = (".overpower", "mcp")
-"""Where a `[source]` recipe's clone lands under the machine root.
+"""Where a `source:` recipe's clone lands under the machine root.
 
 The same two segments `overpower.planning._SOURCE_DIR` and
 `overpower.remote._LEGACY_MCP_DIR` each already name for their own question — a
@@ -879,7 +879,7 @@ is a question neither of the others answers.
 
 
 def _clone_root(environment: Environment) -> Path:
-    """`~/.overpower/mcp`, where every `[source]` clone lands."""
+    """`~/.overpower/mcp`, where every `source:` clone lands."""
     return environment.home.joinpath(*_CLONE_DIR)
 
 
@@ -912,7 +912,7 @@ def _clone_slugs_in(config: object, clone_root: Path) -> Iterator[str]:
 def _missing_clones(
     places: Iterable[tuple[Scope, McpPlace]], environment: Environment
 ) -> Iterator[MissingClone]:
-    """Every graft still naming a `[source]` clone that is no longer on the machine.
+    """Every graft still naming a `source:` clone that is no longer on the machine.
 
     A clone only ever lands in machine scope (ADR 0015), but every place is
     read regardless: what proves the finding is the clone's own path being

@@ -285,7 +285,7 @@ The signal a moving recording buys is worth less than the bug a static one hid.
 def recorded_stdio_recipe() -> Recipe:
     """The stdio recipe, and it carries every field that transport admits.
 
-    A command, its arguments and one value of `[server.env]` — which is the
+    A command, its arguments and one value of `server.env` — which is the
     distinction the schema exists for: the address of a panel is **not** a
     secret, so it is written literally, while a secret is a slot the product
     refuses to write (https://github.com/ThiagoPanini/overpower/issues/78).
@@ -1393,7 +1393,7 @@ def test_the_mcp_screen_names_the_transport_and_the_url_of_an_http_recipe(width:
 def test_the_mcp_screen_names_the_command_the_arguments_and_the_environment(width: int) -> None:
     """The stdio half: what will be launched, and what it is launched with.
 
-    `[server.env]` is on the screen because it is written **literally** into the
+    `server.env` is on the screen because it is written **literally** into the
     user's file, and a value that lands is a value the reader has to see before
     accepting it.
     """
@@ -1437,7 +1437,7 @@ def test_the_mcp_screen_names_the_preconditions_the_recipe_declares(width: int) 
 
     The label is `needs` and not `preconditions` for a reason the row next to it
     pays for: measured at 60 columns, the longer word pushes every value right
-    and folds the `[server.env]` address mid-token. `_recipe_facts` carries the
+    and folds the `server.env` address mid-token. `_recipe_facts` carries the
     whole argument.
     """
     rendered = rows(render(mcp_screen(recorded_stdio_recipe(), RECORDED_TARGETS), width))

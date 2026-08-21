@@ -303,7 +303,7 @@ def ask_scope(
 
     `sourced` is the same move for ADR 0015: **the set of scopes is a function
     of the recipe**, the way ADR 0009 already made the set of runtimes a
-    function of scope, so a line that already named a `[source]` recipe has
+    function of scope, so a line that already named a `source:` recipe has
     already answered this step too — offering `Project` would draw a screen
     `overpower.planning`'s refusal is certain to reject three steps later.
 

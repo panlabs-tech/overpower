@@ -764,7 +764,7 @@ def _offers_among(matches: Iterable[Path], tree: Path) -> list[Path]:
 def sources_for(
     catalog: Catalog, names: Sequence[str], scope: Scope
 ) -> Generator[Mapping[str, Path]]:
-    """The clone each `[source]`-bearing recipe among `names` brings, keyed by its name.
+    """The clone each `source:`-bearing recipe among `names` brings, keyed by its name.
 
     Obtained here and not inside `overpower.planning.plan_for`, for the same reason
     `catalog_from` obtains its catalog outside it: planning stays a value-in,
@@ -773,12 +773,12 @@ def sources_for(
     needs that tree still on disk at `execute()` time.
 
     **Nothing is obtained outside `Scope.GLOBAL`.** `overpower.planning` refuses
-    a `[source]` recipe in any other scope before the plan names a single write
+    a `source:` recipe in any other scope before the plan names a single write
     (ADR 0015) — the answer is already known from `scope` alone, with no catalog
     lookup needed to reach it, so obtaining first would cost a real `git fetch`
     for a line already certain to be refused.
 
-    In `Scope.GLOBAL`, every named recipe with `[source]` is obtained
+    In `Scope.GLOBAL`, every named recipe with `source:` is obtained
     **unconditionally**, dry run or not — the same promise `overpower.cli._perform`'s
     docstring makes for `--from`: a `--dry-run` that skipped this would report on
     a clone different from the one the real run brings. What dry run skips is the

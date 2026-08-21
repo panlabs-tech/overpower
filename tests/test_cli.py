@@ -27,6 +27,7 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Protocol
 
 import pytest
+import questionary
 from rich.console import Console
 
 from overpower import cli, remote, wizard
@@ -1400,7 +1401,7 @@ def test_a_line_that_mixes_a_skill_and_a_server_writes_both(
 
 
 # --------------------------------------------------------------------------- #
-# #84: [source] clones code to the machine, and restricts the scope
+# #84: `source:` clones code to the machine, and restricts the scope
 # --------------------------------------------------------------------------- #
 
 SOURCED = """\
@@ -1729,14 +1730,14 @@ def test_a_slot_whose_variable_is_set_is_not_warned_about(
     # given
     project.catalog_of(tmp_path, monkeypatch, mcps={"coolify": project.SLOTTED})
     project.target(tmp_path, monkeypatch)
-    monkeypatch.setenv(project.SLOT_VARIABLE, "SUPER-SECRET-42")
+    monkeypatch.setenv(project.SLOT_VARIABLE, "SUPER-TYPED-42")
 
     code, output = project.run(capsys, "install", "--mcp", "coolify", "--runtime", "claude-code")
 
     assert code == 0
     joined = project.joined(output)
     assert "not set" not in joined
-    assert "SUPER-SECRET-42" not in joined
+    assert "SUPER-TYPED-42" not in joined
 
 
 def test_the_dry_run_warns_about_the_same_variable_the_real_run_does(
@@ -3548,3 +3549,416 @@ def test_the_showcase_a_url_prints_does_not_depend_on_its_depth(
     assert code == 0
     assert "alpha" in joined
     assert "beta" in joined
+
+
+# --------------------------------------------------------------------------- #
+# the secret is asked for and written where the git does not reach (#167)
+# --------------------------------------------------------------------------- #
+
+TYPED = "pt_live_0123456789"
+"""What a person types at the prompt, distinctive enough to grep the output for."""
+
+
+class _Asked:
+    """Every secret prompt this run put up, and the answer handed back to each.
+
+    A Spy and not a Stub, because half of what ADR 0024 promises is about the
+    question rather than the answer: *asked once*, *not asked again*, *asked
+    with the environment offered as the default*. None of the three is
+    observable in the document that comes out.
+    """
+
+    def __init__(self, answer: str = TYPED) -> None:
+        self.answer = answer
+        self.asked: list[tuple[str, str | None]] = []
+
+    def __call__(self, name: str, default: str | None) -> str:
+        self.asked.append((name, default))
+        return self.answer
+
+    @property
+    def names(self) -> list[str]:
+        return [name for name, _ in self.asked]
+
+
+def _asking_secrets(monkeypatch: pytest.MonkeyPatch, answer: str = TYPED) -> _Asked:
+    """Put a person at the prompt, and remember everything they were shown."""
+    spy = _Asked(answer)
+    monkeypatch.setattr(cli, "_answered_secret", spy)
+    return spy
+
+
+def _accepting(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Say yes to the plan, which is the gate the prompt sits behind."""
+    monkeypatch.setattr(cli, "_confirmed", lambda: True)
+
+
+def _overwriting(_conflicts: Sequence[Path]) -> bool:
+    """Say yes to the one gate `--force` puts up instead of the plain one."""
+    return True
+
+
+def _slotted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """One slotted server on offer, a home to install it into, and no variable exported."""
+    project.catalog_of(tmp_path, monkeypatch, mcps={"panel": project.SLOTTED})
+    monkeypatch.delenv(project.SLOT_VARIABLE, raising=False)
+    return project.target(tmp_path, monkeypatch)
+
+
+def _machine_document(home: Path) -> str:
+    """`~/.claude.json`, which is the file ADR 0024 is about."""
+    return (home / ".claude.json").read_text(encoding="utf-8")
+
+
+def test_the_machine_scope_asks_for_the_secret_and_writes_the_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The property the ticket buys: one run, and the configuration is complete.
+
+    And the one the prompt must not cost: the value goes into the file and
+    **never** into the output, which is scrollback, a screen share and a CI log.
+    """
+    # given
+    _slotted(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    _accepting(monkeypatch)
+    spy = _asking_secrets(monkeypatch)
+
+    code, output = project.run(
+        capsys, "install", "--mcp", "panel", "--runtime", "claude-code", "--global"
+    )
+
+    written = _machine_document(tmp_path)
+    assert code == 0
+    assert spy.names == [project.SLOT_VARIABLE]
+    assert f'"{project.SLOT_VARIABLE}": "{TYPED}"' in written
+    assert f"${{{project.SLOT_VARIABLE}}}" not in written
+    assert TYPED not in project.joined(output)
+
+
+def test_the_project_scope_asks_nothing_and_keeps_the_reference(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The file goes to the git, so there is no question a terminal could make safe."""
+    # given
+    root = _slotted(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    _accepting(monkeypatch)
+    spy = _asking_secrets(monkeypatch)
+
+    code, _ = project.run(capsys, "install", "--mcp", "panel", "--runtime", "claude-code")
+
+    written = (root / ".mcp.json").read_text(encoding="utf-8")
+    assert code == 0
+    assert spy.asked == []
+    assert f"${{{project.SLOT_VARIABLE}}}" in written
+
+
+def test_the_vault_target_is_never_asked_about(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """VS Code asks for itself into the OS keychain, so a second question is one too many."""
+    # given
+    _slotted(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    _accepting(monkeypatch)
+    spy = _asking_secrets(monkeypatch)
+
+    code, _ = project.run(capsys, "install", "--mcp", "panel", "--runtime", "vscode", "--global")
+
+    assert code == 0
+    assert spy.asked == []
+
+
+def test_without_a_terminal_the_reference_is_written_and_the_warning_stands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The fallback is today's behaviour, reached by the same predicate as the confirmation."""
+    # given
+    _slotted(tmp_path, monkeypatch)
+    spy = _asking_secrets(monkeypatch)
+
+    code, output = project.run(
+        capsys, "install", "--mcp", "panel", "--runtime", "claude-code", "--global"
+    )
+
+    assert code == 0
+    assert spy.asked == []
+    assert f"${{{project.SLOT_VARIABLE}}}" in _machine_document(tmp_path)
+    assert "not set here" in project.joined(output)
+
+
+def test_yes_skips_the_question_the_way_it_skips_the_confirmation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """`--yes` exists for a script, and a prompt in a script is a hung process."""
+    # given
+    _slotted(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    spy = _asking_secrets(monkeypatch)
+
+    code, _ = project.run(
+        capsys, "install", "--mcp", "panel", "--runtime", "claude-code", "--global", "--yes"
+    )
+
+    assert code == 0
+    assert spy.asked == []
+    assert f"${{{project.SLOT_VARIABLE}}}" in _machine_document(tmp_path)
+
+
+def test_an_empty_answer_writes_the_reference_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """How a secret leaves the file without the product growing a verb for it (ADR 0025)."""
+    # given
+    _slotted(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    _accepting(monkeypatch)
+    spy = _asking_secrets(monkeypatch, answer="")
+
+    code, _ = project.run(
+        capsys, "install", "--mcp", "panel", "--runtime", "claude-code", "--global"
+    )
+
+    assert code == 0
+    assert spy.names == [project.SLOT_VARIABLE]
+    assert f"${{{project.SLOT_VARIABLE}}}" in _machine_document(tmp_path)
+
+
+def test_a_value_already_written_is_kept_and_not_asked_for_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """Kept has to mean **re-written**: the graft replaces the whole server key.
+
+    A second `install` of an unchanged line that only stopped asking would put
+    the reference back over the value — the secret gone at exit 0, which is the
+    class of defect this product exists not to commit.
+    """
+    # given
+    _slotted(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    _accepting(monkeypatch)
+    _asking_secrets(monkeypatch)
+    project.run(capsys, "install", "--mcp", "panel", "--runtime", "claude-code", "--global")
+    again = _asking_secrets(monkeypatch, answer="never-typed")
+
+    code, _ = project.run(
+        capsys, "install", "--mcp", "panel", "--runtime", "claude-code", "--global"
+    )
+
+    written = _machine_document(tmp_path)
+    assert code == 0
+    assert again.asked == []
+    assert f'"{project.SLOT_VARIABLE}": "{TYPED}"' in written
+
+
+def test_force_reopens_the_question(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """`--force` already means *overwrite what is there*, and a stored value is what is there."""
+    # given
+    _slotted(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    monkeypatch.setattr(cli, "_confirmed_overwrite", _overwriting)
+    _accepting(monkeypatch)
+    _asking_secrets(monkeypatch)
+    project.run(capsys, "install", "--mcp", "panel", "--runtime", "claude-code", "--global")
+    again = _asking_secrets(monkeypatch, answer="pt_live_rotated")
+
+    code, _ = project.run(
+        capsys, "install", "--mcp", "panel", "--runtime", "claude-code", "--global", "--force"
+    )
+
+    written = _machine_document(tmp_path)
+    assert code == 0
+    assert again.names == [project.SLOT_VARIABLE]
+    assert f'"{project.SLOT_VARIABLE}": "pt_live_rotated"' in written
+
+
+def test_the_exported_variable_is_offered_as_the_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """Offered, never echoed — the prompt that carries it is a password prompt."""
+    # given
+    _slotted(tmp_path, monkeypatch)
+    monkeypatch.setenv(project.SLOT_VARIABLE, "pt_from_the_shell")
+    project.terminal(monkeypatch)
+    _accepting(monkeypatch)
+    spy = _asking_secrets(monkeypatch)
+
+    code, output = project.run(
+        capsys, "install", "--mcp", "panel", "--runtime", "claude-code", "--global"
+    )
+
+    assert code == 0
+    assert spy.asked == [(project.SLOT_VARIABLE, "pt_from_the_shell")]
+    assert "pt_from_the_shell" not in project.joined(output)
+
+
+def test_the_warning_goes_quiet_once_the_value_is_in_the_document(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """*"Yours to export"* is false the moment the value is spelled out in the file."""
+    # given
+    _slotted(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    _accepting(monkeypatch)
+    _asking_secrets(monkeypatch)
+
+    code, output = project.run(
+        capsys, "install", "--mcp", "panel", "--runtime", "claude-code", "--global"
+    )
+
+    assert code == 0
+    assert "not set here" not in project.joined(output)
+
+
+def test_the_dry_run_announces_the_secret_it_would_ask_for_and_asks_for_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """A report, never a session — and a report that omitted the question would describe
+    a different run from the one it is about."""
+    # given
+    _slotted(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    spy = _asking_secrets(monkeypatch)
+
+    code, output = project.run(
+        capsys, "install", "--mcp", "panel", "--runtime", "claude-code", "--global", "--dry-run"
+    )
+
+    joined = project.joined(output)
+    assert code == 0
+    assert spy.asked == []
+    assert "1 secret" in joined
+    assert project.SLOT_VARIABLE in joined
+    assert not (tmp_path / ".claude.json").exists()
+
+
+def test_the_doctor_reads_the_document_and_never_prints_what_is_in_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The last surface the value could escape through, and it closes by construction.
+
+    `UnsetSlot` looks for a `${VAR}` in the document and checks it against the
+    environment. Where the value is literal there is no `${VAR}`, so the check
+    does not fire — and what `doctor` may say is that the key is there, never
+    what it holds.
+    """
+    # given
+    _slotted(tmp_path, monkeypatch)
+    project.terminal(monkeypatch)
+    _accepting(monkeypatch)
+    _asking_secrets(monkeypatch)
+    project.run(capsys, "install", "--mcp", "panel", "--runtime", "claude-code", "--global")
+
+    code, output = project.run(capsys, "doctor")
+
+    joined = project.joined(output)
+    assert code == 0
+    assert TYPED in _machine_document(tmp_path), "the value really is in the file it read"
+    assert TYPED not in joined
+    assert project.SLOT_VARIABLE not in joined
+
+
+def test_a_piped_dry_run_still_reports_the_secret_it_would_cost(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """A report is read piped by construction, so the pipe must not blank the count.
+
+    The wording carries the condition — *in a terminal* — so the line is true
+    read from a file, and `--yes` is what silences it, because that flag travels
+    into the real run and a pipe does not.
+    """
+    # given
+    _slotted(tmp_path, monkeypatch)
+
+    code, output = project.run(
+        capsys, "install", "--mcp", "panel", "--runtime", "claude-code", "--global", "--dry-run"
+    )
+
+    joined = project.joined(output)
+    assert code == 0
+    assert "1 secret" in joined
+    assert project.SLOT_VARIABLE in joined
+
+
+def test_a_dry_run_that_carries_yes_announces_no_question(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """`--yes` reaches the real run, and the real run asks nothing — so neither does the report."""
+    # given
+    _slotted(tmp_path, monkeypatch)
+
+    code, output = project.run(
+        capsys,
+        "install",
+        "--mcp",
+        "panel",
+        "--runtime",
+        "claude-code",
+        "--global",
+        "--dry-run",
+        "--yes",
+    )
+
+    assert code == 0
+    assert "will be asked for" not in project.joined(output)
+
+
+def _seen_password(monkeypatch: pytest.MonkeyPatch, answer: object) -> dict[str, object]:
+    """Stand in for `questionary.password` and keep the call it was made with.
+
+    The prompt object is never constructed — building a real one does not run on
+    the Windows cells (#57) — so what a test can assert is the call, which is
+    where the choice of prompt lives.
+    """
+    seen: dict[str, object] = {}
+
+    def password(message: str, **kwargs: object) -> _Interrupted:
+        seen["message"] = message
+        seen.update(kwargs)
+        return _Interrupted(answer)
+
+    monkeypatch.setattr(questionary, "password", password)
+    return seen
+
+
+def test_the_prompt_that_carries_the_secret_is_a_masked_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`password` and not `text`, which is what keeps the keystrokes out of scrollback.
+
+    Asserted against the seam every other test in this block stubs, because
+    *which `questionary` prompt is put up* is the one part of the promise that
+    the document coming out cannot show.
+    """
+    seen = _seen_password(monkeypatch, "typed-by-a-person")
+
+    answered = cli._answered_secret("PANEL_TOKEN", "from-the-shell")  # pyright: ignore[reportPrivateUsage]
+
+    assert answered == "typed-by-a-person"
+    assert seen["default"] == "from-the-shell", "the exported variable is offered"
+    assert "PANEL_TOKEN" in str(seen["message"])
+
+
+def test_an_interrupted_prompt_answers_nothing_and_offers_an_empty_buffer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`ask()` answers `None` on Ctrl-C, which is the same gesture as answering nothing."""
+    seen = _seen_password(monkeypatch, None)
+
+    answered = cli._answered_secret("PANEL_TOKEN", None)  # pyright: ignore[reportPrivateUsage]
+
+    assert answered == ""
+    assert seen["default"] == "", "no variable exported is an empty buffer, never a `None`"
+
+
+class _Interrupted:
+    """A `questionary` `Question` stand-in: `.ask()` and nothing else."""
+
+    def __init__(self, value: object) -> None:
+        self._value = value
+
+    def ask(self) -> object:
+        return self._value

@@ -643,7 +643,7 @@ def test_the_embedded_recipes_exercise_the_matrix_they_were_chosen_for() -> None
     """The rule the first cut of recipes was chosen by, not the recipes themselves.
 
     Both transports, a secret in the environment, a secret in a header, a recipe
-    with **no** secret at all, and a literal `[server.env]` beside a slot: each is
+    with **no** secret at all, and a literal `server.env` beside a slot: each is
     a branch of the renderer that an embedded recipe reaches, so a target added
     later cannot pass its own tests while leaving a hole in the shipped catalog.
 
@@ -677,7 +677,7 @@ def test_every_embedded_stdio_recipe_declares_the_command_that_launches_it() -> 
     A recipe launched as a process needs that process to exist, and a machine
     without it is not an error the graft can see: the write succeeds, the exit is
     **0**, and the failure surfaces much later as an obscure error from the agent
-    — which is precisely the *"descobrir depois"* that `[[preconditions]]` was
+    — which is precisely the *"descobrir depois"* that `preconditions:` was
     born to end. What reproved was never *requiring* tooling; it was requiring it
     **without declaring it** (`docs/agents/domain.md`).
 
@@ -717,7 +717,7 @@ def test_every_embedded_recipe_renders_for_every_dialect_carrying_no_shell_defau
 
     Nothing rendered an embedded recipe before this. `test_rendering.py` is built
     on values it writes inline — correctly, because the renderer is a pure
-    function — so the **literal** path of `[server.env]` was reachable only by
+    function — so the **literal** path of `server.env` was reachable only by
     the recipes nobody exercised, and editing `coolify.toml` to spell its address
     `${COOLIFY_BASE_URL:-https://…}` went in green.
 

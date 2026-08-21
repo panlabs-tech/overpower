@@ -1,5 +1,7 @@
 # Receita com fonte é configuração de máquina
 
+> **Substituída pela [ADR 0023](0023-a-fonte-e-endereco-nao-clone.md) em 2026-08-21**, pelo gatilho que esta ADR declarou na última linha: o clone deixou de existir, e as receitas passaram a declarar endereço que o próprio ferramental resolve. O escopo deixou de ser função da receita.
+
 Uma receita de MCP que declara `[source]` — e portanto clona código para `~/.overpower/mcp/<slug>/` — **só aterrissa em escopo de máquina**. Pedir escopo de projeto é **exit 3**, comando inteiro recusado antes de qualquer escrita.
 
 Decidido na sessão de grilling que produziu a spec de MCP.

@@ -21,7 +21,6 @@ from overpower.planning import (
     DocumentKey,
     Plan,
     Request,
-    Write,
     WriteMode,
     askable_slots,
     plan_for,
@@ -688,38 +687,28 @@ def test_a_skill_naming_other_skills_in_its_text_writes_only_itself(
 
 
 # --------------------------------------------------------------------------- #
-# `source:`: the clone is a second write of the same selection (#84)
+# `source:`: an address the runner resolves, costing no second write (ADR 0023)
 # --------------------------------------------------------------------------- #
 
 SOURCED = """\
 description: "A server with code of its own."
-transport: "stdio"
 
 source:
-  url: "https://github.com/example/homegrown-mcp"
-
-server:
-  command: "uv"
-  args:
-    - "run"
-    - "--project"
-    - "{source}"
-    - "server.py"
+  git: "https://github.com/example/homegrown-mcp"
+  ref: "v0.3.1"
+  runner: "uvx"
+  entrypoint: "homegrown-mcp"
 """
 
 
-def test_a_sourced_recipe_costs_a_clone_landing_alongside_its_graft(
+def test_a_sourced_recipe_costs_one_landing_and_no_clone(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Issue #84: the clone is a second write of the selection, never a side effect."""
+    """ADR 0023: the address renders a command its own runner resolves — no clone landing."""
     # given
     content = catalog_of(tmp_path, monkeypatch)
     custom_recipe(tmp_path, "homegrown", SOURCED)
     root = target(tmp_path, monkeypatch)
-    cloned = tmp_path / "scratch" / "homegrown"
-    (cloned / "pkg").mkdir(parents=True)
-    (cloned / "pkg" / "server.py").write_text("x", encoding="utf-8")
-    (cloned / "readme.md").write_text("x", encoding="utf-8")
     catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
 
     plan = plan_for(
@@ -727,42 +716,41 @@ def test_a_sourced_recipe_costs_a_clone_landing_alongside_its_graft(
         catalog,
         root,
         Environment.from_process(),
-        sources={"homegrown": cloned},
     )
 
     (selection,) = plan.selections
-    clone_landing, graft_landing = selection.landings
-    destination = root / ".overpower" / "mcp" / "homegrown"
-    assert clone_landing.place == destination
-    assert clone_landing.readers == graft_landing.readers
-    assert clone_landing.files == 2
-    assert clone_landing.writes == (
-        Write(source=cloned, destination=DirectoryTree(destination), mode=WriteMode.CLONE, files=2),
-    )
-    (write,) = graft_landing.writes
+    (landing,) = selection.landings
+    (write,) = landing.writes
     assert isinstance(write.source, Fragment)
-    assert write.source.value["args"] == ["run", "--project", str(destination), "server.py"]
+    assert write.source.value["command"] == "uvx"
+    assert write.source.value["args"] == [
+        "--from",
+        "git+https://github.com/example/homegrown-mcp@v0.3.1",
+        "homegrown-mcp",
+    ]
 
 
-def test_a_recipe_with_no_source_costs_no_clone_landing(
+def test_a_sourced_recipe_installs_in_project_scope_too(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The ordinary case, unaffected: no `source:`, one landing, exactly as before."""
+    """ADR 0023: no clone means no absolute machine path — the scope is open again."""
     # given
-    content = catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": "https://mcp.example.com/mcp"})
+    content = catalog_of(tmp_path, monkeypatch)
+    custom_recipe(tmp_path, "homegrown", SOURCED)
     root = target(tmp_path, monkeypatch)
     catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
 
     plan = plan_for(
-        Request(mcps=("cloudflare",), runtimes=("claude-code",), scope=Scope.PROJECT),
+        Request(mcps=("homegrown",), runtimes=("claude-code",), scope=Scope.PROJECT),
         catalog,
         root,
         Environment.from_process(),
     )
 
     (selection,) = plan.selections
-    assert len(selection.landings) == 1
-    assert all(write.mode is not WriteMode.CLONE for write in selection.landings[0].writes)
+    (write,) = selection.landings[0].writes
+    assert isinstance(write.source, Fragment)
+    assert str(root) not in str(write.source.value)
 
 
 # --------------------------------------------------------------------------- #

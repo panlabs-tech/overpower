@@ -6,7 +6,7 @@ Sibling of `overpower.discovery` with the roots swapped. Discovery walks the
 and whether it still works.
 
 `doctor` answers two questions in one output — *how is the terminal*, and *how is
-what was installed* — and the second half is why it exists at all: seven named
+what was installed* — and the second half is why it exists at all: six named
 holes that nothing else in the product closes.
 
 **`core.symlinks=false` breaking links.** The exact point where axiom 2 does not
@@ -34,22 +34,24 @@ it is gone: it reads the registry Claude Code itself writes to
 `.claude/settings.local.json` once a human passes the trust dialog, and answers
 **exit 3** where the write-time warning could only answer exit 0.
 
-Two neighbours of that same graft axis are **informative, and never fail the
-gate**: a `source:` clone the machine no longer has (`overpower.remote`,
-ADR 0015) still named by a config, and a slot the recipe reads out of the
-process environment that this one does not carry. Both are read back off the
-document exactly as the approval check is — `doctor` has no `Plan` to ask —
-and both are exit **0** for the reason `overpower.cli._warn_about_unset_slots`
-already is: the file is correct, and what is missing is the user's to fix on
-their own clock. They travel on `Diagnosis.notices` and never on `.findings`,
-which is the line this module drew the day the first one that could not fail
-the gate arrived.
+**The runner a `source:` recipe needs, gone from this machine.** ADR 0023:
+nothing is cloned any more, so the one precondition an installed server has
+left to lose is its own launcher — `uvx` or `npx`, still on `PATH`. Read back
+off the rendered command exactly the way the approval check reads the
+registry: `doctor` has no `Plan` and opens no catalog, so it recognises the
+shape its own renderer produces — a runner as `command`, a `git+` address
+among the `args` — rather than asking a recipe it cannot see. Offline, on
+purpose: ADR 0023 measured the alternative and refused it — verifying the
+`ref` still resolves would turn an offline command into a network client to
+catch what the runner itself already reports, loud, on its first real run.
 
-**A clone nothing points at any more.** The mirror of the missing-clone check:
-a directory under `~/.overpower/mcp/` that drifted out of every config this
-target carries. Also a notice, and also never acted on — **nothing here is ever
-removed**, because a directory named once by a config and orphaned by an edit a
-human made on purpose is not this product's mistake to correct.
+One neighbour of that same graft axis is **informative, and never fails the
+gate**: a slot the recipe reads out of the process environment that this one
+does not carry. Read back off the document exactly as the approval check is —
+`doctor` has no `Plan` to ask — and exit **0** for the reason
+`overpower.cli._warn_about_unset_slots` already is: the file is correct, and
+what is missing is the user's to fix on their own clock. It travels on
+`Diagnosis.notices` and never on `.findings`.
 
 **There is no manifest to read.** Axiom 2 forbids state in the target, so the
 question *"where could equipment be"* has exactly one answer: the closed runtime
@@ -91,6 +93,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, assert_never, cast
@@ -245,15 +248,15 @@ class PendingApproval:
 
 
 @dataclass(frozen=True)
-class MissingClone:
-    """A graft still naming a `source:` clone that is no longer on the machine."""
+class MissingRunner:
+    """A graft rendered from a `source:` recipe whose runner is no longer on `PATH`."""
 
     destination: DocumentKey
     name: str
-    clone: Path
+    runner: str
 
 
-Finding = DanglingLink | LinkTurnedText | Divergence | PendingApproval | MissingClone
+Finding = DanglingLink | LinkTurnedText | Divergence | PendingApproval | MissingRunner
 """Everything the `doctor` can say is wrong. Empty means exit 0."""
 
 
@@ -266,14 +269,7 @@ class UnsetSlot:
     variable: str
 
 
-@dataclass(frozen=True)
-class OrphanClone:
-    """A clone under the machine's `.overpower/mcp/` that no graft refers to any more."""
-
-    path: Path
-
-
-Notice = UnsetSlot | OrphanClone
+Notice = UnsetSlot
 """Everything the `doctor` can say without failing the gate over it. Never emptied
 into `.findings` — see the module docstring for why the two are kept apart."""
 
@@ -372,12 +368,9 @@ def diagnose(terminal: Terminal, root: Path | None, environment: Environment) ->
         *(() if root is None else _links_turned_text(root, landed, environment)),
         *_divergences(landed),
         *(() if root is None else _pending_approvals(places, root)),
-        *_missing_clones(places, environment),
+        *_missing_runners(places, environment),
     )
-    notices: tuple[Notice, ...] = (
-        *_unset_slots(places, environment),
-        *_orphan_clones(places, environment),
-    )
+    notices: tuple[Notice, ...] = (*_unset_slots(places, environment),)
     return Diagnosis(
         terminal=terminal,
         root=root,
@@ -867,63 +860,47 @@ def _pending_approvals(
         yield PendingApproval(destination=_document_key(place, name), name=name)
 
 
-_CLONE_DIR = (".overpower", "mcp")
-"""Where a `source:` recipe's clone lands under the machine root.
-
-The same two segments `overpower.planning._SOURCE_DIR` and
-`overpower.remote._LEGACY_MCP_DIR` each already name for their own question — a
-third copy here rather than a shared import, for the reason those two are
-already two and not one: this module asks *"is the clone still there"*, which
-is a question neither of the others answers.
-"""
+_RUNNERS = frozenset({"uvx", "npx"})
+"""The same closed set `overpower.recipes.Runner` names, read back rather than
+imported: this module asks *"is the command a graft rendered still on PATH"*,
+never *"what does the schema declare"*, and a recipe-schema import into a
+module that opens no catalog is a coupling this doctrine has already refused
+once (`_CLONE_DIR`'s three-copy precedent, before ADR 0023 removed it)."""
 
 
-def _clone_root(environment: Environment) -> Path:
-    """`~/.overpower/mcp`, where every `source:` clone lands."""
-    return environment.home.joinpath(*_CLONE_DIR)
+def _sourced(config: object) -> bool:
+    """Whether `config` is the shape `overpower.recipes` derives for a `source:` recipe.
 
-
-def _clone_slug(text: str, clone_root: Path) -> str | None:
-    """The clone directory name `text` names under `clone_root`, or `None`.
-
-    `text` is a whole rendered value — a command, an argument, a URL — never a
-    fragment to search inside: `overpower.rendering._resolved` only ever
-    substitutes `{source}` as the **entire** value of the field that carries it,
-    so a value that names a clone at all names it whole.
+    Matched by the render itself and not by a catalog lookup — `doctor` has
+    none — so the signal is `command` naming a runner **and** an argument
+    starting with `git+`, exactly what `_sourced_command` writes and nothing a
+    hand-declared `command: "uvx"` recipe (a published package, not a source)
+    ever carries alongside it.
     """
-    try:
-        candidate = Path(text)
-    except ValueError:  # pragma: no cover — a string no platform accepts as a path
-        return None
-    if not candidate.is_absolute() or not candidate.is_relative_to(clone_root):
-        return None
-    parts = candidate.relative_to(clone_root).parts
-    return parts[0] if parts else None
+    if not isinstance(config, dict):
+        return False
+    args = cast("dict[str, object]", config).get("args")
+    return isinstance(args, list) and any(
+        isinstance(item, str) and item.startswith("git+") for item in cast("list[object]", args)
+    )
 
 
-def _clone_slugs_in(config: object, clone_root: Path) -> Iterator[str]:
-    """Every clone directory name `config` names, read out of its string leaves."""
-    for text in _strings_in(config):
-        slug = _clone_slug(text, clone_root)
-        if slug is not None:
-            yield slug
-
-
-def _missing_clones(
+def _missing_runners(
     places: Iterable[tuple[Scope, McpPlace]], environment: Environment
-) -> Iterator[MissingClone]:
-    """Every graft still naming a `source:` clone that is no longer on the machine.
+) -> Iterator[MissingRunner]:
+    """Every graft whose `source:` runner is no longer on `PATH` — offline, always.
 
-    A clone only ever lands in machine scope (ADR 0015), but every place is
-    read regardless: what proves the finding is the clone's own path being
-    gone, never the scope the document happens to sit in.
+    The re-run of the one precondition ADR 0023 leaves an installed server to
+    lose: no clone to go missing any more, only its own launcher.
     """
-    clone_root = _clone_root(environment)
     for _scope, place, name, config in _servers_of(places):
-        for slug in sorted(set(_clone_slugs_in(config, clone_root))):
-            clone = clone_root / slug
-            if not clone.exists():
-                yield MissingClone(destination=_document_key(place, name), name=name, clone=clone)
+        if not _sourced(config):
+            continue
+        command = cast("dict[str, object]", config).get("command")
+        if not isinstance(command, str) or command not in _RUNNERS:
+            continue
+        if shutil.which(command, path=environment.variables.get("PATH")) is None:
+            yield MissingRunner(destination=_document_key(place, name), name=name, runner=command)
 
 
 _CLAUDE_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -976,25 +953,3 @@ def _unset_slots(
                 yield UnsetSlot(
                     destination=_document_key(place, name), name=name, variable=variable
                 )
-
-
-def _orphan_clones(
-    places: Iterable[tuple[Scope, McpPlace]], environment: Environment
-) -> Iterator[OrphanClone]:
-    """Every clone under the machine root that no graft refers to any more.
-
-    Never removed — the issue this check answers is explicit about it, and so
-    is the shape here: this only reads `~/.overpower/mcp/` and the documents,
-    and writes nothing.
-    """
-    clone_root = _clone_root(environment)
-    if not clone_root.is_dir():
-        return
-    referenced = {
-        slug
-        for _scope, _place, _name, config in _servers_of(places)
-        for slug in _clone_slugs_in(config, clone_root)
-    }
-    for child in sorted(clone_root.iterdir(), key=lambda path: path.name):
-        if child.is_dir() and child.name not in referenced:
-            yield OrphanClone(path=child)

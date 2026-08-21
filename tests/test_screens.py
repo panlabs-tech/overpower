@@ -63,6 +63,8 @@ from overpower.recipes import (
     HttpServer,
     Precondition,
     Recipe,
+    Runner,
+    Source,
     StdioServer,
     role_of,
 )
@@ -1411,6 +1413,27 @@ def test_the_mcp_screen_names_the_transport_and_the_url_of_an_http_recipe(width:
 
     assert "cloudflare http" in rendered
     assert "url https://mcp.cloudflare.com/mcp" in rendered
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_mcp_screen_names_the_source_and_ref_of_a_sourced_recipe(width: int) -> None:
+    """ADR 0023: `list --from` reads where the code comes from, not the implied transport.
+
+    A `source:` recipe only ever renders stdio (`overpower.recipes._transport`),
+    so the head line answers with the one fact the transport could not: where
+    this server's code comes from, and at which ref.
+    """
+    recipe = Recipe(
+        name="homegrown",
+        path=Path("homegrown.toml"),
+        description="A server with code of its own.",
+        server=StdioServer(command="uvx", args=("--from", "git+https://x/y@v1", "homegrown")),
+        source=Source(git="https://x/y", ref="v1", runner=Runner.UVX, entrypoint="homegrown"),
+    )
+
+    rendered = rows(render(mcp_screen(recipe, targets_of(recipe)), width))
+
+    assert "homegrown https://x/y@v1" in rendered
 
 
 @pytest.mark.parametrize("width", WIDTH_CASES)

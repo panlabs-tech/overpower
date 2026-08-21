@@ -28,7 +28,9 @@ from overpower.recipes import (
     BearerSlot,
     Check,
     CollidingSlotError,
+    DerivedFieldDeclaredError,
     EnvSlot,
+    ForbiddenRunnerError,
     ForbiddenTransportError,
     HeaderSlot,
     HttpServer,
@@ -36,7 +38,8 @@ from overpower.recipes import (
     MismatchedSlotRoleError,
     Precondition,
     Role,
-    SourcelessSubstitutionError,
+    Runner,
+    Source,
     StdioServer,
     Transport,
     UnknownPreconditionCheckError,
@@ -212,46 +215,30 @@ def test_a_field_the_declared_transport_has_no_reader_for_is_refused(tmp_path: P
     assert refused.value.key == "mcp.mixed.server.url"
 
 
-def test_the_source_token_with_no_source_to_resolve_it_is_refused_by_name(tmp_path: Path) -> None:
-    """Written through literally, the server launches against a directory called `{source}`."""
-    path = write_recipe(
-        tmp_path,
-        "homegrown",
-        'description: "x"\ntransport: "stdio"\n\nserver:\n  command: "uv"\n'
-        '  args: ["run", "--project", "{source}", "server.py"]\n',
-    )
-
-    with pytest.raises(SourcelessSubstitutionError) as refused:
-        read_recipe(path)
-
-    assert refused.value.key == "mcp.homegrown.server.args"
-
-
 # --------------------------------------------------------------------------- #
-# source: code the recipe brings, cloned to the machine
+# source: an address the tooling resolves on its own — nothing is cloned
 # --------------------------------------------------------------------------- #
 
 SOURCED = """\
 description: "A server built from its own repository."
-transport: "stdio"
 
 source:
-  url: "https://github.com/example/homegrown-mcp"
-
-server:
-  command: "uv"
-  args:
-    - "run"
-    - "--project"
-    - "{source}"
-    - "server.py"
+  git: "https://github.com/example/homegrown-mcp"
+  ref: "v0.3.1"
+  runner: "uvx"
+  entrypoint: "homegrown-mcp"
 """
 
 
-def test_a_source_field_is_read_as_the_url_to_clone(tmp_path: Path) -> None:
+def test_a_source_field_is_read_as_the_address_to_resolve(tmp_path: Path) -> None:
     recipe = read_recipe(write_recipe(tmp_path, "homegrown", SOURCED))
 
-    assert recipe.source == "https://github.com/example/homegrown-mcp"
+    assert recipe.source == Source(
+        git="https://github.com/example/homegrown-mcp",
+        ref="v0.3.1",
+        runner=Runner.UVX,
+        entrypoint="homegrown-mcp",
+    )
 
 
 def test_a_recipe_with_no_source_carries_none(tmp_path: Path) -> None:
@@ -260,17 +247,53 @@ def test_a_recipe_with_no_source_carries_none(tmp_path: Path) -> None:
     assert recipe.source is None
 
 
-def test_the_source_token_with_a_source_to_resolve_it_is_admitted(tmp_path: Path) -> None:
-    """This reader only admits the token — it never substitutes it.
+def test_a_sourced_recipe_is_stdio_derived_never_declared(tmp_path: Path) -> None:
+    """`transport:` is not read for a sourced recipe — `source.runner` already fixes it."""
+    recipe = read_recipe(write_recipe(tmp_path, "homegrown", SOURCED))
 
-    Resolving `{source}` into the clone's absolute path is
-    `overpower.rendering.render`'s job, once (type, runtime, scope) are known;
-    this module's whole concern is whether the token is even legal here.
-    """
+    assert recipe.transport is Transport.STDIO
+
+
+def test_a_uvx_source_derives_the_from_git_command(tmp_path: Path) -> None:
+    """`uvx --from git+<url>@<ref> <entrypoint>` — measured in ADR 0023."""
     recipe = read_recipe(write_recipe(tmp_path, "homegrown", SOURCED))
 
     assert recipe.server == StdioServer(
-        command="uv", args=("run", "--project", "{source}", "server.py")
+        command="uvx",
+        args=("--from", "git+https://github.com/example/homegrown-mcp@v0.3.1", "homegrown-mcp"),
+    )
+
+
+def test_an_npx_source_derives_the_package_command(tmp_path: Path) -> None:
+    """`npx --yes --package git+<url>#<ref> <entrypoint>` — the other half of the table."""
+    recipe = read_recipe(
+        write_recipe(tmp_path, "homegrown", SOURCED.replace('runner: "uvx"', 'runner: "npx"'))
+    )
+
+    assert recipe.server == StdioServer(
+        command="npx",
+        args=(
+            "--yes",
+            "--package",
+            "git+https://github.com/example/homegrown-mcp#v0.3.1",
+            "homegrown-mcp",
+        ),
+    )
+
+
+def test_a_sourced_recipes_declared_args_are_appended_at_the_end(tmp_path: Path) -> None:
+    recipe = read_recipe(
+        write_recipe(tmp_path, "homegrown", f'{SOURCED}\n\nserver:\n  args: ["--verbose"]\n')
+    )
+
+    assert recipe.server == StdioServer(
+        command="uvx",
+        args=(
+            "--from",
+            "git+https://github.com/example/homegrown-mcp@v0.3.1",
+            "homegrown-mcp",
+            "--verbose",
+        ),
     )
 
 
@@ -278,12 +301,30 @@ def test_the_source_token_with_a_source_to_resolve_it_is_admitted(tmp_path: Path
     ("source", "key"),
     [
         pytest.param("", "mcp.homegrown.source", id="nothing-under-it"),
-        pytest.param('  url: ""\n', "mcp.homegrown.source.url", id="empty-url"),
-        pytest.param('  subdir: "."\n', "mcp.homegrown.source.subdir", id="unknown-field"),
+        pytest.param(
+            '  git: "https://github.com/x/y"\n  runner: "uvx"\n  entrypoint: "y"\n',
+            "mcp.homegrown.source.ref",
+            id="ref-absent",
+        ),
+        pytest.param(
+            '  ref: "v1"\n  runner: "uvx"\n  entrypoint: "y"\n',
+            "mcp.homegrown.source.git",
+            id="git-absent",
+        ),
+        pytest.param(
+            '  git: "https://github.com/x/y"\n  ref: "v1"\n  entrypoint: "y"\n',
+            "mcp.homegrown.source.runner",
+            id="runner-absent",
+        ),
+        pytest.param(
+            '  git: "https://github.com/x/y"\n  ref: "v1"\n  runner: "uvx"\n',
+            "mcp.homegrown.source.entrypoint",
+            id="entrypoint-absent",
+        ),
     ],
 )
 def test_a_malformed_source_names_the_field(tmp_path: Path, source: str, key: str) -> None:
-    """`source:` with nothing under it is the row the format made sayable.
+    """`source:` with a field missing is the row the format made sayable.
 
     YAML answers `None` where TOML could only spell an empty table, so a
     declaration somebody started and did not finish is now visible — and it is
@@ -291,10 +332,24 @@ def test_a_malformed_source_names_the_field(tmp_path: Path, source: str, key: st
     """
     path = write_recipe(tmp_path, "homegrown", f"{HTTP}\nsource:\n{source}")
 
-    with pytest.raises((MalformedRecipeError, UnknownRecipeFieldError)) as refused:
+    with pytest.raises(MalformedRecipeError) as refused:
         read_recipe(path)
 
     assert refused.value.key == key
+
+
+def test_an_unknown_source_field_is_refused_by_name(tmp_path: Path) -> None:
+    path = write_recipe(
+        tmp_path,
+        "homegrown",
+        f'{HTTP}\nsource:\n  git: "x"\n  ref: "v1"\n  runner: "uvx"\n'
+        '  entrypoint: "y"\n  subdir: "."\n',
+    )
+
+    with pytest.raises(UnknownRecipeFieldError) as refused:
+        read_recipe(path)
+
+    assert refused.value.key == "mcp.homegrown.source.subdir"
 
 
 def test_a_source_that_is_not_a_table_is_refused_naming_the_field(tmp_path: Path) -> None:
@@ -308,6 +363,65 @@ def test_a_source_that_is_not_a_table_is_refused_naming_the_field(tmp_path: Path
         read_recipe(path)
 
     assert refused.value.key == "mcp.homegrown.source"
+
+
+def test_a_runner_outside_the_closed_set_is_refused_naming_it(tmp_path: Path) -> None:
+    path = write_recipe(tmp_path, "homegrown", SOURCED.replace('runner: "uvx"', 'runner: "pipx"'))
+
+    with pytest.raises(ForbiddenRunnerError) as refused:
+        read_recipe(path)
+
+    assert refused.value.runner == "pipx"
+    assert refused.value.key == "mcp.homegrown.source.runner"
+    assert "npx, uvx" in str(refused.value).replace("uvx, npx", "npx, uvx")
+
+
+@pytest.mark.parametrize(
+    ("field", "key"),
+    [
+        pytest.param('transport: "stdio"\n', "mcp.homegrown.transport", id="transport"),
+        pytest.param(
+            "server:\n  command: uv\n", "mcp.homegrown.server.command", id="server-command"
+        ),
+    ],
+)
+def test_declaring_a_field_source_derives_is_refused_by_name(
+    tmp_path: Path, field: str, key: str
+) -> None:
+    """`transport` and `command` are the runner said twice — ADR 0023."""
+    path = write_recipe(tmp_path, "homegrown", f"{SOURCED}\n{field}")
+
+    with pytest.raises(DerivedFieldDeclaredError) as refused:
+        read_recipe(path)
+
+    assert refused.value.key == key
+
+
+def test_declaring_the_runners_own_precondition_is_refused_by_name(tmp_path: Path) -> None:
+    """`command_exists: uvx` beside `source.runner: uvx` is the runner said twice."""
+    path = write_recipe(
+        tmp_path,
+        "homegrown",
+        f'{SOURCED}\npreconditions:\n  - check: "command_exists"\n    value: "uvx"\n',
+    )
+
+    with pytest.raises(DerivedFieldDeclaredError) as refused:
+        read_recipe(path)
+
+    assert refused.value.key == "mcp.homegrown.preconditions[0].value"
+
+
+def test_a_different_precondition_beside_a_source_is_still_admitted(tmp_path: Path) -> None:
+    """Only the runner's own precondition is derived — every other check still declares."""
+    recipe = read_recipe(
+        write_recipe(
+            tmp_path,
+            "homegrown",
+            f'{SOURCED}\npreconditions:\n  - check: "env_set"\n    value: "GITHUB_TOKEN"\n',
+        )
+    )
+
+    assert recipe.preconditions == (Precondition(check=Check.ENV_SET, value="GITHUB_TOKEN"),)
 
 
 @pytest.mark.parametrize(

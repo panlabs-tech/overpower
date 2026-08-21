@@ -23,16 +23,12 @@ import subprocess
 import sys
 import tarfile
 import urllib.error
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
 from overpower import remote
-from overpower.discovery import Catalog
 from overpower.errors import BadInvocationError, OverpowerError, RefusedError
-from overpower.recipes import Recipe, StdioServer
-from overpower.runtimes import Scope
 from overpower.written import (
     MalformedWrittenCatalogError,
     UnreadableWrittenCatalogError,
@@ -43,6 +39,7 @@ from tests.support.gates import needs_network
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
+    from pathlib import Path
 
 ROOT_URL = "https://github.com/owner/repo"
 _TARBALL = "https://codeload.github.com/owner/repo/tar.gz/HEAD"
@@ -1112,139 +1109,6 @@ def test_a_federated_bundle_item_naming_an_undeclared_recipe_is_refused_naming_i
         pass  # unreachable: the search raises before the block is entered
 
     assert "ghost" in str(raised.value)
-
-
-# --------------------------------------------------------------------------- #
-# sources_for: the clone a `source:` recipe brings, obtained outside plan_for
-# --------------------------------------------------------------------------- #
-
-
-def _catalog_with(*recipes: Recipe) -> Catalog:
-    return Catalog(frameworks=(), pool=(), bundles=(), mcps=recipes)
-
-
-def _sourced(name: str, url: str) -> Recipe:
-    return Recipe(
-        name=name,
-        path=Path(".overpower.yaml"),
-        description="A server with code of its own.",
-        server=StdioServer(command="uv", args=("run", "server.py")),
-        source=url,
-    )
-
-
-def _plain(name: str) -> Recipe:
-    return Recipe(
-        name=name, path=Path(".overpower.yaml"), description="x", server=StdioServer(command="uv")
-    )
-
-
-def test_project_scope_obtains_nothing_at_all(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`overpower.planning` refuses a `source:` recipe outside global scope anyway.
-
-    The answer is already known from `scope` alone, so obtaining first would
-    cost a real `git fetch` for a line already certain to be refused.
-    """
-    called: list[str] = []
-
-    def fetch(url: str, ref: str, into: Path) -> Path:
-        called.append(url)
-        return git_remote.planting({})(url, ref, into)
-
-    monkeypatch.setattr(remote, "fetch_with_git", fetch)
-    catalog = _catalog_with(_sourced("thing", ROOT_URL))
-
-    with remote.sources_for(catalog, ["thing"], Scope.PROJECT) as sources:
-        assert dict(sources) == {}
-
-    assert called == []
-
-
-def test_a_recipe_with_no_source_is_never_obtained(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No `source:`, no network — the mapping simply carries nothing for it."""
-    called: list[str] = []
-
-    def fetch(url: str, ref: str, into: Path) -> Path:
-        called.append(url)
-        return git_remote.planting({})(url, ref, into)
-
-    monkeypatch.setattr(remote, "fetch_with_git", fetch)
-
-    with remote.sources_for(_catalog_with(_plain("plain")), ["plain"], Scope.GLOBAL) as sources:
-        assert dict(sources) == {}
-
-    assert called == []
-
-
-def test_a_sourced_recipe_is_cloned_and_keyed_by_its_name(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The clone the writer will later copy from — a real tree, real files."""
-    # given
-    local = git_remote.build(tmp_path / "origin", {"server.py": "print('hi')\n"})
-    monkeypatch.setattr(remote, "fetch_with_git", git_remote.instead_of_github(local))
-    catalog = _catalog_with(_sourced("thing", f"{ROOT_URL}/tree/{local.branch}"))
-
-    with remote.sources_for(catalog, ["thing"], Scope.GLOBAL) as sources:
-        assert set(sources) == {"thing"}
-        assert (sources["thing"] / "server.py").read_text(encoding="utf-8") == "print('hi')\n"
-
-
-def test_the_scratch_is_removed_after_sources_for(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No cache, and no leftovers — the same promise `catalog_from` makes."""
-    # given
-    scratches: list[Path] = []
-
-    def planting(url: str, ref: str, into: Path) -> Path:
-        scratches.append(into.parent)
-        return git_remote.planting({"server.py": "x"})(url, ref, into)
-
-    monkeypatch.setattr(remote, "fetch_with_git", planting)
-    catalog = _catalog_with(_sourced("thing", ROOT_URL))
-
-    with remote.sources_for(catalog, ["thing"], Scope.GLOBAL) as sources:
-        assert sources["thing"].is_dir()
-
-    assert scratches
-    assert not any(scratch.exists() for scratch in scratches)
-
-
-def test_the_scratch_is_removed_even_when_a_source_fails_to_obtain(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    scratches: list[Path] = []
-
-    def refusing(_url: str, _ref: str, into: Path) -> Path:
-        scratches.append(into.parent)
-        message = "could not read Username for 'https://github.com': terminal prompts disabled"
-        raise remote.ObtentionError(message)
-
-    monkeypatch.setattr(remote, "fetch_with_git", refusing)
-    monkeypatch.setattr(remote, "fetch_tarball", git_remote.refusing("the anonymous tarball, too"))
-
-    catalog = _catalog_with(_sourced("thing", ROOT_URL))
-    with pytest.raises(remote.ObtentionError), remote.sources_for(catalog, ["thing"], Scope.GLOBAL):
-        pass  # unreachable: obtain raises before the block is entered
-
-    assert scratches
-    assert not any(scratch.exists() for scratch in scratches)
-
-
-def test_reinstalling_obtains_a_fresh_clone_each_time(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """ADR 0015: re-cloned unconditionally, and this is the half with no cache to check."""
-    # given
-    local = git_remote.build(tmp_path / "origin", {"server.py": "print('hi')\n"})
-    monkeypatch.setattr(remote, "fetch_with_git", git_remote.instead_of_github(local))
-    catalog = _catalog_with(_sourced("thing", f"{ROOT_URL}/tree/{local.branch}"))
-
-    with remote.sources_for(catalog, ["thing"], Scope.GLOBAL) as first:
-        first_tree = first["thing"]
-    with remote.sources_for(catalog, ["thing"], Scope.GLOBAL) as second:
-        second_tree = second["thing"]
-
-    assert first_tree != second_tree
 
 
 # --------------------------------------------------------------------------- #

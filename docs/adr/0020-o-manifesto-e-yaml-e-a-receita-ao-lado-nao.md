@@ -1,5 +1,7 @@
 # O manifesto é YAML, e a receita ao lado dele não é
 
+> **Substituída pela [ADR 0021](0021-um-arquivo-um-formato.md) em 2026-08-21.** A premissa desta decisão — *"o manifesto tem dois campos"* — deixou de valer quando o servidor MCP entrou em `items` ([ADR 0022](0022-servidor-mcp-e-artefato.md)), e a limitação que ela registrou como conhecida (*"um bundle caseiro não pode nomear um MCP"*) foi o que a reabriu.
+
 Um repositório caseiro declara seus bundles em **`.overpower/catalog.yaml`**, com o **mesmo schema e o mesmo leitor** do arquivo escrito do embutido — que migra de `catalog.toml` para `catalog.yaml` no mesmo movimento. A receita de MCP, vizinha de diretório, **continua TOML** em `.overpower/mcp/<slug>.toml`.
 
 O diretório `.overpower/` passa a carregar dois formatos, e isso é deliberado: ele é **namespace, não formato**. A extensão diz ao autor qual leitor ele está alimentando.

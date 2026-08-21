@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import TYPE_CHECKING, assert_never
+from typing import TYPE_CHECKING, assert_never, cast
 
 from overpower.recipes import (
     AUTHORIZATION,
@@ -420,6 +420,50 @@ def _reference(dialect: Dialect) -> Reference:
             return _devin_reference
         case _ as unreachable:
             assert_never(unreachable)
+
+
+def slot_value(config: Mapping[str, object], slot: Slot) -> str | None:
+    """Read one slot back out of a server table this module rendered.
+
+    The inverse of what `_environment`, `_headers` and `_header` write, and it
+    lives **here** for that reason alone: where a slot sits inside a server is
+    this module's fact, and a reader of it in another module would be a second
+    copy of the layout — right today and silently wrong the day a role moves.
+    `overpower.planning` asks this so it can tell a value already in somebody's
+    document apart from the reference (ADR 0024); it is not told the layout.
+
+    A `match` over the closed set of roles, so a fourth one lands here as a hole
+    `pyright` names rather than as a slot this silently answers `None` for —
+    which would re-ask for a secret that is already written and, answered with
+    nothing, put the reference back over it.
+
+    `None` means *nothing readable there*: no table, no key, or a value that is
+    not a string. Whether what came back is a **value** or the reference is the
+    caller's question, and it is answered by comparing against this same
+    function over a graft rendered with nothing filled in — so no spelling is
+    hard-coded on either side.
+    """
+    match slot:
+        case EnvSlot(name):
+            return _string_in(config.get("env"), name)
+        case HeaderSlot(_, header):
+            return _string_in(config.get("headers"), header)
+        case BearerSlot():
+            assembled = _string_in(config.get("headers"), AUTHORIZATION)
+            prefix = f"{BEARER_SCHEME} "
+            if assembled is None or not assembled.startswith(prefix):
+                return None
+            return assembled.removeprefix(prefix)
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+def _string_in(table: object, key: str) -> str | None:
+    """`table[key]` when that is a table with a string under `key`, and `None` otherwise."""
+    if not isinstance(table, dict):
+        return None
+    value = cast("dict[str, object]", table).get(key)
+    return value if isinstance(value, str) else None
 
 
 def _filled(dialect: Dialect, secrets: Mapping[str, str]) -> Reference:

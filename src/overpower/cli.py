@@ -1007,7 +1007,7 @@ def _gathered_secrets(plan: Plan, request: Request, environment: Environment) ->
     ([ADR 0025](docs/adr/0025-nao-nasce-uninstall.md)).
     """
     stored = stored_secrets(plan, request.scope)
-    asked = _pending_secrets(plan, request, stored)
+    asked = _pending_secrets(plan, request, stored, asking=_asking(request))
     answers = {name: value for name, value in stored.items() if name not in asked}
     for name in asked:
         typed = _answered_secret(name, environment.variables.get(name))
@@ -1016,21 +1016,31 @@ def _gathered_secrets(plan: Plan, request: Request, environment: Environment) ->
     return answers
 
 
-def _pending_secrets(plan: Plan, request: Request, stored: Mapping[str, str]) -> tuple[str, ...]:
-    """The slots this run would actually stop and ask about — the count and the walk.
+def _pending_secrets(
+    plan: Plan, request: Request, stored: Mapping[str, str], *, asking: bool
+) -> tuple[str, ...]:
+    """The slots a run stops and asks about — the walk, and the count that reports it.
 
     One function so the number `--dry-run` prints and the questions the real run
-    puts up cannot disagree: a report that announced a question the run then
-    skips is a report about a different installation, which is the same argument
-    that put `refuse_broken_documents` on both paths.
+    puts up cannot disagree about *which* slots are still open: a report that
+    announced a question the run then skips is a report about a different
+    installation, which is the same argument that put `refuse_broken_documents`
+    on both paths.
 
-    `_asking` and not a new predicate: *terminal, and no `--yes`* is already what
-    decides whether this command stops for a human, and ADR 0024 asks for the
-    prompt on exactly that condition. `--force` is what reopens a question the
-    stored value had settled — it already means *overwrite what is occupying the
-    destination*, and a value in the document is what is occupying it.
+    **`asking` is a parameter and not a call to `_asking`, because the two
+    callers mean different things by it.** The install path asks *"will this
+    invocation stop for a human?"* — terminal, and no `--yes`, which is exactly
+    the condition ADR 0024 puts the prompt on. The report path asks *"would
+    installing this line stop for one?"*, and a `--dry-run` is read piped by
+    construction, so counting the pipe against it would blank the number in the
+    one place the report is written to be read. `--yes` still silences both: it
+    is an instruction that survives into the real run, and a pipe is not.
+
+    `--force` is what reopens a question the stored value had settled — it
+    already means *overwrite what is occupying the destination*, and a value in
+    the document is what is occupying it.
     """
-    if not _asking(request):
+    if not asking:
         return ()
     wanted = askable_slots(plan, request.scope)
     if request.force:
@@ -1077,14 +1087,28 @@ def _announce_secrets(plan: Plan, request: Request) -> None:
     It counts what `_pending_secrets` counts, off the same stored values, so a
     line whose secret is already in the document announces nothing — which is
     what the real run would then do.
+
+    **The pipe does not silence it, and `--yes` does.** A `--dry-run` is read
+    piped and diffed, so gating the count on this invocation's terminal would
+    blank it in the one place the report is written to be read; `--yes` is an
+    instruction that carries into the real run, and there really is no question
+    to announce. The wording says *in a terminal* so the line stays true when
+    the report is read somewhere that has none.
+
+    It names the variables and not only how many, because the name is what a
+    reader can act on — it is what the person has to have ready before running
+    the line for real, and `mcp_screen` already shows them.
     """
     stored = stored_secrets(plan, request.scope)
-    pending = _pending_secrets(plan, replace(request, dry_run=False), stored)
+    pending = _pending_secrets(plan, request, stored, asking=not request.yes)
     if not pending:
         return
     one = len(pending) == 1
     _out.print(
-        noted(f"{len(pending)} secret{'' if one else 's'} will be asked for: {', '.join(pending)}")
+        noted(
+            f"{len(pending)} secret{'' if one else 's'} will be asked for in a terminal: "
+            f"{', '.join(pending)}"
+        )
     )
 
 

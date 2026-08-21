@@ -56,21 +56,13 @@ from typing import TYPE_CHECKING, assert_never, cast
 from overpower.errors import BadInvocationError, RefusedError
 from overpower.grafting import UnreadableDocumentError, read_document, refuse_if_broken
 from overpower.jsonio import loads_json
-from overpower.recipes import (
-    AUTHORIZATION,
-    BearerSlot,
-    Check,
-    EnvSlot,
-    HeaderSlot,
-    Precondition,
-    Recipe,
-)
+from overpower.recipes import Check, Precondition, Recipe
 from overpower.rendering import (
-    BEARER_SCHEME,
     Fragment,
     Inputs,
     expands_from_environment,
     render,
+    slot_value,
 )
 from overpower.runtimes import (
     RUNTIMES_BY_KEY,
@@ -87,7 +79,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
 
     from overpower.discovery import Artifact, Bundle, Catalog, Framework
-    from overpower.recipes import Slot
     from overpower.rendering import Graft
     from overpower.runtimes import Environment, McpDocument, McpPlace, Runtime
 
@@ -754,6 +745,13 @@ def stored_secrets(plan: Plan, scope: Scope) -> Mapping[str, str]:
     render into this very document, so no spelling is hard-coded here and the
     three dialects need no branch: what is not the reference is a value, and the
     reference is asked for rather than remembered.
+
+    **Keyed by variable name, and the first document to answer wins.** That is
+    the same identity `askable_slots` counts by — two servers wanting
+    `GITHUB_TOKEN` are one question — so a name answered by the document one
+    runtime already has is a name the next runtime's document receives without a
+    second prompt. Both are the machine's own files, and one secret with one
+    value on one machine is the fact both halves are reading.
     """
     if scope is not Scope.GLOBAL:
         return {}
@@ -763,23 +761,26 @@ def stored_secrets(plan: Plan, scope: Scope) -> Mapping[str, str]:
             if not isinstance(carried, Recipe):
                 continue
             for landing in selection.landings:
-                _stored_into(found, carried, landing, scope)
+                for name, value in _stored_at(carried, landing, scope).items():
+                    found.setdefault(name, value)
     return found
 
 
-def _stored_into(found: dict[str, str], recipe: Recipe, landing: Landing, scope: Scope) -> None:
-    """Add every slot of `recipe` that `landing`'s document already answers for."""
+def _stored_at(recipe: Recipe, landing: Landing, scope: Scope) -> Mapping[str, str]:
+    """Every slot of `recipe` that `landing`'s document already answers for."""
     document = _document_at(landing.readers, scope)
     if document is None or not expands_from_environment(document.dialect):
-        return
+        return {}
     config = _server_config(landing.place, document, recipe.name)
     if config is None:
-        return
+        return {}
     reference = _rendered_server(recipe, document)
+    found: dict[str, str] = {}
     for slot in recipe.slots:
-        value = _slot_value(config, slot)
-        if value and value != _slot_value(reference, slot):
-            found.setdefault(slot.name, value)
+        value = slot_value(config, slot)
+        if value and value != slot_value(reference, slot):
+            found[slot.name] = value
+    return found
 
 
 def _document_at(readers: Sequence[str], scope: Scope) -> McpDocument | None:
@@ -804,6 +805,16 @@ def _server_config(path: Path, document: McpDocument, name: str) -> Mapping[str,
     was never written. A broken document is **not** refused here — that is
     `refuse_broken_documents`' job and it already ran on this plan; answering
     `None` twice for one file would be a second exit code for one fact.
+
+    **The strict reader, and not the tolerant one `overpower.inspection` uses**,
+    which is the one difference between two functions that otherwise walk the
+    same shape. `doctor` reads whatever is on the disk, JSONC included, and has
+    refused nothing first. This runs *after* `refuse_broken_documents` on the
+    same plan, and every row it can reach spells strict JSON — `_stored_at`
+    gates on `expands_from_environment`, and the only JSONC-tolerating row in the
+    table is the VS Code one that gate excludes. So a file that reaches here and
+    does not parse strictly is one the run already refused, and reading it the
+    tolerant way would answer about a document Claude Code itself cannot load.
     """
     if not path.is_file():
         return None
@@ -824,38 +835,6 @@ def _rendered_server(recipe: Recipe, document: McpDocument) -> Mapping[str, obje
     """What `recipe` looks like in `document` with nothing answered — the reference shape."""
     first, *_ = render(recipe, document)
     return first.value if isinstance(first, Fragment) else {}
-
-
-def _slot_value(config: Mapping[str, object], slot: Slot) -> str | None:
-    """Where one slot sits inside a rendered server table, read back out of it.
-
-    The one place outside `overpower.rendering` that knows a slot's *position*,
-    and it is a `match` over the closed set for that exact reason: a fourth role
-    lands here as a hole `pyright` names, rather than as a slot this function
-    silently reports nothing for — which would re-ask for a secret that is
-    already written and, answered with nothing, overwrite it with a reference.
-    """
-    match slot:
-        case EnvSlot(name):
-            return _string_in(config.get("env"), name)
-        case HeaderSlot(_, header):
-            return _string_in(config.get("headers"), header)
-        case BearerSlot():
-            assembled = _string_in(config.get("headers"), AUTHORIZATION)
-            prefix = f"{BEARER_SCHEME} "
-            if assembled is None or not assembled.startswith(prefix):
-                return None
-            return assembled.removeprefix(prefix)
-        case _ as unreachable:
-            assert_never(unreachable)
-
-
-def _string_in(table: object, key: str) -> str | None:
-    """`table[key]` when that is a table with a string under `key`, and `None` otherwise."""
-    if not isinstance(table, dict):
-        return None
-    value = cast("dict[str, object]", table).get(key)
-    return value if isinstance(value, str) else None
 
 
 def _readable(path: Path) -> str:

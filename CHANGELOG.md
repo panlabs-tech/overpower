@@ -23,6 +23,17 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.28.0] - 2026-08-21
+
+### Added
+
+- Em escopo de máquina, o `install` agora **pergunta o valor de cada slot e o escreve literal** no documento — uma execução, e a configuração fica completa, em vez de terminar avisando que a variável é sua para exportar. A entrada é mascarada, o valor nunca é ecoado e a variável já exportada é oferecida como default sem aparecer na tela. Em escopo de projeto o slot continua sendo `${VAR}` e nada mais, e o VS Code mantém o `inputs[]` com `password: true`, que é a única grafia medida em que o segredo fica guardado sob proteção do SO. Sem terminal ou com `--yes` nada é perguntado e o comportamento anterior fica intacto; valor já gravado é mantido e não perguntado de novo, com `--force` reabrindo a pergunta; resposta vazia grava a referência de volta. O `--dry-run` não pergunta e anuncia quantos segredos seriam pedidos. Ver [ADR 0024](https://github.com/ThiagoPanini/overpower/blob/main/docs/adr/0024-o-segredo-mora-onde-o-git-nao-alcanca.md). ([#167](https://github.com/ThiagoPanini/overpower/issues/167))
+
+### Fixed
+
+- A skill de varredura de documentação nunca disparava no post-merge porque o script procurava o arquivo no caminho errado (`panlabs-overpower-docs-update` em vez de `varredura-overpower`). ([#162](https://github.com/ThiagoPanini/overpower/issues/162))
+
+
 ## [0.27.3] - 2026-08-20
 
 ### Fixed

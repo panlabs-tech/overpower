@@ -3837,16 +3837,57 @@ def test_the_doctor_reads_the_document_and_never_prints_what_is_in_it(
     assert project.SLOT_VARIABLE not in joined
 
 
-def test_the_prompt_that_carries_the_secret_is_a_masked_one(
-    monkeypatch: pytest.MonkeyPatch,
+def test_a_piped_dry_run_still_reports_the_secret_it_would_cost(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:
-    """`password` and not `text`, which is what keeps the keystrokes out of scrollback.
+    """A report is read piped by construction, so the pipe must not blank the count.
 
-    Asserted against the seam every other test in this block stubs, because
-    *which `questionary` prompt is put up* is the one part of the promise that
-    the document coming out cannot show. The prompt object is never constructed
-    — building a real one does not run on the Windows cells (#57) — so what is
-    asserted is the call, which is where the choice lives.
+    The wording carries the condition — *in a terminal* — so the line is true
+    read from a file, and `--yes` is what silences it, because that flag travels
+    into the real run and a pipe does not.
+    """
+    # given
+    _slotted(tmp_path, monkeypatch)
+
+    code, output = project.run(
+        capsys, "install", "--mcp", "panel", "--runtime", "claude-code", "--global", "--dry-run"
+    )
+
+    joined = project.joined(output)
+    assert code == 0
+    assert "1 secret" in joined
+    assert project.SLOT_VARIABLE in joined
+
+
+def test_a_dry_run_that_carries_yes_announces_no_question(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """`--yes` reaches the real run, and the real run asks nothing — so neither does the report."""
+    # given
+    _slotted(tmp_path, monkeypatch)
+
+    code, output = project.run(
+        capsys,
+        "install",
+        "--mcp",
+        "panel",
+        "--runtime",
+        "claude-code",
+        "--global",
+        "--dry-run",
+        "--yes",
+    )
+
+    assert code == 0
+    assert "will be asked for" not in project.joined(output)
+
+
+def _seen_password(monkeypatch: pytest.MonkeyPatch, answer: object) -> dict[str, object]:
+    """Stand in for `questionary.password` and keep the call it was made with.
+
+    The prompt object is never constructed — building a real one does not run on
+    the Windows cells (#57) — so what a test can assert is the call, which is
+    where the choice of prompt lives.
     """
     seen: dict[str, object] = {}
 
@@ -3855,17 +3896,37 @@ def test_the_prompt_that_carries_the_secret_is_a_masked_one(
         seen.update(kwargs)
         return _Interrupted(answer)
 
-    answer: object = "typed-by-a-person"
     monkeypatch.setattr(questionary, "password", password)
+    return seen
 
-    asked = cli._answered_secret  # pyright: ignore[reportPrivateUsage]
 
-    assert asked("PANEL_TOKEN", "from-the-shell") == "typed-by-a-person"
-    assert seen["default"] == "from-the-shell"
+def test_the_prompt_that_carries_the_secret_is_a_masked_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`password` and not `text`, which is what keeps the keystrokes out of scrollback.
+
+    Asserted against the seam every other test in this block stubs, because
+    *which `questionary` prompt is put up* is the one part of the promise that
+    the document coming out cannot show.
+    """
+    seen = _seen_password(monkeypatch, "typed-by-a-person")
+
+    answered = cli._answered_secret("PANEL_TOKEN", "from-the-shell")  # pyright: ignore[reportPrivateUsage]
+
+    assert answered == "typed-by-a-person"
+    assert seen["default"] == "from-the-shell", "the exported variable is offered"
     assert "PANEL_TOKEN" in str(seen["message"])
 
-    answer = None
-    assert asked("PANEL_TOKEN", None) == "", "an interrupt answers nothing"
+
+def test_an_interrupted_prompt_answers_nothing_and_offers_an_empty_buffer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`ask()` answers `None` on Ctrl-C, which is the same gesture as answering nothing."""
+    seen = _seen_password(monkeypatch, None)
+
+    answered = cli._answered_secret("PANEL_TOKEN", None)  # pyright: ignore[reportPrivateUsage]
+
+    assert answered == ""
     assert seen["default"] == "", "no variable exported is an empty buffer, never a `None`"
 
 

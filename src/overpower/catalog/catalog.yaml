@@ -62,7 +62,7 @@
 bundles:
   api-python:
     description: "Equipment for working on a Python API."
-    items: ["panlabs-python-standards"]
+    items: ["skill:panlabs-python-standards"]
 
 frameworks:
   matt-pocock:

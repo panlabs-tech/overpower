@@ -748,11 +748,13 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
             # the write as well as the plan: `execute()` needs a `source:`
             # recipe's clone still on disk at the point it copies it to its
             # destination.
-            sources = obtained.enter_context(sources_for(already_read, request.mcps, request.scope))
+            names = (*request.mcps, *_mcp_names_carried(already_read, request.bundles))
+            sources = obtained.enter_context(sources_for(already_read, names, request.scope))
             _perform(request, already_read, root, environment, sources, banner=not wizarding)
             return
         catalog = _what_the_remote_install_writes_from(from_, request, already_read, obtained)
-        sources = obtained.enter_context(sources_for(catalog, request.mcps, request.scope))
+        names = (*request.mcps, *_mcp_names_carried(catalog, request.bundles))
+        sources = obtained.enter_context(sources_for(catalog, names, request.scope))
         _perform(request, catalog, root, environment, sources, banner=not wizarding)
 
 
@@ -856,6 +858,22 @@ def _flag_already_claiming(catalog: Catalog, name: str) -> str | None:
             continue
         return flag
     return None
+
+
+def _mcp_names_carried(catalog: Catalog, bundles: Sequence[str]) -> tuple[str, ...]:
+    """Every recipe name a selected bundle reaches, alongside `--mcp`'s own names.
+
+    `sources_for` only obtains a clone for a name it is handed — a recipe with
+    `source:` reached only through `--bundle` (ADR 0022) needs to be handed too,
+    or it renders with no clone and `{source}` lands in the document literally
+    instead of resolving.
+    """
+    return tuple(
+        item.name
+        for name in bundles
+        for item in catalog.bundle(name).artifacts
+        if isinstance(item, Recipe)
+    )
 
 
 def _perform(  # noqa: PLR0913 — one argument per thing `plan_for` itself takes, plus `banner`

@@ -52,6 +52,7 @@ of contract behind it.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import TYPE_CHECKING, cast
 
 from overpower.errors import OverpowerError
@@ -68,19 +69,44 @@ FRAMEWORKS_KEY = "frameworks"
 _WRITTEN_KEYS = frozenset({BUNDLES_KEY, FRAMEWORKS_KEY, MCP_KEY})
 """The closed set of top-level keys, and there is no `version:` among them."""
 
+_NAMESPACE_SEPARATOR = ":"
+
+
+class ItemNamespace(StrEnum):
+    """The prefix on one entry of `items`, naming which pool it resolves against.
+
+    Closed at two (ADR 0022): a bundle points at names, and a name alone stopped
+    being enough the day it could point at either a pool artifact or an MCP
+    recipe — two disjoint catalogs a bare string cannot tell apart without
+    guessing, and guessing is what the prefix exists to refuse doing. It says
+    **namespace, never provenance**: resolution still happens only inside the
+    same repository, embedded or federated.
+    """
+
+    SKILL = "skill"
+    MCP = "mcp"
+
+
+@dataclass(frozen=True)
+class WrittenBundleItem:
+    """One name a bundle points at, prefixed by the namespace it resolves in."""
+
+    namespace: ItemNamespace
+    name: str
+
 
 @dataclass(frozen=True)
 class WrittenBundle:
     """A bundle as written down: a name, a description and the names it points at.
 
     It carries no content of its own — a bundle is a manifest over pool
-    artifacts — so weighing one means resolving the names, which is
-    `overpower.discovery`'s job and not this module's.
+    artifacts and MCP recipes — so weighing one means resolving the names,
+    which is `overpower.discovery`'s job and not this module's.
     """
 
     name: str
     description: str
-    items: tuple[str, ...]
+    items: tuple[WrittenBundleItem, ...]
 
 
 @dataclass(frozen=True)
@@ -125,6 +151,27 @@ class MalformedWrittenCatalogError(OverpowerError):
         self.path = path
         self.key = key
         super().__init__(f"{path}: `{key}` should be {expected}")
+
+
+class UnknownBundleItemNamespaceError(OverpowerError):
+    """A bundle item with no prefix, or with a prefix outside the closed set.
+
+    Refused **by name** rather than defaulted to a namespace: a bare name that
+    silently resolved against the pool would break the day a repository also
+    declared an MCP server of the same name, without either bundle having been
+    touched — the asymmetric failure ADR 0022 rejected a prefix-free design over.
+    """
+
+    def __init__(self, path: Path, bundle: str, item: str) -> None:
+        """Name the file, the bundle, the item as written, and the closed set."""
+        self.path = path
+        self.bundle = bundle
+        self.item = item
+        listed = ", ".join(sorted(member.value for member in ItemNamespace))
+        super().__init__(
+            f"{path}: bundle `{bundle}` names `{item}`, which carries no known namespace; "
+            f"the set is: {listed}"
+        )
 
 
 class UnknownWrittenFieldError(OverpowerError):
@@ -207,13 +254,21 @@ def _frameworks(path: Path, value: object) -> Mapping[str, str]:
     return frameworks
 
 
-def _items(path: Path, bundle: str, value: object) -> tuple[str, ...]:
+def _items(path: Path, bundle: str, value: object) -> tuple[WrittenBundleItem, ...]:
     if not isinstance(value, list):
         raise MalformedWrittenCatalogError(path, f"{BUNDLES_KEY}.{bundle}.items", "a list of names")
     items = cast("list[object]", value)
     if not all(isinstance(item, str) for item in items):
         raise MalformedWrittenCatalogError(path, f"{BUNDLES_KEY}.{bundle}.items", "a list of names")
-    return tuple(str(item) for item in items)
+    return tuple(_item(path, bundle, str(item)) for item in items)
+
+
+def _item(path: Path, bundle: str, raw: str) -> WrittenBundleItem:
+    """One `items` entry, split on its namespace prefix — ADR 0022."""
+    namespace, separator, name = raw.partition(_NAMESPACE_SEPARATOR)
+    if not separator or not name or namespace not in {member.value for member in ItemNamespace}:
+        raise UnknownBundleItemNamespaceError(path, bundle, raw)
+    return WrittenBundleItem(namespace=ItemNamespace(namespace), name=name)
 
 
 def _description(path: Path, key: str, value: object) -> str:

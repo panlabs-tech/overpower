@@ -53,6 +53,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, assert_never, cast
 
+from overpower.discovery import Artifact
 from overpower.errors import BadInvocationError, RefusedError
 from overpower.grafting import UnreadableDocumentError, read_document, refuse_if_broken
 from overpower.jsonio import loads_json
@@ -78,7 +79,7 @@ from overpower.runtimes import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
 
-    from overpower.discovery import Artifact, Bundle, Catalog, Framework
+    from overpower.discovery import Bundle, Catalog, Framework
     from overpower.rendering import Graft
     from overpower.runtimes import Environment, McpDocument, McpPlace, Runtime
 
@@ -623,7 +624,13 @@ def plan_for(  # noqa: PLR0913, PLR0917 — the four a plan needs, plus the two 
     bundles = _selected_bundles(request.bundles, catalog)
     skills = _selected_skills(request.skills, catalog)
     mcps = _selected_mcps(request.mcps, catalog)
-    _refuse_a_sourced_recipe_outside_machine_scope(mcps, request.scope)
+    bundled_artifacts = tuple(
+        item for bundle in bundles for item in bundle.artifacts if isinstance(item, Artifact)
+    )
+    bundled_recipes = tuple(
+        item for bundle in bundles for item in bundle.artifacts if isinstance(item, Recipe)
+    )
+    _refuse_a_sourced_recipe_outside_machine_scope((*mcps, *bundled_recipes), request.scope)
     runtimes = _selected_runtimes(request.runtimes, request.scope)
     # Before the first `Selection` is built, so a refusal costs no screen and no
     # byte. Fired only for the classes the line actually carries: a line
@@ -638,8 +645,8 @@ def plan_for(  # noqa: PLR0913, PLR0917 — the four a plan needs, plus the two 
     # would otherwise check is only ever missing the *other* one, never both
     # — issue #100 asks only that the gap be named (`SkippedClass`) instead of
     # refusing the runtime for a class it was always going to receive.
-    carries_mcp = bool(mcps)
-    carries_skills = bool(frameworks or bundles or skills)
+    carries_mcp = bool(mcps) or bool(bundled_recipes)
+    carries_skills = bool(frameworks or bundled_artifacts or skills)
     skipped: tuple[SkippedClass, ...] = ()
     if carries_mcp and carries_skills:
         skipped = _skipped_classes_of(runtimes, request.scope)
@@ -664,7 +671,19 @@ def plan_for(  # noqa: PLR0913, PLR0917 — the four a plan needs, plus the two 
                 for framework in frameworks
                 if landings
             ),
-            *(_bundle_selection(bundle, landings, request.scope) for bundle in bundles if landings),
+            *(
+                _bundle_selection(
+                    bundle,
+                    landings,
+                    documents,
+                    root,
+                    sources,
+                    secrets if request.scope is Scope.GLOBAL else MappingProxyType({}),
+                    request.scope,
+                )
+                for bundle in bundles
+                if landings or documents
+            ),
             *(
                 _skill_selection(artifact, landings, request.scope)
                 for artifact in skills
@@ -1190,11 +1209,50 @@ def _framework_selection(
     return _grouped_selection(framework.name, framework.artifacts, places, scope)
 
 
-def _bundle_selection(
-    bundle: Bundle, places: Mapping[Path, tuple[str, ...]], scope: Scope
+def _bundle_selection(  # noqa: PLR0913, PLR0917 — one landing kind's inputs, then the other's
+    bundle: Bundle,
+    places: Mapping[Path, tuple[str, ...]],
+    documents: Sequence[McpPlace],
+    root: Path,
+    sources: Mapping[str, Path],
+    secrets: Mapping[str, str],
+    scope: Scope,
 ) -> Selection:
-    """Exactly what the bundle's manifest names (ADR 0002), in every selected place."""
-    return _grouped_selection(bundle.name, bundle.artifacts, places, scope)
+    """Exactly what the bundle's manifest names (ADR 0002), split across both landing kinds.
+
+    ADR 0022: a bundle may name a skill and an MCP server in the same manifest,
+    so this reaches for both — `_grouped_selection`'s copy landings for the
+    artifacts it names, `_mcp_selection`'s graft (and clone) landings for the
+    recipes — under the bundle's own name. Each half is all-or-nothing with what
+    it is handed, the same guard `plan_for` already applies per class before
+    building a `Selection` at all: a half with nowhere to land contributes
+    neither a landing nor an entry in `artifacts`, so the screen never promises
+    what the write will not do.
+    """
+    artifacts = tuple(item for item in bundle.artifacts if isinstance(item, Artifact))
+    recipes = tuple(item for item in bundle.artifacts if isinstance(item, Recipe))
+    copied = (
+        _grouped_selection(bundle.name, artifacts, places, scope) if artifacts and places else None
+    )
+    grafted = (
+        tuple(
+            landing
+            for recipe in recipes
+            for landing in _mcp_selection(
+                recipe, documents, root, sources.get(recipe.name), secrets
+            ).landings
+        )
+        if recipes and documents
+        else ()
+    )
+    return Selection(
+        name=bundle.name,
+        artifacts=(
+            *(artifacts if copied is not None else ()),
+            *(recipes if documents else ()),
+        ),
+        landings=(*(copied.landings if copied is not None else ()), *grafted),
+    )
 
 
 def _skill_selection(

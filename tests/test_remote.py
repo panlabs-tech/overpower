@@ -863,7 +863,8 @@ def test_the_showcase_carries_the_bundles_the_repository_declares(
 ) -> None:
     """The composition is the unit a homemade repository most wants to distribute."""
     _planting(
-        monkeypatch, git_remote.offering("alpha", "beta", bundles={"api-python": ["alpha", "beta"]})
+        monkeypatch,
+        git_remote.offering("alpha", "beta", bundles={"api-python": ["skill:alpha", "skill:beta"]}),
     )
 
     with remote.catalog_from(ROOT_URL) as catalog:
@@ -875,7 +876,8 @@ def test_the_showcase_carries_the_bundles_the_repository_declares(
 def test_a_bundle_keeps_the_order_its_manifest_wrote(monkeypatch: pytest.MonkeyPatch) -> None:
     """A bundle is a curated composition, and the order is part of what was curated."""
     _planting(
-        monkeypatch, git_remote.offering("alpha", "beta", bundles={"api-python": ["beta", "alpha"]})
+        monkeypatch,
+        git_remote.offering("alpha", "beta", bundles={"api-python": ["skill:beta", "skill:alpha"]}),
     )
 
     with remote.catalog_from(ROOT_URL) as catalog:
@@ -907,7 +909,8 @@ def test_the_three_depths_of_url_find_the_same_bundle(
     """The declaration is anchored at the repository, so the URL's subpath narrows nothing."""
     # given
     local = git_remote.build(
-        tmp_path / "origin", git_remote.offering("alpha", "beta", bundles={"api-python": ["alpha"]})
+        tmp_path / "origin",
+        git_remote.offering("alpha", "beta", bundles={"api-python": ["skill:alpha"]}),
     )
     monkeypatch.setattr(remote, "fetch_with_git", git_remote.instead_of_github(local))
 
@@ -929,7 +932,7 @@ def test_a_url_subfolder_the_repository_does_not_have_cannot_fail_a_bundle_line(
     deciding a question it was declared not to touch. The bare showcase already
     answers normally on this very URL, and the two have to agree.
     """
-    _planting(monkeypatch, git_remote.offering("alpha", bundles={"api-python": ["alpha"]}))
+    _planting(monkeypatch, git_remote.offering("alpha", bundles={"api-python": ["skill:alpha"]}))
     url = f"{ROOT_URL}/tree/main/does-not-exist"
 
     with remote.catalog_from(url, bundles=["api-python"]) as catalog:
@@ -964,7 +967,9 @@ def test_a_manifest_below_the_root_is_not_the_repository_s_manifest(
         monkeypatch,
         {
             **git_remote.offering("alpha"),
-            **git_remote.declaring(bundles={"vendored": ["alpha"]}, at="vendor/.overpower.yaml"),
+            **git_remote.declaring(
+                bundles={"vendored": ["skill:alpha"]}, at="vendor/.overpower.yaml"
+            ),
         },
     )
 
@@ -976,7 +981,7 @@ def test_a_bundle_that_the_repository_does_not_declare_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Obtained, read, and the answer is no — the same axis every remote miss sits on."""
-    _planting(monkeypatch, git_remote.offering("alpha", bundles={"api-python": ["alpha"]}))
+    _planting(monkeypatch, git_remote.offering("alpha", bundles={"api-python": ["skill:alpha"]}))
 
     with pytest.raises(RefusedError), remote.catalog_from(ROOT_URL, bundles=["web-node"]):
         pass  # unreachable: the search raises before the block is entered
@@ -986,7 +991,10 @@ def test_a_bundle_item_the_repository_does_not_offer_is_refused_naming_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Exit 3 naming which item, so the user reports it to the author instead of guessing."""
-    _planting(monkeypatch, git_remote.offering("alpha", bundles={"api-python": ["alpha", "ghost"]}))
+    _planting(
+        monkeypatch,
+        git_remote.offering("alpha", bundles={"api-python": ["skill:alpha", "skill:ghost"]}),
+    )
 
     with (
         pytest.raises(RefusedError) as raised,
@@ -1010,7 +1018,9 @@ def test_a_bundle_item_never_reaches_a_skill_outside_the_offer_anchor(
     _planting(
         monkeypatch,
         {
-            **git_remote.offering("alpha", bundles={"api-python": ["alpha", "vendored"]}),
+            **git_remote.offering(
+                "alpha", bundles={"api-python": ["skill:alpha", "skill:vendored"]}
+            ),
             **git_remote.skill_files("vendored", under="vendor/skills"),
         },
     )
@@ -1029,7 +1039,7 @@ def test_a_malformed_federated_manifest_is_refused_the_way_the_embedded_one_is(
     once and there is no second validator to drift from the first.
     """
     # given
-    malformed = "bundles:\n  api-python:\n    description: 12\n    items: [alpha]\n"
+    malformed = "bundles:\n  api-python:\n    description: 12\n    items: [skill:alpha]\n"
     _planting(monkeypatch, {**git_remote.offering("alpha"), ".overpower.yaml": malformed})
     beside = tmp_path / "catalog.yaml"
     beside.write_text(malformed, encoding="utf-8")
@@ -1064,13 +1074,44 @@ def test_the_bundle_and_the_recipe_are_two_keys_of_one_file(
     namespace holding two formats* — and the fixture is the evidence: there is
     one path in the planted tree, and both units come out of it.
     """
-    planted = git_remote.offering("alpha", bundles={"api-python": ["alpha"]}, mcps=("acme",))
+    planted = git_remote.offering("alpha", bundles={"api-python": ["skill:alpha"]}, mcps=("acme",))
     _planting(monkeypatch, planted)
 
     assert [path for path in planted if path.startswith(".overpower")] == [".overpower.yaml"]
     with remote.catalog_from(ROOT_URL) as catalog:
         assert [bundle.name for bundle in catalog.bundles] == ["api-python"]
         assert [recipe.name for recipe in catalog.mcps] == ["acme"]
+
+
+def test_a_federated_bundle_item_can_name_a_declared_recipe_by_the_mcp_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ADR 0022: `mcp:<name>` reaches a declared recipe the same way `skill:` reaches an offer."""
+    _planting(
+        monkeypatch,
+        git_remote.offering(
+            "alpha", bundles={"api-python": ["skill:alpha", "mcp:acme"]}, mcps=("acme",)
+        ),
+    )
+
+    with remote.catalog_from(ROOT_URL) as catalog:
+        assert [item.name for item in catalog.bundles[0].artifacts] == ["alpha", "acme"]
+        assert catalog.bundles[0].artifacts[1] is catalog.mcps[0]
+
+
+def test_a_federated_bundle_item_naming_an_undeclared_recipe_is_refused_naming_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exit 3 naming which item, the same axis every other federated miss sits on."""
+    _planting(monkeypatch, git_remote.offering("alpha", bundles={"api-python": ["mcp:ghost"]}))
+
+    with (
+        pytest.raises(RefusedError) as raised,
+        remote.catalog_from(ROOT_URL, bundles=["api-python"]),
+    ):
+        pass  # unreachable: the search raises before the block is entered
+
+    assert "ghost" in str(raised.value)
 
 
 # --------------------------------------------------------------------------- #

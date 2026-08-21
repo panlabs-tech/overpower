@@ -40,7 +40,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, cast
 
 from overpower.errors import BadInvocationError, OverpowerError
-from overpower.written import read_written_catalog
+from overpower.written import ItemNamespace, read_written_catalog
 from overpower.yamlio import loads_yaml
 
 if TYPE_CHECKING:
@@ -48,6 +48,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from overpower.recipes import Recipe
+    from overpower.written import WrittenBundleItem
 
 POOL_DIR = "pool"
 FRAMEWORKS_DIR = "frameworks"
@@ -123,25 +124,26 @@ class Framework:
 
 @dataclass(frozen=True)
 class Bundle:
-    """A named composition of pool artifacts for one context of work.
+    """A named composition of pool artifacts and MCP recipes for one context of work.
 
     It is a manifest: it points at names and carries no content, so it weighs
-    what the artifacts it names weigh.
+    what the artifacts it names weigh — and a recipe among them weighs nothing
+    at all, because it has no tree (ADR 0022).
     """
 
     name: str
     description: str
-    artifacts: tuple[Artifact, ...]
+    artifacts: tuple[Artifact | Recipe, ...]
 
     @property
     def files(self) -> int:
-        """How many files the artifacts it names write."""
-        return sum(artifact.files for artifact in self.artifacts)
+        """How many files the artifacts it names write — a recipe costs none."""
+        return sum(item.files for item in self.artifacts if isinstance(item, Artifact))
 
     @property
     def size(self) -> int:
-        """How many bytes the artifacts it names write."""
-        return sum(artifact.size for artifact in self.artifacts)
+        """How many bytes the artifacts it names write — a recipe costs none."""
+        return sum(item.size for item in self.artifacts if isinstance(item, Artifact))
 
 
 @dataclass(frozen=True)
@@ -241,13 +243,13 @@ class MissingFrameworkDescriptionError(OverpowerError):
 
 
 class UnknownBundleItemError(OverpowerError):
-    """A bundle naming an artifact the pool does not have."""
+    """A bundle naming something its own namespace does not have."""
 
-    def __init__(self, bundle: str, item: str) -> None:
-        """Name both sides: the manifest and the name it points at."""
+    def __init__(self, bundle: str, item: str, among: str) -> None:
+        """Name both sides — the manifest and the name it points at — and what it missed."""
         self.bundle = bundle
         self.item = item
-        super().__init__(f"the bundle `{bundle}` names `{item}`, which is not in the pool")
+        super().__init__(f"the bundle `{bundle}` names `{item}`, which is not {among}")
 
 
 class UnknownNameError(BadInvocationError):
@@ -281,12 +283,15 @@ def load_catalog(content_root: Path, catalog_file: Path) -> Catalog:
     written = read_written_catalog(catalog_file)
     pool = discover_pool(content_root / POOL_DIR)
     by_name = {artifact.name: artifact for artifact in pool}
+    by_mcp = {recipe.name: recipe for recipe in written.mcps}
 
     bundles = tuple(
         Bundle(
             name=bundle.name,
             description=bundle.description,
-            artifacts=tuple(_from_pool(bundle.name, item, by_name) for item in bundle.items),
+            artifacts=tuple(
+                _resolved_item(bundle.name, item, by_name, by_mcp) for item in bundle.items
+            ),
         )
         for bundle in written.bundles
     )
@@ -337,11 +342,27 @@ def _named[NamedT](unit: str, name: str, by_name: Mapping[str, NamedT]) -> Named
     return by_name[name]
 
 
-def _from_pool(bundle: str, item: str, pool: Mapping[str, Artifact]) -> Artifact:
-    """The artifact a bundle points at, or the error that names both."""
-    if item not in pool:
-        raise UnknownBundleItemError(bundle, item)
-    return pool[item]
+def _resolved_item(
+    bundle: str,
+    item: WrittenBundleItem,
+    pool: Mapping[str, Artifact],
+    mcps: Mapping[str, Recipe],
+) -> Artifact | Recipe:
+    """The artifact or recipe a bundle item points at, in its own namespace (ADR 0022).
+
+    `mcp:` never falls back to the pool and `skill:` never falls back to the
+    recipes — the prefix already said which, and re-checking the other would
+    make one namespace a silent alias of the other the day a name collided.
+    """
+    if item.namespace is ItemNamespace.MCP:
+        recipe = mcps.get(item.name)
+        if recipe is None:
+            raise UnknownBundleItemError(bundle, item.name, "among the mcp servers")
+        return recipe
+    artifact = pool.get(item.name)
+    if artifact is None:
+        raise UnknownBundleItemError(bundle, item.name, "in the pool")
+    return artifact
 
 
 def _artifacts_under(root: Path) -> tuple[Artifact, ...]:

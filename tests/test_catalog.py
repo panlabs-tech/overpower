@@ -38,7 +38,7 @@ from overpower.packaged import catalog_file, content_root
 from overpower.recipes import MCP_KEY, BearerSlot, Check, EnvSlot, HttpServer, StdioServer
 from overpower.rendering import Fragment, Inputs, render
 from overpower.runtimes import MCP_DOCUMENTS, Scope
-from overpower.written import read_written_catalog
+from overpower.written import ItemNamespace, WrittenBundleItem, read_written_catalog
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -107,7 +107,7 @@ WRITTEN = """
 bundles:
   api-python:
     description: Equipment for working on a Python API.
-    items: [panlabs-python-standards]
+    items: ["skill:panlabs-python-standards"]
 
 frameworks:
   matt-pocock:
@@ -313,7 +313,50 @@ def test_the_written_file_carries_bundles_and_framework_descriptions(tmp_path: P
 
     assert written.frameworks == {"matt-pocock": "The promoted skills."}
     assert [bundle.name for bundle in written.bundles] == ["api-python"]
-    assert written.bundles[0].items == ("panlabs-python-standards",)
+    assert written.bundles[0].items == (
+        WrittenBundleItem(ItemNamespace.SKILL, "panlabs-python-standards"),
+    )
+
+
+def test_a_bundle_item_names_a_recipe_by_the_mcp_prefix(tmp_path: Path) -> None:
+    """ADR 0022: the prefix says namespace, and `mcp:` reaches the fourth artifact."""
+    written = read_written_catalog(
+        write_catalog_file(
+            tmp_path,
+            'bundles:\n  api-python:\n    description: "d"\n'
+            '    items: ["skill:alpha", "mcp:cloudflare"]\n',
+        )
+    )
+
+    assert written.bundles[0].items == (
+        WrittenBundleItem(ItemNamespace.SKILL, "alpha"),
+        WrittenBundleItem(ItemNamespace.MCP, "cloudflare"),
+    )
+
+
+def test_a_bundle_item_with_no_prefix_is_refused_by_name(tmp_path: Path) -> None:
+    with pytest.raises(OverpowerError) as raised:
+        read_written_catalog(
+            write_catalog_file(
+                tmp_path, 'bundles:\n  api-python:\n    description: "d"\n    items: ["ghost"]\n'
+            )
+        )
+
+    assert "api-python" in str(raised.value)
+    assert "ghost" in str(raised.value)
+
+
+def test_a_bundle_item_with_an_unknown_prefix_is_refused_by_name(tmp_path: Path) -> None:
+    with pytest.raises(OverpowerError) as raised:
+        read_written_catalog(
+            write_catalog_file(
+                tmp_path,
+                'bundles:\n  api-python:\n    description: "d"\n    items: ["framework:ghost"]\n',
+            )
+        )
+
+    assert "api-python" in str(raised.value)
+    assert "framework:ghost" in str(raised.value)
 
 
 def test_the_written_file_carries_the_recipes_under_the_mcp_key(tmp_path: Path) -> None:
@@ -428,7 +471,7 @@ def test_a_bundle_naming_an_artifact_the_pool_does_not_have_names_both(tmp_path:
     content = write_content(tmp_path)
     written = write_catalog_file(
         tmp_path,
-        'bundles:\n  api-python:\n    description: "d"\n    items: ["ghost"]\n'
+        'bundles:\n  api-python:\n    description: "d"\n    items: ["skill:ghost"]\n'
         'frameworks:\n  matt-pocock:\n    description: "d"\n',
     )
 
@@ -437,6 +480,58 @@ def test_a_bundle_naming_an_artifact_the_pool_does_not_have_names_both(tmp_path:
 
     assert "api-python" in str(raised.value)
     assert "ghost" in str(raised.value)
+
+
+def test_a_bundle_item_can_name_an_mcp_server_by_prefix(tmp_path: Path) -> None:
+    """ADR 0022: `mcp:<name>` reaches a recipe the same `items` list already reaches skills by."""
+    content = write_content(tmp_path)
+    written = write_catalog_file(
+        tmp_path,
+        'bundles:\n  api-python:\n    description: "d"\n'
+        '    items: ["skill:panlabs-python-standards", "mcp:cloudflare"]\n'
+        'frameworks:\n  matt-pocock:\n    description: "d"\n'
+        f"{mcp_key('cloudflare')}",
+    )
+
+    catalog = load_catalog(content, written)
+
+    assert [artifact.name for artifact in catalog.bundles[0].artifacts] == [
+        "panlabs-python-standards",
+        "cloudflare",
+    ]
+    assert catalog.bundles[0].artifacts[1] is catalog.mcp("cloudflare")
+
+
+def test_a_bundle_naming_an_mcp_server_the_catalog_does_not_have_names_both(tmp_path: Path) -> None:
+    # given
+    content = write_content(tmp_path)
+    written = write_catalog_file(
+        tmp_path, 'bundles:\n  api-python:\n    description: "d"\n    items: ["mcp:ghost"]\n'
+    )
+
+    with pytest.raises(OverpowerError) as raised:
+        load_catalog(content, written)
+
+    assert "api-python" in str(raised.value)
+    assert "ghost" in str(raised.value)
+
+
+def test_a_bundle_mixing_a_skill_and_an_mcp_server_weighs_only_the_skill(tmp_path: Path) -> None:
+    """A recipe has no tree to weigh: it costs a key, not bytes (ADR 0022)."""
+    content = write_content(tmp_path)
+    written = write_catalog_file(
+        tmp_path,
+        'bundles:\n  api-python:\n    description: "d"\n'
+        '    items: ["skill:panlabs-python-standards", "mcp:cloudflare"]\n'
+        'frameworks:\n  matt-pocock:\n    description: "d"\n'
+        f"{mcp_key('cloudflare')}",
+    )
+
+    catalog = load_catalog(content, written)
+
+    named = catalog.pool[0]
+    assert catalog.bundles[0].size == named.size
+    assert catalog.bundles[0].files == named.files
 
 
 # --------------------------------------------------------------------------- #

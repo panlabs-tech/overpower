@@ -111,13 +111,14 @@ from overpower.discovery import SKILL_FILE, ArtifactType, Bundle, Catalog, artif
 from overpower.errors import BadInvocationError, OverpowerError, RefusedError
 from overpower.recipes import MCP_KEY
 from overpower.runtimes import RUNTIMES, Scope
-from overpower.written import WrittenCatalog, read_written_catalog
+from overpower.written import ItemNamespace, WrittenCatalog, read_written_catalog
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Mapping, Sequence
 
     from overpower.discovery import Artifact
     from overpower.recipes import Recipe
+    from overpower.written import WrittenBundleItem
 
 _GIT = "git"
 """Invoked by name and without a shell. Resolving an absolute path would pin the
@@ -392,14 +393,14 @@ class UnknownRemoteBundleItemError(RefusedError):
     item travels in the message, which is what makes reporting it one paste.
     """
 
-    def __init__(self, bundle: str, item: str, source: Source) -> None:
-        """Name all three: the manifest, the name it points at, and the repository."""
+    def __init__(self, bundle: str, item: str, source: Source, among: str) -> None:
+        """Name all four: the manifest, the name it points at, the repository, and what missed."""
         self.bundle = bundle
         self.item = item
         self.source = source
         super().__init__(
             f"the bundle `{bundle}` of {source.shown} names `{item}`, "
-            f"which is not among the skills that repository offers"
+            f"which is not among the {among}"
         )
 
 
@@ -640,13 +641,15 @@ def _bundles_of(
     the one line worth reading. What must not diverge is the *reader*, and that
     one really is shared — `_declared_by` is the only door.
     """
-    by_name = {artifact.name: artifact for artifact in offers}
+    by_skill = {artifact.name: artifact for artifact in offers}
+    by_mcp = {recipe.name: recipe for recipe in declared.mcps}
     return tuple(
         Bundle(
             name=written.name,
             description=written.description,
             artifacts=tuple(
-                _offered_item(written.name, item, by_name, source) for item in written.items
+                _offered_item(written.name, item, by_skill, by_mcp, source)
+                for item in written.items
             ),
         )
         for written in declared.bundles
@@ -677,12 +680,26 @@ def _bundles_called(
 
 
 def _offered_item(
-    bundle: str, item: str, offers: Mapping[str, Artifact], source: Source
-) -> Artifact:
-    """The offered skill a bundle points at, or the refusal that names both."""
-    if item not in offers:
-        raise UnknownRemoteBundleItemError(bundle, item, source)
-    return offers[item]
+    bundle: str,
+    item: WrittenBundleItem,
+    offers: Mapping[str, Artifact],
+    mcps: Mapping[str, Recipe],
+    source: Source,
+) -> Artifact | Recipe:
+    """The offered skill or declared recipe a bundle points at, in its own namespace (ADR 0022)."""
+    if item.namespace is ItemNamespace.MCP:
+        recipe = mcps.get(item.name)
+        if recipe is None:
+            raise UnknownRemoteBundleItemError(
+                bundle, item.name, source, "mcp servers that repository declares"
+            )
+        return recipe
+    artifact = offers.get(item.name)
+    if artifact is None:
+        raise UnknownRemoteBundleItemError(
+            bundle, item.name, source, "skills that repository offers"
+        )
+    return artifact
 
 
 def _skills_offered(tree: Path) -> tuple[Artifact, ...]:

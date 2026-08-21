@@ -97,7 +97,7 @@ def test_artifact_choices_group_the_four_units_with_one_separator_each(
         "alpha",
         "beta",
         frameworks={"fw": ["fa"]},
-        bundles={"bun": ["alpha"]},
+        bundles={"bun": ["skill:alpha"]},
         mcps={"cloudflare": "https://mcp.example.com/mcp"},
     )
     catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
@@ -137,7 +137,7 @@ def test_ask_artifacts_partitions_the_pick_by_kind(
         monkeypatch,
         "alpha",
         frameworks={"fw": ["fa"]},
-        bundles={"bun": ["alpha"]},
+        bundles={"bun": ["skill:alpha"]},
         mcps={"cloudflare": "https://mcp.example.com/mcp"},
     )
     catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
@@ -166,7 +166,7 @@ def test_counted_counts_all_four_classes(tmp_path: Path, monkeypatch: pytest.Mon
         monkeypatch,
         "alpha",
         frameworks={"fw": ["fa"]},
-        bundles={"bun": ["alpha"]},
+        bundles={"bun": ["skill:alpha"]},
         mcps={"cloudflare": "https://mcp.example.com/mcp"},
     )
     catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")

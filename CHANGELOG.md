@@ -23,6 +23,13 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.30.0] - 2026-08-21
+
+### Breaking
+
+- Um bundle passa a alcançar um **servidor MCP**, porque servidor MCP é artefato — como o vocabulário sempre disse. Em `items`, cada entrada agora carrega o **espaço de nomes como prefixo**: `skill:<nome>` ou `mcp:<nome>`, resolvido dentro do mesmo repositório, dos dois lados da procedência. **Não há janela de compatibilidade**: uma entrada sem prefixo, ou com prefixo fora do conjunto fechado, é recusa por nome — todo `items` existente, embutido ou federado, precisa ganhar o prefixo `skill:`. Um bundle com skill e servidor escreve a pasta e a chave na mesma execução, e as telas somam corretamente um item que não tem árvore para pesar — a receita pesa uma chave, não bytes. O escopo continua um por execução: nada no bundle escolhe escopo por item. Ver [ADR 0022](https://github.com/ThiagoPanini/overpower/blob/main/docs/adr/0022-servidor-mcp-e-artefato.md). ([#166](https://github.com/ThiagoPanini/overpower/issues/166))
+
+
 ## [0.29.0] - 2026-08-21
 
 ### Breaking

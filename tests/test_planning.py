@@ -506,7 +506,7 @@ def test_a_bundle_writes_exactly_what_it_names_and_no_framework(
         "alpha",
         "beta",
         frameworks={"matt-pocock": ("gamma",)},
-        bundles={"api-python": ("alpha",)},
+        bundles={"api-python": ("skill:alpha",)},
     )
     root = target(tmp_path, monkeypatch)
     catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
@@ -524,6 +524,63 @@ def test_a_bundle_writes_exactly_what_it_names_and_no_framework(
     ]
 
 
+def test_a_bundle_mixing_a_skill_and_an_mcp_server_writes_both_in_one_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR 0022: `install --bundle` writes a folder and a key in the same run."""
+    # given
+    content = catalog_of(
+        tmp_path,
+        monkeypatch,
+        "alpha",
+        bundles={"api-python": ("skill:alpha", "mcp:cloudflare")},
+        mcps={"cloudflare": "https://mcp.example.com/mcp"},
+    )
+    root = target(tmp_path, monkeypatch)
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
+
+    plan = plan_for(
+        Request(bundles=("api-python",), runtimes=("claude-code",), scope=Scope.PROJECT),
+        catalog,
+        root,
+        Environment.from_process(),
+    )
+
+    assert [selection.name for selection in plan.selections] == ["api-python"]
+    destinations = [write.destination for write in plan.writes]
+    assert DirectoryTree(path=root / CLAUDE / "alpha") in destinations
+    assert DocumentKey(path=root / ".mcp.json", key="mcpServers.cloudflare") in destinations
+    assert sorted(write.mode for write in plan.writes) == sorted([WriteMode.COPY, WriteMode.GRAFT])
+
+
+def test_a_bundle_naming_only_an_mcp_server_grafts_it_with_no_copy_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bundle is not required to carry a skill: an mcp-only bundle just grafts."""
+    # given
+    content = catalog_of(
+        tmp_path,
+        monkeypatch,
+        bundles={"api-python": ("mcp:cloudflare",)},
+        mcps={"cloudflare": "https://mcp.example.com/mcp"},
+    )
+    root = target(tmp_path, monkeypatch)
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
+
+    plan = plan_for(
+        Request(bundles=("api-python",), runtimes=("claude-code",), scope=Scope.PROJECT),
+        catalog,
+        root,
+        Environment.from_process(),
+    )
+
+    assert [selection.name for selection in plan.selections] == ["api-python"]
+    assert [write.destination for write in plan.writes] == [
+        DocumentKey(path=root / ".mcp.json", key="mcpServers.cloudflare")
+    ]
+    assert [write.mode for write in plan.writes] == [WriteMode.GRAFT]
+
+
 def test_framework_bundle_and_skill_on_one_line_produce_one_plan_in_fixed_order(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -534,7 +591,7 @@ def test_framework_bundle_and_skill_on_one_line_produce_one_plan_in_fixed_order(
         monkeypatch,
         "alpha",
         frameworks={"matt-pocock": ("gamma",)},
-        bundles={"api-python": ("alpha",)},
+        bundles={"api-python": ("skill:alpha",)},
     )
     root = target(tmp_path, monkeypatch)
     catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
@@ -584,7 +641,7 @@ def test_an_ai_framework_and_a_bundle_accept_comma_and_repetition_too(
         "p1",
         "p2",
         frameworks={"fw-one": ("f1",), "fw-two": ("f2",)},
-        bundles={"bun-one": ("p1",), "bun-two": ("p2",)},
+        bundles={"bun-one": ("skill:p1",), "bun-two": ("skill:p2",)},
     )
     root = target(tmp_path, monkeypatch)
 

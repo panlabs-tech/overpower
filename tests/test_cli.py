@@ -1573,6 +1573,56 @@ def test_reinstalling_a_sourced_recipe_re_clones_without_force(
     assert (home / ".overpower" / "mcp" / "homegrown" / "server.py").is_file()
 
 
+def test_a_bundled_sourced_recipe_clones_to_the_machine_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """ADR 0022: a `source:` recipe reached only through `--bundle` still gets its clone."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, bundles={"api-python": ["mcp:homegrown"]})
+    project.custom_recipe(tmp_path, "homegrown", SOURCED)
+    home = tmp_path / "home"
+    project.at_home(monkeypatch, home)
+    monkeypatch.setattr(cli, "_out", project.pinned(tty=False))
+    local = git_remote.build(tmp_path / "origin", {"server.py": "print('hi')\n"})
+    monkeypatch.setattr(remote, "fetch_with_git", git_remote.instead_of_github(local))
+
+    code, _ = project.run(
+        capsys, "install", "--bundle", "api-python", "--runtime", "claude-code", "--global"
+    )
+
+    assert code == 0
+    destination = home / ".overpower" / "mcp" / "homegrown"
+    assert (destination / "server.py").read_text(encoding="utf-8") == "print('hi')\n"
+
+
+def test_a_bundled_sourced_recipe_in_project_scope_is_refused_naming_the_fix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The same refusal `--mcp` gets, reached only through `--bundle` this time (ADR 0022)."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch, bundles={"api-python": ["mcp:homegrown"]})
+    project.custom_recipe(tmp_path, "homegrown", SOURCED)
+    root = project.target(tmp_path, monkeypatch)
+    called: list[str] = []
+
+    def fetch(url: str, _ref: str, into: Path) -> Path:
+        called.append(url)
+        return into
+
+    monkeypatch.setattr(remote, "fetch_with_git", fetch)
+
+    code, output = project.run(
+        capsys, "install", "--bundle", "api-python", "--runtime", "claude-code"
+    )
+
+    assert code == 3
+    joined = project.joined(output)
+    assert "homegrown" in joined
+    assert "--global" in joined
+    assert list(root.iterdir()) == []
+    assert called == []
+
+
 # --------------------------------------------------------------------------- #
 # #97: the validation boundary moves up — before the wizard's first screen
 # --------------------------------------------------------------------------- #
@@ -2358,7 +2408,7 @@ def test_a_partial_line_without_a_terminal_still_exits_two_with_the_message_of_t
     """
     # given
     project.catalog_of(
-        tmp_path, monkeypatch, "alpha", frameworks={"fw": ["fa"]}, bundles={"bun": ["alpha"]}
+        tmp_path, monkeypatch, "alpha", frameworks={"fw": ["fa"]}, bundles={"bun": ["skill:alpha"]}
     )
     root = project.target(tmp_path, monkeypatch)  # tty=False by default
     monkeypatch.setattr(cli, "run_wizard", _never_called)
@@ -2844,7 +2894,7 @@ def test_the_artifacts_step_offers_the_bundles_the_repository_declares(
     monkeypatch.setattr(cli, "load_catalog", _exploding)
     monkeypatch.setattr(wizard, "ask_artifacts", ask_artifacts)
     planted = git_remote.offering(
-        "alpha", "beta", bundles={"api-python": ["alpha"]}, mcps=("cloudflare",)
+        "alpha", "beta", bundles={"api-python": ["skill:alpha"]}, mcps=("cloudflare",)
     )
     monkeypatch.setattr(remote, "fetch_with_git", git_remote.planting(planted))
 
@@ -3194,7 +3244,7 @@ def test_install_bundle_from_installs_what_the_bundle_names(
     root = project.target(tmp_path, monkeypatch)
     monkeypatch.setattr(cli, "load_catalog", _exploding)
     planted = git_remote.offering(
-        "alpha", "beta", "gamma", bundles={"api-python": ["alpha", "beta"]}
+        "alpha", "beta", "gamma", bundles={"api-python": ["skill:alpha", "skill:beta"]}
     )
     monkeypatch.setattr(remote, "fetch_with_git", git_remote.planting(planted))
 
@@ -3225,7 +3275,7 @@ def test_the_three_depths_of_url_install_the_same_bundle(
     # given
     root = project.target(tmp_path, monkeypatch)
     monkeypatch.setattr(cli, "load_catalog", _exploding)
-    planted = git_remote.offering("alpha", "beta", bundles={"api-python": ["alpha"]})
+    planted = git_remote.offering("alpha", "beta", bundles={"api-python": ["skill:alpha"]})
     monkeypatch.setattr(remote, "fetch_with_git", git_remote.planting(planted))
 
     code, _ = project.run(
@@ -3246,7 +3296,7 @@ def test_a_bundle_that_is_not_declared_remotely_exits_three_and_writes_nothing(
     # given
     root = project.target(tmp_path, monkeypatch)
     monkeypatch.setattr(cli, "load_catalog", _exploding)
-    planted = git_remote.offering("alpha", bundles={"api-python": ["alpha"]})
+    planted = git_remote.offering("alpha", bundles={"api-python": ["skill:alpha"]})
     monkeypatch.setattr(remote, "fetch_with_git", git_remote.planting(planted))
 
     code, output = project.run(
@@ -3267,7 +3317,7 @@ def test_a_bundle_item_the_repository_does_not_offer_exits_three_naming_it(
     # given
     root = project.target(tmp_path, monkeypatch)
     monkeypatch.setattr(cli, "load_catalog", _exploding)
-    planted = git_remote.offering("alpha", bundles={"api-python": ["alpha", "ghost"]})
+    planted = git_remote.offering("alpha", bundles={"api-python": ["skill:alpha", "skill:ghost"]})
     monkeypatch.setattr(remote, "fetch_with_git", git_remote.planting(planted))
 
     code, output = project.run(
@@ -3294,7 +3344,9 @@ def test_a_bundle_item_never_reaches_the_embedded_catalog(
     # given
     project.catalog_of(tmp_path, monkeypatch, "embedded-only")
     root = project.target(tmp_path, monkeypatch)
-    planted = git_remote.offering("alpha", bundles={"api-python": ["alpha", "embedded-only"]})
+    planted = git_remote.offering(
+        "alpha", bundles={"api-python": ["skill:alpha", "skill:embedded-only"]}
+    )
     monkeypatch.setattr(remote, "fetch_with_git", git_remote.planting(planted))
 
     code, output = project.run(
@@ -3322,7 +3374,7 @@ def test_a_bundle_and_a_skill_on_one_from_line_both_install(
     root = project.target(tmp_path, monkeypatch)
     monkeypatch.setattr(cli, "load_catalog", _exploding)
     planted = git_remote.offering(
-        "alpha", "beta", "gamma", bundles={"api-python": ["alpha", "beta"]}
+        "alpha", "beta", "gamma", bundles={"api-python": ["skill:alpha", "skill:beta"]}
     )
     monkeypatch.setattr(remote, "fetch_with_git", git_remote.planting(planted))
 
@@ -3349,7 +3401,7 @@ def test_list_bundle_from_shows_what_the_bundle_names_and_writes_nothing(
     root = project.target(tmp_path, monkeypatch)
     monkeypatch.setattr(cli, "load_catalog", _exploding)
     planted = git_remote.offering(
-        "alpha", "beta", "gamma", bundles={"api-python": ["alpha", "beta"]}
+        "alpha", "beta", "gamma", bundles={"api-python": ["skill:alpha", "skill:beta"]}
     )
     monkeypatch.setattr(remote, "fetch_with_git", git_remote.planting(planted))
 
@@ -3370,7 +3422,9 @@ def test_the_showcase_lists_the_bundles_the_repository_declares(
     """The bundle takes its place beside the skills and the recipes, with no selector."""
     # given
     monkeypatch.setattr(cli, "load_catalog", _exploding)
-    planted = git_remote.offering("alpha", bundles={"api-python": ["alpha"]}, mcps=("cloudflare",))
+    planted = git_remote.offering(
+        "alpha", bundles={"api-python": ["skill:alpha"]}, mcps=("cloudflare",)
+    )
     monkeypatch.setattr(remote, "fetch_with_git", git_remote.planting(planted))
 
     code, output = output_of(capsys, ["list", "--from", REMOTE])
@@ -3419,7 +3473,7 @@ def test_the_line_a_federated_bundle_prints_carries_the_origin_it_came_from(
     # given
     _ = project.target(tmp_path, monkeypatch)  # tty=False: the screen goes through a pipe
     monkeypatch.setattr(cli, "load_catalog", _exploding)
-    planted = git_remote.offering("alpha", bundles={"api-python": ["alpha"]})
+    planted = git_remote.offering("alpha", bundles={"api-python": ["skill:alpha"]})
     monkeypatch.setattr(remote, "fetch_with_git", git_remote.planting(planted))
 
     code, output = project.run(capsys, "list", "--bundle", "api-python", "--from", REMOTE)

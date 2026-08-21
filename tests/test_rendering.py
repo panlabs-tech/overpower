@@ -29,6 +29,7 @@ untouched, byte for byte — answers differently when the table changes.
 from __future__ import annotations
 
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 import pytest
@@ -68,6 +69,14 @@ with the test; read off the table, it proves the renderer agrees with the row
 that decides where the file is.
 """
 
+CLAUDE_GLOBAL = MCP_DOCUMENTS[("claude-code", Scope.GLOBAL)]
+"""The row the git does not reach, which is the only one a value is written into.
+
+Read off the table like its project sibling, and named apart from it because
+ADR 0024 turns on the difference: `~/.claude.json` is not in anybody's
+repository, and `.mcp.json` is.
+"""
+
 VSCODE_PROJECT = MCP_DOCUMENTS[("vscode", Scope.PROJECT)]
 """The VS Code row, read from the table for the same reason."""
 
@@ -90,21 +99,28 @@ def recipe(name: str, server: HttpServer | StdioServer, *slots: Slot) -> Recipe:
     )
 
 
-def server_of(asked: Recipe, document: McpDocument, source: Path | None = None) -> Fragment:
+def server_of(
+    asked: Recipe,
+    document: McpDocument,
+    source: Path | None = None,
+    secrets: Mapping[str, str] = MappingProxyType({}),
+) -> Fragment:
     """The server graft, which is the first one and in one dialect the only one.
 
     A recipe becomes **one or more** grafts in a document — VS Code takes a
     second one, in `inputs[]` — so the tests that are about the server say which
     graft they mean instead of indexing a tuple in fifteen places.
     """
-    first, *_ = render(asked, document, source)
+    first, *_ = render(asked, document, source, secrets)
     assert isinstance(first, Fragment), "the server graft is always the first one"
     return first
 
 
-def inputs_of(asked: Recipe, document: McpDocument) -> Inputs | None:
+def inputs_of(
+    asked: Recipe, document: McpDocument, secrets: Mapping[str, str] = MappingProxyType({})
+) -> Inputs | None:
     """The `inputs[]` graft, or `None` where the dialect asks for none."""
-    found = [graft for graft in render(asked, document) if isinstance(graft, Inputs)]
+    found = [graft for graft in render(asked, document, None, secrets) if isinstance(graft, Inputs)]
     assert len(found) <= 1, "one document takes one `inputs` graft, however many slots feed it"
     return found[0] if found else None
 
@@ -916,3 +932,118 @@ def test_a_second_scope_on_the_table_becomes_another_target() -> None:
 
     assert targets_of(asked, project_only) == (CLAUDE_TARGET, VSCODE_TARGET, DEVIN_TARGET)
     assert targets_of(asked, MCP_DOCUMENTS) == EVERY_TARGET
+
+
+# --------------------------------------------------------------------------- #
+# the value handed in, and the one target that declines it (ADR 0024)
+# --------------------------------------------------------------------------- #
+
+
+def test_an_env_slot_takes_the_value_it_was_handed_instead_of_the_reference() -> None:
+    """ADR 0024: where the git does not reach, the secret is written and not pointed at.
+
+    The renderer still reads no environment and touches no disk — the value
+    arrives as an argument, decided by the caller that asked for it, which is
+    what keeps *"the writer consumes the plan and nothing beyond it"* true.
+    """
+    asked = recipe("hostinger-vps", StdioServer(command="npx"), EnvSlot(name="HOSTINGER_TOKEN"))
+
+    fragment = server_of(asked, CLAUDE_GLOBAL, secrets={"HOSTINGER_TOKEN": "hp_live_x"})
+
+    assert fragment.value["env"] == {"HOSTINGER_TOKEN": "hp_live_x"}
+
+
+def test_a_literal_and_a_filled_slot_still_share_the_environment_table() -> None:
+    """The merge rule does not change when the slot stops being a reference."""
+    server = StdioServer(command="npx", env={"COOLIFY_BASE_URL": "https://vps.panlabs.tech"})
+    asked = recipe("coolify", server, EnvSlot(name="COOLIFY_ACCESS_TOKEN"))
+
+    fragment = server_of(asked, CLAUDE_GLOBAL, secrets={"COOLIFY_ACCESS_TOKEN": "ct_live_x"})
+
+    assert fragment.value["env"] == {
+        "COOLIFY_BASE_URL": "https://vps.panlabs.tech",
+        "COOLIFY_ACCESS_TOKEN": "ct_live_x",
+    }
+
+
+def test_a_bearer_slot_assembles_the_header_out_of_the_value_it_was_handed() -> None:
+    """`Bearer` is still the renderer's word; only what follows it changed."""
+    asked = recipe(
+        "github",
+        HttpServer(url="https://api.githubcopilot.com/mcp"),
+        BearerSlot(name="GITHUB_PAT_TOKEN"),
+    )
+
+    fragment = server_of(asked, CLAUDE_GLOBAL, secrets={"GITHUB_PAT_TOKEN": "ghp_x"})
+
+    assert fragment.value["headers"] == {"Authorization": "Bearer ghp_x"}
+
+
+def test_a_header_slot_carries_the_value_it_was_handed() -> None:
+    asked = recipe(
+        "paneled",
+        HttpServer(url="https://panel.example.com/mcp"),
+        HeaderSlot(name="PANEL_TOKEN", header="X-Panel-Token"),
+    )
+
+    fragment = server_of(asked, CLAUDE_GLOBAL, secrets={"PANEL_TOKEN": "pt_live_x"})
+
+    assert fragment.value["headers"] == {"X-Panel-Token": "pt_live_x"}
+
+
+def test_a_slot_nobody_handed_a_value_for_stays_the_reference() -> None:
+    """The interactive branch is added on top of the old one, never in place of it.
+
+    A recipe with two slots and one answer writes one value and one reference,
+    which is also what an empty answer produces (ADR 0024): the secret leaves
+    the file without the product growing a verb for removing it.
+    """
+    asked = recipe(
+        "paneled",
+        StdioServer(command="npx"),
+        EnvSlot(name="PANEL_TOKEN"),
+        EnvSlot(name="OTHER_TOKEN"),
+    )
+
+    fragment = server_of(asked, CLAUDE_GLOBAL, secrets={"PANEL_TOKEN": "pt_live_x"})
+
+    assert fragment.value["env"] == {"PANEL_TOKEN": "pt_live_x", "OTHER_TOKEN": "${OTHER_TOKEN}"}
+
+
+def test_a_devin_slot_takes_the_value_the_same_way_the_claude_one_does() -> None:
+    """Both dialects expand out of the environment, so both take the value instead.
+
+    Which is the whole of the rule: the target that cannot store it better is
+    the target that receives it.
+    """
+    asked = recipe("hostinger-vps", StdioServer(command="npx"), EnvSlot(name="HOSTINGER_TOKEN"))
+
+    fragment = server_of(asked, DEVIN_PROJECT, secrets={"HOSTINGER_TOKEN": "hp_live_x"})
+
+    assert fragment.value["env"] == {"HOSTINGER_TOKEN": "hp_live_x"}
+
+
+def test_the_target_that_keeps_the_secret_in_the_vault_never_takes_the_value() -> None:
+    """The measured exception of ADR 0024, and the reason the rule has two halves.
+
+    `inputs[]` with `password: true` is the one spelling in the whole space that
+    puts the secret under the protection of the operating system. Writing the
+    value into `.vscode/mcp.json` would be strictly **worse** than what the
+    product already does, so this target keeps its prompt and is handed nothing.
+    """
+    asked = recipe("paneled", StdioServer(command="npx"), EnvSlot(name="PANEL_TOKEN"))
+    secrets = {"PANEL_TOKEN": "pt_live_x"}
+
+    fragment = server_of(asked, VSCODE_PROJECT, secrets=secrets)
+    prompts = inputs_of(asked, VSCODE_PROJECT, secrets)
+
+    assert fragment.value["env"] == {"PANEL_TOKEN": "${input:panel-token}"}
+    assert prompts is not None, "the prompt is the mechanism, and it survives the value"
+    assert prompts.entries == (
+        {
+            "type": "promptString",
+            "id": "panel-token",
+            "description": "PANEL_TOKEN",
+            "password": True,
+        },
+    )

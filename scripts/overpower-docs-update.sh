@@ -37,7 +37,7 @@ SIBLING="${OVERPOWER_DOCS_REPO:-$(CDPATH= cd -- "$(dirname -- "$0")/../../panlab
 [ -n "${SIBLING:-}" ] || exit 0
 [ -d "$SIBLING/.git" ] || exit 0
 
-SKILL="$SIBLING/.claude/skills/panlabs-overpower-docs-update/SKILL.md"
+SKILL="$SIBLING/.claude/skills/varredura-overpower/SKILL.md"
 [ -f "$SKILL" ] || exit 0
 
 command -v claude >/dev/null 2>&1 || exit 0

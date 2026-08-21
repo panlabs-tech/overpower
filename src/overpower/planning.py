@@ -111,7 +111,7 @@ class WriteMode(StrEnum):
     """
 
     CLONE = "clone"
-    """The code a `[source]` recipe brings, landed exactly like `COPY`.
+    """The code a `source:` recipe brings, landed exactly like `COPY`.
 
     Its own member and not a plain `COPY`, because the two disagree on the one
     axis `existing_destinations` asks about: a global copy that already exists
@@ -408,7 +408,7 @@ class RuntimeUnavailableInScopeError(RefusedError):
 
 
 class SourceRequiresMachineScopeError(RefusedError):
-    """A recipe with `[source]` asked for in a scope that cannot receive its clone.
+    """A recipe with `source:` asked for in a scope that cannot receive its clone.
 
     ADR 0015, in the shape ADR 0009 already gave the model: there, the set of
     **runtimes** `--runtime` accepts is a function of scope; here the same move
@@ -599,12 +599,12 @@ def plan_for(  # noqa: PLR0913, PLR0917 — the four a plan needs, plus the two 
     it is unused and still required in project scope, because a function whose
     shape changes with its own input is a harder one to call correctly.
 
-    `sources` is the clone each selected `[source]` recipe already brought, keyed
+    `sources` is the clone each selected `source:` recipe already brought, keyed
     by recipe name (`overpower.remote.sources_for`) — obtained outside this
     function and handed in, the same reason `catalog` itself is: a planner that
     fetched for itself could not be built from a value that survives past the
     call that built it, and the writer needs the clone still on disk at
-    `execute()` time. Empty by default, and every recipe with no `[source]` never
+    `execute()` time. Empty by default, and every recipe with no `source:` never
     looks itself up in it.
 
     `secrets` is the slot values a person answered for, and **it is dropped
@@ -1076,7 +1076,7 @@ def _tolerates_jsonc(readers: Sequence[str], scope: Scope) -> bool:
 
 
 def _refuse_a_sourced_recipe_outside_machine_scope(recipes: Sequence[Recipe], scope: Scope) -> None:
-    """Refuse the line if any selected recipe with `[source]` is asked for outside `--global`.
+    """Refuse the line if any selected recipe with `source:` is asked for outside `--global`.
 
     Before `_selected_runtimes` and every refusal that follows it: a recipe that
     brings its own clone has nowhere legal to land in project scope regardless
@@ -1207,11 +1207,12 @@ def _skill_selection(
 _SOURCE_DIR = (".overpower", "mcp")
 """Where a clone lands under the machine root: `~/.overpower/mcp/<slug>/`.
 
-The same two segments `overpower.remote._FEDERATED_MCP_DIR` names for the
-opposite direction — there, the convention path a federated repository is
-searched at; here, the convention path this product writes a clone to. Two
-constants and not one shared: they answer different questions of different
-modules, and happen to agree because the destination echoes the convention.
+The same two segments `overpower.remote._LEGACY_MCP_DIR` still names, for a
+question that is not this one — there, the address a recipe *used* to be read
+from, kept only to refuse it (ADR 0021); here, the address this product writes a
+clone to, which ADR 0023 keeps. Two constants and not one shared: they answer
+different questions of different modules, and the coincidence of spelling is
+what makes sharing them a trap rather than a saving.
 """
 
 
@@ -1234,7 +1235,7 @@ def _mcp_selection(
     fragment its own dialect asks for.
 
     `cloned` is the scratch tree `overpower.remote.sources_for` already obtained
-    for this recipe, or `None` for a recipe with no `[source]`. When it is not
+    for this recipe, or `None` for a recipe with no `source:`. When it is not
     `None`, the clone is a **second landing** of this same selection — issue #84
     is what the model's *"an artifact may cost more than one write, the second
     possibly outside the repository"* (module docstring) was reserved for — and
@@ -1299,7 +1300,7 @@ def _graft_landing(
 
     `source` is the clone's **destination**, threaded through to `render` so
     `{source}` resolves to a path that still exists after this command exits —
-    `None` for a recipe with no `[source]`, in which recipe the token cannot
+    `None` for a recipe with no `source:`, in which recipe the token cannot
     occur at all (`overpower.recipes.SourcelessSubstitutionError`).
     """
     return Landing(

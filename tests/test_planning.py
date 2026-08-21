@@ -631,19 +631,23 @@ def test_a_skill_naming_other_skills_in_its_text_writes_only_itself(
 
 
 # --------------------------------------------------------------------------- #
-# [source]: the clone is a second write of the same selection (#84)
+# `source:`: the clone is a second write of the same selection (#84)
 # --------------------------------------------------------------------------- #
 
 SOURCED = """\
-description = "A server with code of its own."
-transport = "stdio"
+description: "A server with code of its own."
+transport: "stdio"
 
-[source]
-url = "https://github.com/example/homegrown-mcp"
+source:
+  url: "https://github.com/example/homegrown-mcp"
 
-[server]
-command = "uv"
-args = ["run", "--project", "{source}", "server.py"]
+server:
+  command: "uv"
+  args:
+    - "run"
+    - "--project"
+    - "{source}"
+    - "server.py"
 """
 
 
@@ -686,7 +690,7 @@ def test_a_sourced_recipe_costs_a_clone_landing_alongside_its_graft(
 def test_a_recipe_with_no_source_costs_no_clone_landing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The ordinary case, unaffected: no `[source]`, one landing, exactly as before."""
+    """The ordinary case, unaffected: no `source:`, one landing, exactly as before."""
     # given
     content = catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": "https://mcp.example.com/mcp"})
     root = target(tmp_path, monkeypatch)

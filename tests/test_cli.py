@@ -1401,19 +1401,23 @@ def test_a_line_that_mixes_a_skill_and_a_server_writes_both(
 
 
 # --------------------------------------------------------------------------- #
-# #84: [source] clones code to the machine, and restricts the scope
+# #84: `source:` clones code to the machine, and restricts the scope
 # --------------------------------------------------------------------------- #
 
 SOURCED = """\
-description = "A server with code of its own."
-transport = "stdio"
+description: "A server with code of its own."
+transport: "stdio"
 
-[source]
-url = "https://github.com/example/homegrown-mcp"
+source:
+  url: "https://github.com/example/homegrown-mcp"
 
-[server]
-command = "uv"
-args = ["run", "--project", "{source}", "server.py"]
+server:
+  command: "uv"
+  args:
+    - "run"
+    - "--project"
+    - "{source}"
+    - "server.py"
 """
 
 
@@ -1776,24 +1780,24 @@ PRECONDITION_VARIABLE = "OP_PRECONDITION_VAR"
 
 
 def _precondition_recipe(check: str, value: str, *, instructions: str | None = None) -> str:
-    """A minimal stdio recipe carrying one `[[preconditions]]` entry.
+    """A minimal stdio recipe carrying one `preconditions:` entry.
 
-    `value` is a TOML **literal** string (single-quoted): a Windows path
-    carries backslashes, and a basic string would read those as escapes.
+    `value` is a YAML **single-quoted** scalar: a Windows path carries
+    backslashes, and a double-quoted one would read those as escapes.
     """
     lines: list[str] = []
     if instructions is not None:
-        lines.append(f'instructions = "{instructions}"')
+        lines.append(f'instructions: "{instructions}"')
     lines += [
-        'description = "A server with a precondition."',
-        'transport = "stdio"',
+        'description: "A server with a precondition."',
+        'transport: "stdio"',
         "",
-        "[server]",
-        'command = "uvx"',
+        "server:",
+        '  command: "uvx"',
         "",
-        "[[preconditions]]",
-        f'check = "{check}"',
-        f"value = '{value}'",
+        "preconditions:",
+        f'  - check: "{check}"',
+        f"    value: '{value}'",
         "",
     ]
     return "\n".join(lines)
@@ -2581,7 +2585,7 @@ def test_the_three_depths_of_url_install_the_same_mcp_recipe(
     root = project.target(tmp_path, monkeypatch)
     monkeypatch.setattr(cli, "load_catalog", _exploding)
     monkeypatch.setattr(
-        remote, "fetch_with_git", git_remote.planting(git_remote.mcp_recipe_files("cloudflare"))
+        remote, "fetch_with_git", git_remote.planting(git_remote.declaring("cloudflare"))
     )
 
     code, _ = project.run(
@@ -2600,7 +2604,7 @@ def test_an_mcp_recipe_that_is_not_found_remotely_exits_three_and_writes_nothing
     root = project.target(tmp_path, monkeypatch)
     monkeypatch.setattr(cli, "load_catalog", _exploding)
     monkeypatch.setattr(
-        remote, "fetch_with_git", git_remote.planting(git_remote.mcp_recipe_files("cloudflare"))
+        remote, "fetch_with_git", git_remote.planting(git_remote.declaring("cloudflare"))
     )
 
     code, output = project.run(
@@ -2609,6 +2613,33 @@ def test_an_mcp_recipe_that_is_not_found_remotely_exits_three_and_writes_nothing
 
     assert code == 3
     assert "vercel" in project.joined(output)
+    assert list(root.iterdir()) == []
+
+
+def test_the_old_recipe_layout_exits_three_naming_the_file_to_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """ADR 0021's migration, at the exit code: whoever wrote the old convention is told.
+
+    Exit **3** and not a mute nothing: the line was well formed, the repository
+    was obtained and read, and the answer is no. Like every exit 3 of this
+    product, the message names the fix — the file to write in place of what was
+    found — because the reader of it is the author of that repository.
+    """
+    # given
+    root = project.target(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli, "load_catalog", _exploding)
+    planted = {**git_remote.skill_files("alpha"), **git_remote.legacy_recipe_files("cloudflare")}
+    monkeypatch.setattr(remote, "fetch_with_git", git_remote.planting(planted))
+
+    code, output = project.run(
+        capsys, *("install", "--from", REMOTE), *("--mcp", "cloudflare"), "--yes"
+    )
+
+    joined = project.joined(output)
+    assert code == 3
+    assert ".overpower/mcp/cloudflare.toml" in joined
+    assert ".overpower.yaml" in joined
     assert list(root.iterdir()) == []
 
 
@@ -2812,10 +2843,9 @@ def test_the_artifacts_step_offers_the_bundles_the_repository_declares(
     project.terminal(monkeypatch)
     monkeypatch.setattr(cli, "load_catalog", _exploding)
     monkeypatch.setattr(wizard, "ask_artifacts", ask_artifacts)
-    planted = {
-        **git_remote.offering("alpha", "beta", bundles={"api-python": ["alpha"]}),
-        **git_remote.mcp_recipe_files("cloudflare"),
-    }
+    planted = git_remote.offering(
+        "alpha", "beta", bundles={"api-python": ["alpha"]}, mcps=("cloudflare",)
+    )
     monkeypatch.setattr(remote, "fetch_with_git", git_remote.planting(planted))
 
     code, _ = project.run(capsys, "install", "--from", REMOTE, "--runtime", "claude-code", "--yes")
@@ -3043,7 +3073,7 @@ def test_list_mcp_from_shows_the_recipe_and_writes_nothing(
     # given
     monkeypatch.setattr(cli, "load_catalog", _exploding)
     monkeypatch.setattr(
-        remote, "fetch_with_git", git_remote.planting(git_remote.mcp_recipe_files("cloudflare"))
+        remote, "fetch_with_git", git_remote.planting(git_remote.declaring("cloudflare"))
     )
 
     code, output = output_of(capsys, ["list", "--mcp", "cloudflare", "--from", REMOTE])
@@ -3073,7 +3103,7 @@ def test_the_line_a_federated_recipe_prints_carries_the_origin_it_came_from(
     _ = project.target(tmp_path, monkeypatch)  # tty=False: the screen goes through a pipe
     monkeypatch.setattr(cli, "load_catalog", _exploding)
     monkeypatch.setattr(
-        remote, "fetch_with_git", git_remote.planting(git_remote.mcp_recipe_files("cloudflare"))
+        remote, "fetch_with_git", git_remote.planting(git_remote.declaring("cloudflare"))
     )
 
     code, output = project.run(capsys, "list", "--mcp", "cloudflare", "--from", REMOTE)
@@ -3112,10 +3142,7 @@ def test_list_from_with_no_selector_prints_the_showcase(
     """
     # given
     monkeypatch.setattr(cli, "load_catalog", _exploding)
-    planted = {
-        **git_remote.skill_files("alpha"),
-        **git_remote.mcp_recipe_files("cloudflare"),
-    }
+    planted = {**git_remote.skill_files("alpha"), **git_remote.declaring("cloudflare")}
     monkeypatch.setattr(remote, "fetch_with_git", git_remote.planting(planted))
 
     code, output = output_of(capsys, ["list", "--from", REMOTE])
@@ -3343,10 +3370,7 @@ def test_the_showcase_lists_the_bundles_the_repository_declares(
     """The bundle takes its place beside the skills and the recipes, with no selector."""
     # given
     monkeypatch.setattr(cli, "load_catalog", _exploding)
-    planted = {
-        **git_remote.offering("alpha", bundles={"api-python": ["alpha"]}),
-        **git_remote.mcp_recipe_files("cloudflare"),
-    }
+    planted = git_remote.offering("alpha", bundles={"api-python": ["alpha"]}, mcps=("cloudflare",))
     monkeypatch.setattr(remote, "fetch_with_git", git_remote.planting(planted))
 
     code, output = output_of(capsys, ["list", "--from", REMOTE])
@@ -3414,7 +3438,7 @@ def test_a_malformed_federated_manifest_names_the_field_and_writes_nothing(
     monkeypatch.setattr(cli, "load_catalog", _exploding)
     planted = {
         **git_remote.skill_files("alpha"),
-        ".overpower/catalog.yaml": "bundles:\n  api-python:\n    items: [alpha]\n",
+        ".overpower.yaml": "bundles:\n  api-python:\n    items: [alpha]\n",
     }
     monkeypatch.setattr(remote, "fetch_with_git", git_remote.planting(planted))
 

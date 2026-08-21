@@ -9,7 +9,7 @@ Code and in the Copilot CLI, and `${env:VAR}` reaches the network raw in Claude
 Code (`docs/research/mcp-config-formats.md`).
 
 **A slot is written as a reference, or as the value the caller handed in**, and
-`[server.env]` draws the line between them: a literal — the address of a panel —
+`server.env` draws the line between them: a literal — the address of a panel —
 is written because it is not a secret, and a slot is written only where ADR 0024
 allows it, which is where the git does not reach *and* the target cannot store it
 better. **Nothing here reads the environment and nothing here reads a disk**, so
@@ -284,7 +284,7 @@ def targets_of(
 
     **Two terms and not one**, because two different things decide a pair. The
     document decides whether the transport can be spelled at all; the *recipe*
-    decides which scopes are open to it, and a recipe with `[source]` clones to
+    decides which scopes are open to it, and a recipe with `source:` clones to
     an absolute path on this machine, which cannot go into the team's repository
     (ADR 0015). `overpower.planning` refuses that pair with exit 3 and the
     wizard declines to offer it — this is the third surface, and a screen that
@@ -321,8 +321,8 @@ def render(
     by the caller (`overpower.planning`) from (root, recipe.name) — no I/O, and
     no filesystem, the same discipline this whole module keeps: the path is
     computed, never read off a disk this function never touches. `None` for a
-    recipe that declares no `[source]`, which is every recipe read_recipe would
-    let `{source}` appear nowhere in.
+    recipe that declares no `source:`, which is every recipe the reader would let
+    `{source}` appear nowhere in.
 
     `secrets` is the value of a slot by name, for the slots the caller asked a
     person about (ADR 0024, https://github.com/ThiagoPanini/overpower/issues/167).
@@ -354,7 +354,7 @@ def _resolved(value: str, source: Path | None) -> str:
     """`value`, with `{source}` replaced by the clone's absolute path.
 
     The one substitution this product performs, and the reason it can — the
-    reader already refused every recipe that uses the token with no `[source]`
+    reader already refused every recipe that uses the token with no `source:`
     to resolve it against (`overpower.recipes.SourcelessSubstitutionError`), so
     a `source` of `None` reaching here with the token still in `value` is a
     contract this module trusts rather than re-checks.

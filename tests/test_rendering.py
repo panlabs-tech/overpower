@@ -167,7 +167,7 @@ def test_a_stdio_server_with_nothing_to_say_writes_no_empty_fields() -> None:
 
 
 def test_the_source_token_resolves_wherever_it_appears_in_a_stdio_server() -> None:
-    """`command`, every item of `args`, and every `[server.env]` value all carry it."""
+    """`command`, every item of `args`, and every `server.env` value all carry it."""
     server = StdioServer(
         command="{source}/bin/run",
         args=("--project", "{source}"),
@@ -203,7 +203,7 @@ def test_the_source_token_resolves_the_same_way_in_the_devin_dialect() -> None:
 
 
 def test_with_no_source_the_token_is_left_exactly_as_written() -> None:
-    """`None` is a recipe with no `[source]` to resolve the token against.
+    """`None` is a recipe with no `source:` to resolve the token against.
 
     Reached only through a recipe the reader already refused
     (`overpower.recipes.SourcelessSubstitutionError`), so this is a property of

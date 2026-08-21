@@ -958,14 +958,14 @@ def test_run_wizard_opens_the_mcp_runtime_step_for_an_mcp_the_artifacts_step_jus
 def test_run_wizard_asks_scope_naming_a_selected_recipe_that_brings_its_own_source(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """ADR 0015: a `[source]` recipe is known before scope is asked, so the step can say so."""
+    """ADR 0015: a `source:` recipe is known before scope is asked, so the step can say so."""
     # given
     content = catalog_of(tmp_path, monkeypatch)
     custom_recipe(
         tmp_path,
         "homegrown",
-        'description = "x"\ntransport = "stdio"\n\n[source]\nurl = "https://github.com/x/y"\n\n'
-        '[server]\ncommand = "uv"\n',
+        'description: "x"\ntransport: "stdio"\n\nsource:\n  url: "https://github.com/x/y"\n\n'
+        'server:\n  command: "uv"\n',
     )
     catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
     asked = Request(mcps=("homegrown",))
@@ -992,7 +992,7 @@ def test_run_wizard_asks_scope_naming_a_selected_recipe_that_brings_its_own_sour
 def test_run_wizard_asks_scope_naming_a_source_the_artifacts_step_just_picked(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The same ADR 0015 restriction, for a `[source]` recipe picked *inside* the wizard.
+    """The same ADR 0015 restriction, for a `source:` recipe picked *inside* the wizard.
 
     `sourced` has to be computed off what the artifacts step just answered,
     not off `asked.mcps` — which is still empty at this point on a line that
@@ -1003,8 +1003,8 @@ def test_run_wizard_asks_scope_naming_a_source_the_artifacts_step_just_picked(
     custom_recipe(
         tmp_path,
         "homegrown",
-        'description = "x"\ntransport = "stdio"\n\n[source]\nurl = "https://github.com/x/y"\n\n'
-        '[server]\ncommand = "uv"\n',
+        'description: "x"\ntransport: "stdio"\n\nsource:\n  url: "https://github.com/x/y"\n\n'
+        'server:\n  command: "uv"\n',
     )
     catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
     seen: list[bool] = []
@@ -1037,7 +1037,7 @@ def test_run_wizard_asks_scope_naming_a_source_the_artifacts_step_just_picked(
 def test_run_wizard_asks_scope_naming_no_source_for_an_ordinary_recipe(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The ordinary case, unaffected: no `[source]`, the wizard still asks freely."""
+    """The ordinary case, unaffected: no `source:`, the wizard still asks freely."""
     # given
     content = catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": "https://mcp.example.com/mcp"})
     catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")

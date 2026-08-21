@@ -6,13 +6,14 @@ the overpower know how to install* — and the name is the one the test doctrine
 fixed for the discovery mirror.
 
 Every tree here is built in `tmp_path`: the disk is real, always (ADR 0010). The
-tests that read the tree shipped in the package are the five at the bottom, and
+tests that read the tree shipped in the package are the six at the bottom, and
 none of them asserts what today's curation put inside it: one says the roots
-resolve, and the other four assert **rules** the curation has to keep obeying —
-that an embedded recipe pins an exact version, that the embedded set reaches
-every branch the renderer has, that a recipe launched as a process declares the
-command that launches it, and that what the four of them render carries no
-spelling only one target understands.
+resolve, one says the root that never lands holds exactly one file, and the other
+four assert **rules** the curation has to keep obeying — that an embedded recipe
+pins an exact version, that the embedded set reaches every branch the renderer
+has, that a recipe launched as a process declares the command that launches it,
+and that what the four of them render carries no spelling only one target
+understands.
 """
 
 from __future__ import annotations
@@ -34,7 +35,7 @@ from overpower.discovery import (
 )
 from overpower.errors import BadInvocationError, OverpowerError
 from overpower.packaged import catalog_file, content_root
-from overpower.recipes import BearerSlot, Check, EnvSlot, HttpServer, StdioServer
+from overpower.recipes import MCP_KEY, BearerSlot, Check, EnvSlot, HttpServer, StdioServer
 from overpower.rendering import Fragment, Inputs, render
 from overpower.runtimes import MCP_DOCUMENTS, Scope
 from overpower.written import read_written_catalog
@@ -82,20 +83,24 @@ def write_catalog_file(tmp_path: Path, body: str) -> Path:
     return path
 
 
-def write_mcp(tmp_path: Path, name: str, url: str = "https://mcp.example.com/mcp") -> Path:
-    """One recipe, in the third discovery root — beside the written file.
+def mcp_key(*names: str, url: str = "https://mcp.example.com/mcp") -> str:
+    """The `mcp:` key of the written file, one entry per name.
 
-    It never lands, so it cannot live under the root whose invariant is *100%
-    lands*; it lives in the root that lands nothing, one file per server.
+    A recipe never lands, so it has no tree to be discovered in; it is declared
+    under a key of the file this module already reads (ADR 0021). Returned as
+    text rather than written, because it composes with `WRITTEN` the way a
+    document composes — by concatenation.
     """
-    path = tmp_path / "catalog" / "mcps" / f"{name}.toml"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        f'description = "The {name} server."\ntransport = "http"\n\n[server]\nurl = "{url}"\n',
-        encoding="utf-8",
-        newline="\n",
-    )
-    return path
+    lines = [f"{MCP_KEY}:"]
+    for name in names:
+        lines += [
+            f"  {name}:",
+            f'    description: "The {name} server."',
+            '    transport: "http"',
+            "    server:",
+            f'      url: "{url}"',
+        ]
+    return "\n".join(lines) + "\n"
 
 
 WRITTEN = """
@@ -311,6 +316,34 @@ def test_the_written_file_carries_bundles_and_framework_descriptions(tmp_path: P
     assert written.bundles[0].items == ("panlabs-python-standards",)
 
 
+def test_the_written_file_carries_the_recipes_under_the_mcp_key(tmp_path: Path) -> None:
+    """One file, one format, one reader (ADR 0021): the recipe is a key of the manifest.
+
+    It is the same key a homemade repository writes in its `.overpower.yaml`, so
+    the assertion below is about both provenances at once — there is no second
+    place a recipe can come from and no second validator to disagree.
+    """
+    written = read_written_catalog(
+        write_catalog_file(tmp_path, f"{WRITTEN}{mcp_key('cloudflare')}")
+    )
+
+    assert [recipe.name for recipe in written.mcps] == ["cloudflare"]
+    assert written.mcps[0].server == HttpServer(url="https://mcp.example.com/mcp")
+
+
+def test_a_key_this_version_does_not_read_is_refused_by_name(tmp_path: Path) -> None:
+    """`version:` was considered and refused, and this is what pays for refusing it.
+
+    A closed allowlist answers the field that does not exist by **naming** it,
+    which is the better message a version marker would have bought at the cost
+    of a line every publisher copies without knowing why (ADR 0021).
+    """
+    with pytest.raises(OverpowerError) as raised:
+        read_written_catalog(write_catalog_file(tmp_path, "version: 1\n"))
+
+    assert "version" in str(raised.value)
+
+
 def test_a_written_file_that_is_not_a_table_of_tables_says_so(tmp_path: Path) -> None:
     """The decoder returns `object`, so a malformed file fails here and not later."""
     with pytest.raises(OverpowerError) as raised:
@@ -469,16 +502,20 @@ def test_a_skill_added_to_the_tree_appears_without_touching_the_written_file(
 
 
 # --------------------------------------------------------------------------- #
-# the third root: MCP recipes
+# MCP recipes: a key of the written file, and no root of their own
 # --------------------------------------------------------------------------- #
+#
+# There is no walk to test here any more, and its absence is the point. A recipe
+# never lands, so it has no tree to be discovered in — it is declared, under
+# `mcp:`, in the file the catalog already reads (ADR 0021). The blind spot #10
+# measured for a loose file in a type folder went with the folder.
 
 
-def test_a_recipe_dropped_in_the_third_root_is_discovered_by_walking(tmp_path: Path) -> None:
-    """Rule 8 again, one root over: adding a server is adding a file."""
+def test_a_recipe_declared_under_the_mcp_key_reaches_the_catalog(tmp_path: Path) -> None:
+    """One address locates everything the tree cannot know, recipes included."""
     # given
     content = write_content(tmp_path)
-    catalog_path = write_catalog_file(tmp_path, WRITTEN)
-    write_mcp(tmp_path, "cloudflare")
+    catalog_path = write_catalog_file(tmp_path, f"{WRITTEN}{mcp_key('cloudflare')}")
 
     catalog = load_catalog(content, catalog_path)
 
@@ -487,33 +524,19 @@ def test_a_recipe_dropped_in_the_third_root_is_discovered_by_walking(tmp_path: P
 
 
 def test_recipes_come_back_sorted_by_slug(tmp_path: Path) -> None:
-    """`iterdir` answers in the filesystem's order, and a screen needs one of ours."""
+    """A mapping has no order to preserve, and a screen needs one of ours."""
     # given
     content = write_content(tmp_path)
-    catalog_path = write_catalog_file(tmp_path, WRITTEN)
-    for name in ("hostinger-vps", "cloudflare", "github"):
-        write_mcp(tmp_path, name)
+    declared = mcp_key("hostinger-vps", "cloudflare", "github")
+    catalog_path = write_catalog_file(tmp_path, f"{WRITTEN}{declared}")
 
     catalog = load_catalog(content, catalog_path)
 
     assert [recipe.name for recipe in catalog.mcps] == ["cloudflare", "github", "hostinger-vps"]
 
 
-def test_a_file_that_is_not_a_recipe_is_not_an_mcp(tmp_path: Path) -> None:
-    """The same blind spot #10 measured for a loose file in a type folder."""
-    # given
-    content = write_content(tmp_path)
-    catalog_path = write_catalog_file(tmp_path, WRITTEN)
-    write_mcp(tmp_path, "cloudflare")
-    (tmp_path / "catalog" / "mcps" / "README.md").write_text("not a recipe\n", encoding="utf-8")
-
-    catalog = load_catalog(content, catalog_path)
-
-    assert [recipe.name for recipe in catalog.mcps] == ["cloudflare"]
-
-
-def test_a_catalog_root_with_no_recipes_at_all_is_a_catalog_with_no_mcps(tmp_path: Path) -> None:
-    """A tree may legitimately carry none, so the absent root is not a failure."""
+def test_a_written_file_with_no_mcp_key_is_a_catalog_with_no_mcps(tmp_path: Path) -> None:
+    """A repository may legitimately declare none, so the absent key is not a failure."""
     catalog = load_catalog(write_content(tmp_path), write_catalog_file(tmp_path, WRITTEN))
 
     assert catalog.mcps == ()
@@ -523,8 +546,8 @@ def test_an_mcp_name_the_catalog_does_not_have_carries_the_whole_closed_list(
     tmp_path: Path,
 ) -> None:
     # given
-    write_mcp(tmp_path, "cloudflare")
-    catalog = load_catalog(write_content(tmp_path), write_catalog_file(tmp_path, WRITTEN))
+    declared = write_catalog_file(tmp_path, f"{WRITTEN}{mcp_key('cloudflare')}")
+    catalog = load_catalog(write_content(tmp_path), declared)
 
     with pytest.raises(UnknownNameError) as raised:
         catalog.mcp("typo")
@@ -574,6 +597,20 @@ def names_a_package(word: str) -> bool:
     return "@" in word
 
 
+def test_the_root_that_never_lands_ships_exactly_one_file() -> None:
+    """The TOML left the product, so `catalog/` is one file again (ADR 0021).
+
+    Asserted as the **whole listing** and not as *"no `.toml` in it"*: what the
+    ADR decided is that a repository declares everything it offers in one file,
+    and a second file of any name beside this one would be that decision quietly
+    coming undone. The recipes are inside it now, so there is nothing left for a
+    sibling to be.
+    """
+    written = catalog_file()
+
+    assert sorted(written.parent.iterdir()) == [written]
+
+
 def test_every_embedded_stdio_recipe_pins_an_exact_version() -> None:
     """Curation, asserted: an embedded recipe never resolves a package at start-up.
 
@@ -606,7 +643,7 @@ def test_the_embedded_recipes_exercise_the_matrix_they_were_chosen_for() -> None
     """The rule the first cut of recipes was chosen by, not the recipes themselves.
 
     Both transports, a secret in the environment, a secret in a header, a recipe
-    with **no** secret at all, and a literal `[server.env]` beside a slot: each is
+    with **no** secret at all, and a literal `server.env` beside a slot: each is
     a branch of the renderer that an embedded recipe reaches, so a target added
     later cannot pass its own tests while leaving a hole in the shipped catalog.
 
@@ -640,7 +677,7 @@ def test_every_embedded_stdio_recipe_declares_the_command_that_launches_it() -> 
     A recipe launched as a process needs that process to exist, and a machine
     without it is not an error the graft can see: the write succeeds, the exit is
     **0**, and the failure surfaces much later as an obscure error from the agent
-    — which is precisely the *"descobrir depois"* that `[[preconditions]]` was
+    — which is precisely the *"descobrir depois"* that `preconditions:` was
     born to end. What reproved was never *requiring* tooling; it was requiring it
     **without declaring it** (`docs/agents/domain.md`).
 
@@ -680,7 +717,7 @@ def test_every_embedded_recipe_renders_for_every_dialect_carrying_no_shell_defau
 
     Nothing rendered an embedded recipe before this. `test_rendering.py` is built
     on values it writes inline — correctly, because the renderer is a pure
-    function — so the **literal** path of `[server.env]` was reachable only by
+    function — so the **literal** path of `server.env` was reachable only by
     the recipes nobody exercised, and editing `coolify.toml` to spell its address
     `${COOLIFY_BASE_URL:-https://…}` went in green.
 

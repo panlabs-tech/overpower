@@ -436,7 +436,7 @@ def test_a_url_with_no_selector_offers_the_skills_and_the_recipes(
     # given
     planted = {
         **git_remote.skill_files("alpha", "beta"),
-        **git_remote.mcp_recipe_files("cloudflare"),
+        **git_remote.declaring("cloudflare"),
     }
     _planting(monkeypatch, planted)
 
@@ -609,27 +609,88 @@ def test_a_repository_that_offers_only_recipes_is_not_refused(
 ) -> None:
     """One of the two halves is enough — the refusal is for *nothing*, not for *not both*."""
     # given
-    _planting(monkeypatch, git_remote.mcp_recipe_files("cloudflare"))
+    _planting(monkeypatch, git_remote.declaring("cloudflare"))
 
     with remote.catalog_from(ROOT_URL) as catalog:
         assert catalog.pool == ()
         assert [recipe.name for recipe in catalog.mcps] == ["cloudflare"]
 
 
-def test_the_offered_recipes_are_the_repositorys_own_federated_folder(
+def test_the_offered_recipes_are_the_ones_the_repository_itself_declares(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`.overpower/mcp/` is a direct child of the root, and the enumeration says so.
+    """`.overpower.yaml` is a direct child of the root, and nothing below it is read.
 
-    The *reach* finds a recipe at any depth — that convention is checked as the
-    last two segments of the parent. The showcase is anchored instead, for the
-    same reason the skills half is: what a repository offers is what it filed
-    at its own root, not what a vendored copy happens to carry.
+    A vendored dependency carrying its own declaration speaks for its own
+    repository, and after ADR 0021 that holds for the recipes too: they became
+    a key of the declaration, so they are anchored with it. Before it, a recipe
+    was reached at any depth and this was the one half that could disagree.
     """
     # given
     planted = {
-        **git_remote.mcp_recipe_files("cloudflare"),
-        **git_remote.mcp_recipe_files("vercel", under="vendor/dep/.overpower/mcp"),
+        **git_remote.declaring("cloudflare"),
+        **git_remote.declaring("vercel", at="vendor/dep/.overpower.yaml"),
+    }
+    _planting(monkeypatch, planted)
+
+    with remote.catalog_from(ROOT_URL) as catalog:
+        assert [recipe.name for recipe in catalog.mcps] == ["cloudflare"]
+
+
+def test_the_old_layout_with_no_declaration_beside_it_is_refused_naming_the_file(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exit **3**, and it names the file to write — the whole of ADR 0021's migration.
+
+    The silent alternative is what makes this worth a refusal: the repository
+    has skills, so the showcase would render, list them, omit the servers and
+    exit **0** — the author believing they federate something the product never
+    looked at.
+    """
+    # given
+    planted = {**git_remote.skill_files("alpha"), **git_remote.legacy_recipe_files("cloudflare")}
+    _planting(monkeypatch, planted)
+
+    with pytest.raises(remote.LegacyRecipeLayoutError) as refused, remote.catalog_from(ROOT_URL):
+        pass  # unreachable: the read raises before the block is entered
+
+    assert isinstance(refused.value, RefusedError)
+    assert ".overpower/mcp/cloudflare.toml" in str(refused.value)
+    assert ".overpower.yaml" in str(refused.value)
+
+
+def test_a_skill_is_still_reachable_in_a_repository_laid_out_the_old_way(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The refusal belongs to the declaration, and `--skill` never opens it.
+
+    A skill is found by **walking**, so nothing about it depends on the file the
+    old layout is missing. Refusing here would make a repository uninstallable
+    for a defect in a half the line never named — and the author of that line is
+    not the author of that repository.
+    """
+    # given
+    planted = {**git_remote.skill_files("alpha"), **git_remote.legacy_recipe_files("cloudflare")}
+    _planting(monkeypatch, planted)
+
+    with remote.catalog_from(ROOT_URL, ["alpha"]) as catalog:
+        assert [artifact.name for artifact in catalog.pool] == ["alpha"]
+        assert catalog.mcps == ()
+
+
+def test_the_old_layout_below_the_root_refuses_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The refusal is anchored where the declaration is, so a stranger's leftovers are not ours.
+
+    A vendored dependency pinned before the format moved is not this
+    repository's defect, and refusing it would make a repository uninstallable
+    for something nothing reads.
+    """
+    # given
+    planted = {
+        **git_remote.declaring("cloudflare"),
+        **git_remote.legacy_recipe_files("vercel", under="vendor/dep/.overpower/mcp"),
     }
     _planting(monkeypatch, planted)
 
@@ -736,53 +797,47 @@ def test_a_remote_search_describes_a_skill_the_way_the_embedded_walk_does(
     "depth",
     [
         pytest.param("", id="repository root"),
-        pytest.param("/.overpower", id="a subfolder"),
-        pytest.param("/.overpower/mcp", id="the recipe's own folder"),
+        pytest.param("/skills", id="a subfolder"),
+        pytest.param("/skills/alpha", id="a skill's own folder"),
     ],
 )
-def test_the_three_depths_of_url_find_the_same_mcp_recipe(
+def test_the_three_depths_of_url_read_the_same_declaration_for_an_mcp(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, depth: str
 ) -> None:
-    """Same rule as the skill search (#83): the URL is a search root, not an address."""
+    """The reverse of the old rule, and it is ADR 0021: `--mcp` stopped walking.
+
+    A recipe used to be reached from the search root at any depth, so a deeper
+    URL narrowed it. It is now an entry of the declaration, and a declaration is
+    a property of the repository — so the subpath narrows nothing, and the three
+    URLs read the same file. Against a **real local remote**, through the real
+    `git` subprocess.
+    """
     # given
-    local = git_remote.build(tmp_path / "origin", git_remote.mcp_recipe_files("alpha", "beta"))
+    local = git_remote.build(
+        tmp_path / "origin", git_remote.offering("alpha", mcps=("acme", "beta"))
+    )
     monkeypatch.setattr(remote, "fetch_with_git", git_remote.instead_of_github(local))
 
-    with remote.catalog_from(f"{ROOT_URL}/tree/{local.branch}{depth}", mcps=["alpha"]) as catalog:
-        assert [recipe.name for recipe in catalog.mcps] == ["alpha"]
-        assert catalog.mcps[0].description == "The alpha MCP server."
+    with remote.catalog_from(f"{ROOT_URL}/tree/{local.branch}{depth}", mcps=["acme"]) as catalog:
+        assert [recipe.name for recipe in catalog.mcps] == ["acme"]
+        assert catalog.mcps[0].description == "The acme MCP server."
 
 
-def test_an_mcp_recipe_that_is_not_under_the_root_is_refused(
+def test_an_mcp_the_repository_does_not_declare_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Obtained, searched, and the answer is no — the defect is not in the line."""
-    _planting(monkeypatch, git_remote.mcp_recipe_files("alpha"))
+    """Obtained, read, and the answer is no — the defect is not in the line."""
+    _planting(monkeypatch, git_remote.declaring("alpha"))
 
     with pytest.raises(RefusedError), remote.catalog_from(ROOT_URL, mcps=["beta"]):
         pass  # unreachable: the search raises before the block is entered
 
 
-def test_two_mcp_recipes_with_the_same_name_under_one_root_are_refused(
+def test_a_remote_recipe_goes_through_the_reader_the_embedded_one_goes_through(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Same reasoning as the skill collision: picking one would be the defect."""
-    # given
-    planted = {
-        **git_remote.mcp_recipe_files("alpha"),
-        **git_remote.mcp_recipe_files("alpha", under="vendor/.overpower/mcp"),
-    }
-    _planting(monkeypatch, planted)
-
-    with pytest.raises(RefusedError), remote.catalog_from(ROOT_URL, mcps=["alpha"]):
-        pass  # unreachable: the search raises before the block is entered
-
-
-def test_a_remote_search_reads_an_mcp_recipe_the_way_the_embedded_walk_does(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Both paths go through `read_recipe`, which is why they agree on the shape."""
-    _planting(monkeypatch, git_remote.mcp_recipe_files("alpha"))
+    """One file, one format, one reader: the contract is checked once, for both sides."""
+    _planting(monkeypatch, git_remote.declaring("alpha"))
 
     with remote.catalog_from(ROOT_URL, mcps=["alpha"]) as catalog:
         recipe = catalog.mcps[0]
@@ -842,14 +897,14 @@ def test_a_repository_with_no_manifest_still_offers_its_skills(
     "depth",
     [
         pytest.param("", id="repository root"),
-        pytest.param("/.overpower", id="a subfolder"),
-        pytest.param("/skills", id="the offer's own folder"),
+        pytest.param("/skills", id="a subfolder"),
+        pytest.param("/skills/alpha", id="a skill's own folder"),
     ],
 )
 def test_the_three_depths_of_url_find_the_same_bundle(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, depth: str
 ) -> None:
-    """The manifest is anchored at the repository, so the URL's subpath narrows nothing."""
+    """The declaration is anchored at the repository, so the URL's subpath narrows nothing."""
     # given
     local = git_remote.build(
         tmp_path / "origin", git_remote.offering("alpha", "beta", bundles={"api-python": ["alpha"]})
@@ -899,7 +954,7 @@ def test_a_skill_line_still_refuses_a_url_subfolder_that_does_not_exist(
 def test_a_manifest_below_the_root_is_not_the_repository_s_manifest(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A vendored dependency's `.overpower/catalog.yaml` speaks for its own repository.
+    """A vendored dependency's `.overpower.yaml` speaks for its own repository.
 
     The mirror of the anchor the showcase already holds for `skills/`: the
     reach may walk a whole repository for a name someone typed, but *what this
@@ -909,9 +964,7 @@ def test_a_manifest_below_the_root_is_not_the_repository_s_manifest(
         monkeypatch,
         {
             **git_remote.offering("alpha"),
-            **git_remote.bundle_catalog_file(
-                {"vendored": ["alpha"]}, at="vendor/.overpower/catalog.yaml"
-            ),
+            **git_remote.declaring(bundles={"vendored": ["alpha"]}, at="vendor/.overpower.yaml"),
         },
     )
 
@@ -977,7 +1030,7 @@ def test_a_malformed_federated_manifest_is_refused_the_way_the_embedded_one_is(
     """
     # given
     malformed = "bundles:\n  api-python:\n    description: 12\n    items: [alpha]\n"
-    _planting(monkeypatch, {**git_remote.offering("alpha"), ".overpower/catalog.yaml": malformed})
+    _planting(monkeypatch, {**git_remote.offering("alpha"), ".overpower.yaml": malformed})
     beside = tmp_path / "catalog.yaml"
     beside.write_text(malformed, encoding="utf-8")
 
@@ -996,33 +1049,32 @@ def test_a_federated_manifest_that_is_not_yaml_is_refused_before_the_shape(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """*Did not parse* and *parsed into the wrong shape* are two defects, and stay two."""
-    _planting(
-        monkeypatch, {**git_remote.offering("alpha"), ".overpower/catalog.yaml": "bundles: [oops\n"}
-    )
+    _planting(monkeypatch, {**git_remote.offering("alpha"), ".overpower.yaml": "bundles: [oops\n"})
 
     with pytest.raises(UnreadableWrittenCatalogError), remote.catalog_from(ROOT_URL):
         pass  # unreachable: the read raises before the block is entered
 
 
-def test_the_manifest_and_the_recipe_carry_two_formats_under_one_namespace(
+def test_the_bundle_and_the_recipe_are_two_keys_of_one_file(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """ADR 0020, asserted rather than written down: `.overpower/` is a namespace."""
-    _planting(
-        monkeypatch,
-        {
-            **git_remote.offering("alpha", bundles={"api-python": ["alpha"]}),
-            **git_remote.mcp_recipe_files("acme"),
-        },
-    )
+    """ADR 0021, asserted rather than written down: one file, one format, one reader.
 
+    It replaces the assertion of ADR 0020 that stood here — *`.overpower/` is a
+    namespace holding two formats* — and the fixture is the evidence: there is
+    one path in the planted tree, and both units come out of it.
+    """
+    planted = git_remote.offering("alpha", bundles={"api-python": ["alpha"]}, mcps=("acme",))
+    _planting(monkeypatch, planted)
+
+    assert [path for path in planted if path.startswith(".overpower")] == [".overpower.yaml"]
     with remote.catalog_from(ROOT_URL) as catalog:
         assert [bundle.name for bundle in catalog.bundles] == ["api-python"]
         assert [recipe.name for recipe in catalog.mcps] == ["acme"]
 
 
 # --------------------------------------------------------------------------- #
-# sources_for: the clone a [source] recipe brings, obtained outside plan_for
+# sources_for: the clone a `source:` recipe brings, obtained outside plan_for
 # --------------------------------------------------------------------------- #
 
 
@@ -1033,7 +1085,7 @@ def _catalog_with(*recipes: Recipe) -> Catalog:
 def _sourced(name: str, url: str) -> Recipe:
     return Recipe(
         name=name,
-        path=Path(f"{name}.toml"),
+        path=Path(".overpower.yaml"),
         description="A server with code of its own.",
         server=StdioServer(command="uv", args=("run", "server.py")),
         source=url,
@@ -1042,12 +1094,12 @@ def _sourced(name: str, url: str) -> Recipe:
 
 def _plain(name: str) -> Recipe:
     return Recipe(
-        name=name, path=Path(f"{name}.toml"), description="x", server=StdioServer(command="uv")
+        name=name, path=Path(".overpower.yaml"), description="x", server=StdioServer(command="uv")
     )
 
 
 def test_project_scope_obtains_nothing_at_all(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`overpower.planning` refuses a `[source]` recipe outside global scope anyway.
+    """`overpower.planning` refuses a `source:` recipe outside global scope anyway.
 
     The answer is already known from `scope` alone, so obtaining first would
     cost a real `git fetch` for a line already certain to be refused.
@@ -1068,7 +1120,7 @@ def test_project_scope_obtains_nothing_at_all(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_a_recipe_with_no_source_is_never_obtained(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No `[source]`, no network — the mapping simply carries nothing for it."""
+    """No `source:`, no network — the mapping simply carries nothing for it."""
     called: list[str] = []
 
     def fetch(url: str, ref: str, into: Path) -> Path:

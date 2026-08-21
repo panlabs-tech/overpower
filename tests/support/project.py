@@ -16,6 +16,7 @@ address moves.
 from __future__ import annotations
 
 import re
+from textwrap import indent
 from typing import TYPE_CHECKING, assert_never, cast
 
 from json5 import loads
@@ -23,6 +24,7 @@ from rich.console import Console
 
 from overpower import cli
 from overpower.inspection import GIT_CONFIG_GLOBAL
+from overpower.recipes import MCP_KEY
 from overpower.runtimes import (
     MCP_DOCUMENTS,
     RUNTIMES,
@@ -159,9 +161,9 @@ def catalog_of(  # noqa: PLR0913 — one keyword per unit of the catalog, plus t
     (#39: a framework needs one, discovery reads it and not a tree). `bundles`
     maps a bundle name to the pool skill names its manifest points at. `mcps`
     maps a server slug to its URL — or to one of `STDIO`, `SLOTTED` and `BEARER`
-    — written as a recipe in the third discovery root, beside the written file,
-    because a recipe never lands. All three are optional and additive, so a call
-    that only names pool skills is unaffected.
+    — written under the `mcp:` key of that same file, because a recipe never
+    lands and so has no tree either (ADR 0021). All three are optional and
+    additive, so a call that only names pool skills is unaffected.
     """
     content = tmp_path / "packaged" / "content"
     content.mkdir(parents=True, exist_ok=True)
@@ -170,11 +172,9 @@ def catalog_of(  # noqa: PLR0913 — one keyword per unit of the catalog, plus t
     for framework, artifacts in (frameworks or {}).items():
         for artifact_name in artifacts:
             _skill(content / "frameworks" / framework / "skills" / artifact_name, artifact_name, ())
-    for slug, url in (mcps or {}).items():
-        _recipe(tmp_path / "packaged" / "mcps" / f"{slug}.toml", slug, url)
 
     written = tmp_path / "packaged" / "catalog.yaml"
-    written.write_text(_written(frameworks or {}, bundles or {}), encoding="utf-8")
+    written.write_text(_written(frameworks or {}, bundles or {}, mcps or {}), encoding="utf-8")
     monkeypatch.setattr(cli, "content_root", lambda: content)
     monkeypatch.setattr(cli, "catalog_file", lambda: written)
     return content
@@ -226,57 +226,69 @@ with fixtures that share a name, so this one exists to carry the other name.
 OTHER_SLOT_VARIABLE = "OTHER_TOKEN"
 """The second variable, and the id derived from it differs from the first."""
 
+_PANEL_ENV = '  env:\n    PANEL_URL: "https://panel.example.com"\n'
+
 _BODIES = {
-    STDIO: '{stdio}\n[server.env]\nPANEL_URL = "https://panel.example.com"\n',
-    SLOTTED: (
-        '{stdio}\n[server.env]\nPANEL_URL = "https://panel.example.com"\n\n'
-        f'[[slots]]\nname = "{SLOT_VARIABLE}"\nrole = "env"\n'
-    ),
-    OTHER_SLOTTED: (f'{{stdio}}\n\n[[slots]]\nname = "{OTHER_SLOT_VARIABLE}"\nrole = "env"\n'),
+    STDIO: "{stdio}" + _PANEL_ENV,
+    SLOTTED: ("{stdio}" + _PANEL_ENV + f'slots:\n  - name: "{SLOT_VARIABLE}"\n    role: "env"\n'),
+    OTHER_SLOTTED: ("{stdio}" + f'slots:\n  - name: "{OTHER_SLOT_VARIABLE}"\n    role: "env"\n'),
     BEARER: (
-        'url = "https://mcp.example.com/mcp"\n\n'
-        f'[[slots]]\nname = "{SLOT_VARIABLE}"\nrole = "bearer"\n'
+        'server:\n  url: "https://mcp.example.com/mcp"\n'
+        + f'slots:\n  - name: "{SLOT_VARIABLE}"\n    role: "bearer"\n'
     ),
 }
-"""One body per kind a value of the `mcps` mapping can name, keyed by that value."""
+"""One body per kind a value of the `mcps` mapping can name, keyed by that value.
+
+Each is the recipe below its `description` and `transport`, at column zero, so
+the entry is assembled by concatenation and indented once on the way into the
+file — the same composition every recipe test uses.
+"""
 
 
-def _recipe(path: Path, slug: str, kind: str) -> None:
-    """One MCP recipe on disk: a kind out of `_BODIES`, or a URL to reach.
+def _recipe(slug: str, kind: str) -> str:
+    """One MCP recipe as YAML: a kind out of `_BODIES`, or a URL to reach.
 
     The mapping's value doubles as the selector because a recipe is small enough
     that a second parameter would be a second thing every call site has to say.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    stdio = f'command = "uvx"\nargs = ["{slug}-server", "--repository", "."]\n'
-    body = _BODIES.get(kind, f'url = "{kind}"\n').format(stdio=stdio)
-    transport = STDIO if kind in {STDIO, SLOTTED, OTHER_SLOTTED} else "http"
-    path.write_text(
-        f'description = "The {slug} server."\ntransport = "{transport}"\n\n[server]\n{body}',
-        encoding="utf-8",
-        newline="\n",
+    stdio = (
+        'server:\n  command: "uvx"\n'
+        f'  args:\n    - "{slug}-server"\n    - "--repository"\n    - "."\n'
     )
+    body = _BODIES.get(kind, f'server:\n  url: "{kind}"\n').format(stdio=stdio)
+    transport = STDIO if kind in {STDIO, SLOTTED, OTHER_SLOTTED} else "http"
+    return f'description: "The {slug} server."\ntransport: "{transport}"\n{body}'
 
 
 def custom_recipe(tmp_path: Path, slug: str, body: str) -> Path:
     """One MCP recipe written verbatim, for a shape `catalog_of`'s canned kinds do not carry.
 
-    `catalog_of` must have run first — this only writes at the path `_recipe`
-    already uses, `packaged/mcps/<slug>.toml`, which is how preconditions and
-    instructions (issue #82) get tested without a fixture kind per combination
-    of check and value.
+    `catalog_of` must have run first — this appends an entry to the `mcp:` key of
+    the file it wrote, which is how preconditions and instructions (issue #82)
+    get tested without a fixture kind per combination of check and value.
+
+    Appending works because `_written` puts `mcp:` last and nothing follows it.
     """
-    path = tmp_path / "packaged" / "mcps" / f"{slug}.toml"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(body, encoding="utf-8", newline="\n")
+    path = tmp_path / "packaged" / "catalog.yaml"
+    written = path.read_text(encoding="utf-8")
+    opened = written if f"{MCP_KEY}:\n" in written else f"{written}{MCP_KEY}:\n"
+    path.write_text(f"{opened}  {slug}:\n{indent(body, '    ')}", encoding="utf-8", newline="\n")
     return path
 
 
-def _written(frameworks: Mapping[str, Sequence[str]], bundles: Mapping[str, Sequence[str]]) -> str:
-    """The written catalog: one description per framework, one manifest per bundle.
+def _written(
+    frameworks: Mapping[str, Sequence[str]],
+    bundles: Mapping[str, Sequence[str]],
+    mcps: Mapping[str, str],
+) -> str:
+    """The written catalog: the bundles, the framework lines and the recipes.
 
     Every string is quoted, which is not decoration: a plain YAML scalar may not
     carry `: `, and a test is free to name a bundle whatever it needs to.
+
+    `mcp:` goes **last**, and `custom_recipe` depends on it: appending an entry
+    to a key that has nothing after it is one line, where splicing into the
+    middle of a document would be a YAML writer nobody asked for.
     """
     lines: list[str] = []
     if bundles:
@@ -285,6 +297,12 @@ def _written(frameworks: Mapping[str, Sequence[str]], bundles: Mapping[str, Sequ
     if frameworks:
         lines.append("frameworks:")
         lines.extend(f'  {name}:\n    description: "The {name} framework."' for name in frameworks)
+    if mcps:
+        lines.append(f"{MCP_KEY}:")
+        lines.extend(
+            f"  {slug}:\n{indent(_recipe(slug, kind), '    ').rstrip()}"
+            for slug, kind in mcps.items()
+        )
     return "\n".join(lines) + "\n" if lines else ""
 
 

@@ -220,7 +220,7 @@ def test_the_identity_holds_for_a_bundle_that_came_from_a_remote(
         tmp_path / "origin",
         {
             **git_remote.skill_files("alpha", "beta", "gamma"),
-            **git_remote.bundle_catalog_file({"api-python": ["alpha", "beta"]}),
+            **git_remote.declaring(bundles={"api-python": ["alpha", "beta"]}),
         },
     )
     monkeypatch.setattr(remote, "fetch_with_git", git_remote.instead_of_github(local))

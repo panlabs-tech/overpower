@@ -40,7 +40,6 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, cast
 
 from overpower.errors import BadInvocationError, OverpowerError
-from overpower.recipes import RECIPE_SUFFIX, read_recipe
 from overpower.written import read_written_catalog
 from overpower.yamlio import loads_yaml
 
@@ -54,15 +53,6 @@ POOL_DIR = "pool"
 FRAMEWORKS_DIR = "frameworks"
 SKILL_FILE = "SKILL.md"
 
-MCPS_DIR = "mcps"
-"""The third discovery root, and the only one outside `content/`.
-
-A recipe **never lands** — what lands is the fragment rendered out of it — so it
-cannot live under the root whose invariant is *100% lands*. It sits beside the
-written file instead, inside the root that lands nothing, discovered by walking
-exactly as the other two are (`docs/agents/domain.md`).
-"""
-
 
 class ArtifactType(StrEnum):
     """What an artifact is, which is also what decides where it lands.
@@ -73,8 +63,9 @@ class ArtifactType(StrEnum):
 
     It is the closed set of **type folders under a content root**, which is why
     the MCP server is not on it even though the operation that lands one now
-    exists: a recipe does not land, so it is not content, and it is discovered
-    from the other root by `discover_mcps`. The hook is still to come, and it
+    exists: a recipe does not land, so it is not content — and it is not
+    discovered at all, it is *written*, under the `mcp:` key of the one written
+    file (`overpower.written`, ADR 0021). The hook is still to come, and it
     *will* join this set — it is contract **and** tree, so part of it is content.
     """
 
@@ -281,10 +272,11 @@ class UnknownNameError(BadInvocationError):
 def load_catalog(content_root: Path, catalog_file: Path) -> Catalog:
     """The whole catalog: the tree, plus the one line per thing the tree cannot know.
 
-    The recipes are read from `mcps/` **beside** `catalog_file`, and the sibling
-    relationship is the decision rather than a shortcut: the written file and the
-    recipes are the two things inside the root that never lands, so one address
-    locates both and there is no second root to keep pointed at the first.
+    **There is no third discovery root.** A recipe never lands, so it has no tree
+    to be discovered by walking; it is written, under the `mcp:` key of the very
+    file this function already reads (ADR 0021). One address locates everything
+    the tree cannot know, and there is no second root to keep pointed at the
+    first.
     """
     written = read_written_catalog(catalog_file)
     pool = discover_pool(content_root / POOL_DIR)
@@ -302,27 +294,7 @@ def load_catalog(content_root: Path, catalog_file: Path) -> Catalog:
         frameworks=discover_frameworks(content_root / FRAMEWORKS_DIR, written.frameworks),
         pool=pool,
         bundles=bundles,
-        mcps=discover_mcps(catalog_file.parent / MCPS_DIR),
-    )
-
-
-def discover_mcps(mcps_root: Path) -> tuple[Recipe, ...]:
-    """Every recipe under `<mcps>/<slug>.toml`, sorted by slug.
-
-    One file per MCP, and the stem is the slug: the tree is the catalog (rule 8),
-    so a recipe registers nothing anywhere and adding one is adding a file.
-    Anything that is not a `.toml` is ignored the way a loose file in a type
-    folder is — the measured blind spot of discovery-by-convention
-    (https://github.com/ThiagoPanini/overpower/issues/10) — and a root that does
-    not exist yields nothing, because a content tree may legitimately carry no
-    recipes at all.
-    """
-    if not mcps_root.is_dir():
-        return ()
-    return tuple(
-        read_recipe(path)
-        for path in sorted(mcps_root.iterdir(), key=lambda entry: entry.name)
-        if path.is_file() and path.suffix == RECIPE_SUFFIX
+        mcps=written.mcps,
     )
 
 

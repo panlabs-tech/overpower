@@ -415,8 +415,9 @@ def list_catalog(
             FROM_FLAG,
             metavar="URL",
             help="Show what any GitHub repository offers, instead of the embedded catalog. "
-            "Bare, it lists that repository's `skills/`, `.overpower/mcp/` and the bundles "
-            "of `.overpower/catalog.yaml`; with --skill or --mcp, the URL is a search root. "
+            "Bare, it lists that repository's `skills/` and the bundles and MCP servers "
+            "its `.overpower.yaml` declares; with --skill the URL is a search root, and "
+            "--mcp reads that same file at the repository root. "
             "`tree/<ref>/<path>` pins a branch, a tag or a SHA.",
         ),
     ] = None,
@@ -580,10 +581,10 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
             # on three of the nine cells with a `UnicodeDecodeError` — the three
             # Windows ones of the 3 OS x 3 Python matrix in `.github/workflows/ci.yml`.
             help="Install from any GitHub repository instead of the embedded catalog. "
-            "Bare, it opens the wizard on what that repository offers; with --skill or "
-            "--mcp, the URL is a search root: the repository, a subfolder or the "
-            "artifact's own folder. --bundle reads `.overpower/catalog.yaml` at the "
-            "repository root. `tree/<ref>/<path>` pins a branch, a tag or a SHA.",
+            "Bare, it opens the wizard on what that repository offers; with --skill the "
+            "URL is a search root: the repository, a subfolder or the artifact's own "
+            "folder. --mcp and --bundle read `.overpower.yaml` at the repository root. "
+            "`tree/<ref>/<path>` pins a branch, a tag or a SHA.",
         ),
     ] = None,
     global_: Annotated[
@@ -744,7 +745,7 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
             if already_read is None:
                 already_read = load_catalog(content_root(), catalog_file())
             # The scratch lives exactly as long as the block, which has to cover
-            # the write as well as the plan: `execute()` needs a `[source]`
+            # the write as well as the plan: `execute()` needs a `source:`
             # recipe's clone still on disk at the point it copies it to its
             # destination.
             sources = obtained.enter_context(sources_for(already_read, request.mcps, request.scope))
@@ -873,7 +874,7 @@ def _perform(  # noqa: PLR0913 — one argument per thing `plan_for` itself take
     happens to one. A dry run therefore resolves the remote exactly as the real
     run does, which is what keeps it a report about *this* installation.
 
-    `sources` is every `[source]` recipe's clone, already obtained by the
+    `sources` is every `source:` recipe's clone, already obtained by the
     caller's `remote.sources_for` block — passed through to `plan_for` and
     otherwise untouched here, the same way `catalog` is.
 

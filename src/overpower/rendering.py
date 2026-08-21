@@ -8,11 +8,15 @@ broken in the other two: measured, `${VAR}` reaches the server process raw in VS
 Code and in the Copilot CLI, and `${env:VAR}` reaches the network raw in Claude
 Code (`docs/research/mcp-config-formats.md`).
 
-**A slot is written as a reference and a literal as itself**, which is the line
-`[server.env]` draws: the overpower refuses to write a secret and does write the
-address of a panel. Nothing here reads the environment, so nothing here can leak
-one — resolving a slot to its value is not a feature this module is missing, it
-is the defect it exists not to have.
+**A slot is written as a reference, or as the value the caller handed in**, and
+`[server.env]` draws the line between them: a literal — the address of a panel —
+is written because it is not a secret, and a slot is written only where ADR 0024
+allows it, which is where the git does not reach *and* the target cannot store it
+better. **Nothing here reads the environment and nothing here reads a disk**, so
+nothing here can leak one by itself: a value arrives as an argument or it does
+not arrive, and the module that asked for it is the one that decided to
+(`overpower.cli`). Resolving a slot *out of the environment* is still not a
+feature this module is missing — it is the defect it exists not to have.
 
 **No I/O, and no filesystem.** What comes out is the value the writer inserts,
 and the writer inserts **that and nothing else** — a writer that re-rendered the
@@ -28,6 +32,7 @@ runtime gained a capability, and leave the recipe lying about itself.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING, assert_never
 
 from overpower.recipes import (
@@ -294,7 +299,12 @@ def targets_of(
     )
 
 
-def render(recipe: Recipe, document: McpDocument, source: Path | None = None) -> tuple[Graft, ...]:
+def render(
+    recipe: Recipe,
+    document: McpDocument,
+    source: Path | None = None,
+    secrets: Mapping[str, str] = MappingProxyType({}),
+) -> tuple[Graft, ...]:
     """Every graft `recipe` becomes inside `document`, in the order they are written.
 
     A tuple and never one fragment, because one dialect needs two: a VS Code slot
@@ -313,18 +323,28 @@ def render(recipe: Recipe, document: McpDocument, source: Path | None = None) ->
     computed, never read off a disk this function never touches. `None` for a
     recipe that declares no `[source]`, which is every recipe read_recipe would
     let `{source}` appear nowhere in.
+
+    `secrets` is the value of a slot by name, for the slots the caller asked a
+    person about (ADR 0024, https://github.com/ThiagoPanini/overpower/issues/167).
+    Empty by default, which is every non-interactive run and every project-scope
+    one, and those render exactly what they rendered before this parameter
+    existed. **Which slots it may fill is not the caller's to decide**: a name it
+    carries for a dialect that stores the secret better is ignored here rather
+    than refused, because the table that knows one dialect from another is this
+    module's (`_filled`) and a second copy of it upstream is a second place to
+    get the exception wrong.
     """
     match document.dialect:
         case Dialect.CLAUDE:
-            value = _server(recipe, document, source)
+            value = _server(recipe, document, source, secrets)
             return (Fragment(root_key=document.root_key, name=recipe.name, value=value),)
         case Dialect.VSCODE:
-            value = _server(recipe, document, source)
+            value = _server(recipe, document, source, secrets)
             server = Fragment(root_key=document.root_key, name=recipe.name, value=value)
             prompts = _vscode_inputs(recipe.slots)
             return (server,) if prompts is None else (server, prompts)
         case Dialect.DEVIN:
-            value = _devin(recipe, source)
+            value = _devin(recipe, source, secrets)
             return (Fragment(root_key=document.root_key, name=recipe.name, value=value),)
         case _ as unreachable:
             assert_never(unreachable)
@@ -342,7 +362,9 @@ def _resolved(value: str, source: Path | None) -> str:
     return value if source is None else value.replace(SOURCE_TOKEN, str(source))
 
 
-def _server(recipe: Recipe, document: McpDocument, source: Path | None) -> Mapping[str, JsonValue]:
+def _server(
+    recipe: Recipe, document: McpDocument, source: Path | None, secrets: Mapping[str, str]
+) -> Mapping[str, JsonValue]:
     """The server table, in the fields both dialects admit and one spells apart.
 
     `type` is written even though both loaders default to stdio without it, and
@@ -355,7 +377,7 @@ def _server(recipe: Recipe, document: McpDocument, source: Path | None) -> Mappi
     the shape of a server in two places, and the second one is where a field goes
     missing the day a recipe grows one.
     """
-    reference = _reference(document.dialect)
+    reference = _filled(document.dialect, secrets)
     match recipe.server:
         case HttpServer(url):
             rendered: dict[str, JsonValue] = {"type": "http", "url": _resolved(url, source)}
@@ -400,7 +422,36 @@ def _reference(dialect: Dialect) -> Reference:
             assert_never(unreachable)
 
 
-def _devin(recipe: Recipe, source: Path | None) -> Mapping[str, JsonValue]:
+def _filled(dialect: Dialect, secrets: Mapping[str, str]) -> Reference:
+    """`_reference`, with the value substituted for every slot one was handed for.
+
+    **The one place ADR 0024's exception is spelled**, and it is spelled by
+    reusing `expands_from_environment` rather than by a second table. That
+    predicate already answers the question the exception turns on — *does this
+    target read the slot out of the process environment, or out of a vault of its
+    own?* — so VS Code declines the value here for exactly the reason its
+    `${input:<id>}` exists, and a fourth dialect inherits the right answer from
+    the capability it declares instead of from a list somebody has to remember to
+    extend.
+
+    **An empty value falls through to the reference**, which is not a guard
+    against a caller mistake but a documented gesture: a person who answers the
+    prompt with nothing writes `${VAR}` back, and that is how a secret leaves the
+    file without the product growing a verb for removing it (ADR 0025).
+    """
+    reference = _reference(dialect)
+    if not expands_from_environment(dialect):
+        return reference
+
+    def spelled(name: str) -> str:
+        return secrets.get(name) or reference(name)
+
+    return spelled
+
+
+def _devin(
+    recipe: Recipe, source: Path | None, secrets: Mapping[str, str]
+) -> Mapping[str, JsonValue]:
     """The Devin-style spelling: `transport` on HTTP, and nothing at all on stdio.
 
     The asymmetry is the vendor's, not a shortcut taken here: `transport` is
@@ -418,10 +469,11 @@ def _devin(recipe: Recipe, source: Path | None) -> Mapping[str, JsonValue]:
     between the two is the discriminator and the reference, and both are named
     right here rather than buried in a branch further down.
     """
+    reference = _filled(Dialect.DEVIN, secrets)
     match recipe.server:
         case HttpServer(url):
             rendered: dict[str, JsonValue] = {"transport": "http", "url": _resolved(url, source)}
-            headers = _headers(recipe.slots, _devin_reference)
+            headers = _headers(recipe.slots, reference)
             if headers:
                 rendered["headers"] = headers
             return rendered
@@ -429,7 +481,7 @@ def _devin(recipe: Recipe, source: Path | None) -> Mapping[str, JsonValue]:
             rendered = {"command": _resolved(command, source)}
             if args:
                 rendered["args"] = [_resolved(arg, source) for arg in args]
-            variables = _environment(environment, recipe.slots, _devin_reference, source)
+            variables = _environment(environment, recipe.slots, reference, source)
             if variables:
                 rendered["env"] = variables
             return rendered

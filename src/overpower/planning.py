@@ -51,12 +51,27 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, assert_never
+from typing import TYPE_CHECKING, assert_never, cast
 
 from overpower.errors import BadInvocationError, RefusedError
 from overpower.grafting import UnreadableDocumentError, read_document, refuse_if_broken
-from overpower.recipes import Check, Precondition, Recipe
-from overpower.rendering import Fragment, Inputs, expands_from_environment, render
+from overpower.jsonio import loads_json
+from overpower.recipes import (
+    AUTHORIZATION,
+    BearerSlot,
+    Check,
+    EnvSlot,
+    HeaderSlot,
+    Precondition,
+    Recipe,
+)
+from overpower.rendering import (
+    BEARER_SCHEME,
+    Fragment,
+    Inputs,
+    expands_from_environment,
+    render,
+)
 from overpower.runtimes import (
     RUNTIMES_BY_KEY,
     Scope,
@@ -72,6 +87,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
 
     from overpower.discovery import Artifact, Bundle, Catalog, Framework
+    from overpower.recipes import Slot
     from overpower.rendering import Graft
     from overpower.runtimes import Environment, McpDocument, McpPlace, Runtime
 
@@ -570,12 +586,13 @@ class DestinationExistsError(RefusedError):
         super().__init__(f"already exists, use --force to overwrite: {listed}")
 
 
-def plan_for(
+def plan_for(  # noqa: PLR0913, PLR0917 — the four a plan needs, plus the two a caller obtained
     request: Request,
     catalog: Catalog,
     root: Path,
     environment: Environment,
     sources: Mapping[str, Path] = MappingProxyType({}),
+    secrets: Mapping[str, str] = MappingProxyType({}),
 ) -> Plan:
     """The ordered writes `request` costs against `catalog`, landing under `root`.
 
@@ -598,6 +615,16 @@ def plan_for(
     call that built it, and the writer needs the clone still on disk at
     `execute()` time. Empty by default, and every recipe with no `[source]` never
     looks itself up in it.
+
+    `secrets` is the slot values a person answered for, and **it is dropped
+    outside the machine scope right here** (ADR 0024,
+    https://github.com/ThiagoPanini/overpower/issues/167). The gate is in this
+    function rather than at the prompt because this is where a destination is
+    decided, and *"a project document goes to the git"* is a fact about the
+    destination: a caller that gathered a value and then asked for a project plan
+    gets references back, with no second place to have got it right. Which
+    *dialects* may take a value is the renderer's half of the same rule, and it
+    stays there for the same reason.
     """
     if not (request.ai_frameworks or request.bundles or request.skills or request.mcps):
         raise NothingSelectedError
@@ -653,7 +680,13 @@ def plan_for(
                 if landings
             ),
             *(
-                _mcp_selection(recipe, documents, root, sources.get(recipe.name))
+                _mcp_selection(
+                    recipe,
+                    documents,
+                    root,
+                    sources.get(recipe.name),
+                    secrets if request.scope is Scope.GLOBAL else MappingProxyType({}),
+                )
                 for recipe in mcps
                 if documents
             ),
@@ -700,6 +733,129 @@ def refuse_broken_documents(plan: Plan, scope: Scope) -> None:
                 refuse_if_broken(
                     destination.path, readable, source, tolerates_jsonc=tolerates_jsonc
                 )
+
+
+def stored_secrets(plan: Plan, scope: Scope) -> Mapping[str, str]:
+    """Every slot value the documents this plan grafts into are **already** carrying.
+
+    ADR 0024: a value that is there is kept and not asked about a second time.
+    Kept has to mean *re-written*, not *left alone* — the graft replaces the whole
+    server key, so a slot nobody answers for this run is a slot the reference goes
+    back over. Reading the old value here and handing it forward as an answer is
+    what makes the second `install` of an unchanged line a no-op instead of a
+    quiet demotion of the secret to a placeholder.
+
+    **Only where a value could legitimately be** — machine scope, and a dialect
+    that reads its slots out of the environment — so a `${input:<id>}` is never
+    mistaken for something a person typed, and a project document is never read
+    for a secret it is not allowed to hold.
+
+    *Stored* is decided by comparing against the reference this very recipe would
+    render into this very document, so no spelling is hard-coded here and the
+    three dialects need no branch: what is not the reference is a value, and the
+    reference is asked for rather than remembered.
+    """
+    if scope is not Scope.GLOBAL:
+        return {}
+    found: dict[str, str] = {}
+    for selection in plan.selections:
+        for carried in selection.artifacts:
+            if not isinstance(carried, Recipe):
+                continue
+            for landing in selection.landings:
+                _stored_into(found, carried, landing, scope)
+    return found
+
+
+def _stored_into(found: dict[str, str], recipe: Recipe, landing: Landing, scope: Scope) -> None:
+    """Add every slot of `recipe` that `landing`'s document already answers for."""
+    document = _document_at(landing.readers, scope)
+    if document is None or not expands_from_environment(document.dialect):
+        return
+    config = _server_config(landing.place, document, recipe.name)
+    if config is None:
+        return
+    reference = _rendered_server(recipe, document)
+    for slot in recipe.slots:
+        value = _slot_value(config, slot)
+        if value and value != _slot_value(reference, slot):
+            found.setdefault(slot.name, value)
+
+
+def _document_at(readers: Sequence[str], scope: Scope) -> McpDocument | None:
+    """The document every runtime reading this landing shares, or `None` for a folder.
+
+    One landing is one place and a place is one document row, so the first
+    reader that has one answers for all of them — the same fact `_any_document`
+    walks, asked for the row instead of for a yes.
+    """
+    for key in readers:
+        document = mcp_document_of(key, scope)
+        if document is not None:
+            return document
+    return None
+
+
+def _server_config(path: Path, document: McpDocument, name: str) -> Mapping[str, object] | None:
+    """The table `name` already occupies in `path`, or `None` if it occupies none.
+
+    Every way of not being there answers the same `None`: no file, unreadable,
+    unparseable, a root key that is not a table, or a server of that name that
+    was never written. A broken document is **not** refused here — that is
+    `refuse_broken_documents`' job and it already ran on this plan; answering
+    `None` twice for one file would be a second exit code for one fact.
+    """
+    if not path.is_file():
+        return None
+    try:
+        parsed = loads_json(read_document(path))
+    except (OSError, UnreadableDocumentError, ValueError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    servers = cast("dict[str, object]", parsed).get(document.root_key)
+    if not isinstance(servers, dict):
+        return None
+    config = cast("dict[str, object]", servers).get(name)
+    return cast("dict[str, object]", config) if isinstance(config, dict) else None
+
+
+def _rendered_server(recipe: Recipe, document: McpDocument) -> Mapping[str, object]:
+    """What `recipe` looks like in `document` with nothing answered — the reference shape."""
+    first, *_ = render(recipe, document)
+    return first.value if isinstance(first, Fragment) else {}
+
+
+def _slot_value(config: Mapping[str, object], slot: Slot) -> str | None:
+    """Where one slot sits inside a rendered server table, read back out of it.
+
+    The one place outside `overpower.rendering` that knows a slot's *position*,
+    and it is a `match` over the closed set for that exact reason: a fourth role
+    lands here as a hole `pyright` names, rather than as a slot this function
+    silently reports nothing for — which would re-ask for a secret that is
+    already written and, answered with nothing, overwrite it with a reference.
+    """
+    match slot:
+        case EnvSlot(name):
+            return _string_in(config.get("env"), name)
+        case HeaderSlot(_, header):
+            return _string_in(config.get("headers"), header)
+        case BearerSlot():
+            assembled = _string_in(config.get("headers"), AUTHORIZATION)
+            prefix = f"{BEARER_SCHEME} "
+            if assembled is None or not assembled.startswith(prefix):
+                return None
+            return assembled.removeprefix(prefix)
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+def _string_in(table: object, key: str) -> str | None:
+    """`table[key]` when that is a table with a string under `key`, and `None` otherwise."""
+    if not isinstance(table, dict):
+        return None
+    value = cast("dict[str, object]", table).get(key)
+    return value if isinstance(value, str) else None
 
 
 def _readable(path: Path) -> str:
@@ -801,7 +957,49 @@ def pending_activation(plan: Plan, scope: Scope) -> tuple[Path, ...]:
     return tuple(sorted(found))
 
 
-def unset_slots(plan: Plan, variables: Mapping[str, str], scope: Scope) -> tuple[str, ...]:
+def askable_slots(plan: Plan, scope: Scope) -> tuple[str, ...]:
+    """Every slot variable this plan would stop and ask a person for (ADR 0024).
+
+    **Two readers, one answer**, which is why it is a function and not a loop
+    written twice: `--dry-run` announces *how many* secrets a real run would ask
+    about, and the real run walks *which ones*. A count computed apart from the
+    walk is a count that can be wrong about the walk, and the report exists to
+    describe the run.
+
+    The conditions are the two halves of the rule and nothing else. `scope` is
+    the git half — outside the machine scope the document goes to a repository
+    and the answer is empty however many slots the plan carries. The dialect half
+    is `_lands_where_the_environment_is_read`, shared verbatim with
+    `unset_slots`: a target that fills its slots from a vault of its own already
+    asks the person itself, and asking twice for one secret is the defect and not
+    the feature.
+
+    **Not conditioned on the environment.** A variable that happens to be
+    exported in *this* shell is still asked about — it is offered as the default
+    instead (`overpower.cli`), because the shell that runs the install is not the
+    shell the runtime starts in, and skipping the question on that basis would
+    write nothing and claim the configuration was complete.
+
+    Sorted and deduplicated, so two servers wanting one secret are one question.
+    """
+    if scope is not Scope.GLOBAL or not _lands_where_the_environment_is_read(plan, scope):
+        return ()
+    return tuple(
+        sorted(
+            {
+                slot.name
+                for selection in plan.selections
+                for carried in selection.artifacts
+                if isinstance(carried, Recipe)
+                for slot in carried.slots
+            }
+        )
+    )
+
+
+def unset_slots(
+    plan: Plan, variables: Mapping[str, str], scope: Scope, written: Sequence[str] = ()
+) -> tuple[str, ...]:
     """Slot variables this environment does not carry — a warning, never a refusal.
 
     **The variable has to exist when the runtime starts, not when the overpower
@@ -826,6 +1024,13 @@ def unset_slots(plan: Plan, variables: Mapping[str, str], scope: Scope) -> tuple
     Sorted and deduplicated: two servers may need the same variable, and one line
     per variable is what the reader has to act on — the same reading
     `pending_activation` applies to documents.
+
+    `written` is the slots whose **value** went into the document instead of a
+    reference (ADR 0024) — empty on every path that existed before the prompt
+    did. They drop out because the warning is about a `${VAR}` nothing will
+    expand, and there is no `${VAR}` left to expand: telling somebody to export a
+    variable already spelled out in the file is a warning nobody can act on,
+    which is the same defect ADR 0014 names for the approval line.
     """
     if not _lands_where_the_environment_is_read(plan, scope):
         return ()
@@ -837,7 +1042,7 @@ def unset_slots(plan: Plan, variables: Mapping[str, str], scope: Scope) -> tuple
                 for carried in selection.artifacts
                 if isinstance(carried, Recipe)
                 for slot in carried.slots
-                if slot.name not in variables
+                if slot.name not in variables and slot.name not in written
             }
         )
     )
@@ -1032,7 +1237,11 @@ modules, and happen to agree because the destination echoes the convention.
 
 
 def _mcp_selection(
-    recipe: Recipe, documents: Sequence[McpPlace], root: Path, cloned: Path | None
+    recipe: Recipe,
+    documents: Sequence[McpPlace],
+    root: Path,
+    cloned: Path | None,
+    secrets: Mapping[str, str],
 ) -> Selection:
     """One MCP server, rendered once per document it lands in.
 
@@ -1056,7 +1265,7 @@ def _mcp_selection(
     tomorrow.
     """
     destination = None if cloned is None else root / Path(*_SOURCE_DIR) / recipe.name
-    landings = tuple(_graft_landing(recipe, place, destination) for place in documents)
+    landings = tuple(_graft_landing(recipe, place, destination, secrets) for place in documents)
     if cloned is None or destination is None:
         return Selection(name=recipe.name, artifacts=(recipe,), landings=landings)
     return Selection(
@@ -1094,7 +1303,9 @@ def _files_in(tree: Path) -> int:
     return sum(1 for entry in tree.rglob("*") if entry.is_file())
 
 
-def _graft_landing(recipe: Recipe, place: McpPlace, source: Path | None) -> Landing:
+def _graft_landing(
+    recipe: Recipe, place: McpPlace, source: Path | None, secrets: Mapping[str, str]
+) -> Landing:
     """The document, everyone who reads it, and every key that lands in it.
 
     **One landing however many keys**, because a landing is a *place* and the
@@ -1125,7 +1336,7 @@ def _graft_landing(recipe: Recipe, place: McpPlace, source: Path | None) -> Land
                 # disk; the rest edit what is already there.
                 files=1 if index == 0 else 0,
             )
-            for index, graft in enumerate(render(recipe, place.document, source))
+            for index, graft in enumerate(render(recipe, place.document, source, secrets))
         ),
     )
 

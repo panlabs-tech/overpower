@@ -12,10 +12,21 @@ product to walk — the writing side is next door, in `test_writing.py`.
 
 from __future__ import annotations
 
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from overpower.discovery import load_catalog
-from overpower.planning import DirectoryTree, DocumentKey, Request, Write, WriteMode, plan_for
+from overpower.planning import (
+    DirectoryTree,
+    DocumentKey,
+    Plan,
+    Request,
+    Write,
+    WriteMode,
+    askable_slots,
+    plan_for,
+    unset_slots,
+)
 from overpower.rendering import Fragment, Inputs
 from overpower.runtimes import MCP_DOCUMENTS, Environment, Scope, known_runtimes
 from tests.support.project import (
@@ -31,6 +42,7 @@ from tests.support.project import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 
     import pytest
@@ -690,3 +702,127 @@ def test_a_recipe_with_no_source_costs_no_clone_landing(
     (selection,) = plan.selections
     assert len(selection.landings) == 1
     assert all(write.mode is not WriteMode.CLONE for write in selection.landings[0].writes)
+
+
+# --------------------------------------------------------------------------- #
+# the secret the plan carries, and the scope that decides whether it may (#167)
+# --------------------------------------------------------------------------- #
+
+
+def _planned(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    scope: Scope,
+    runtime: str = "claude-code",
+    secrets: Mapping[str, str] = MappingProxyType({}),
+) -> Plan:
+    """One slotted server, planned for one runtime, with whatever was answered."""
+    content = catalog_of(tmp_path, monkeypatch, mcps={"paneled": SLOTTED})
+    root = target(tmp_path, monkeypatch)
+    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
+    return plan_for(
+        Request(mcps=("paneled",), runtimes=(runtime,), scope=scope),
+        catalog,
+        root,
+        Environment.from_process(),
+        secrets=secrets,
+    )
+
+
+def _environment_of(plan: Plan) -> object:
+    """The `env` table of the one server graft this plan carries."""
+    (selection,) = plan.selections
+    (landing,) = selection.landings
+    write, *_ = landing.writes
+    assert isinstance(write.source, Fragment)
+    return write.source.value["env"]
+
+
+def test_the_machine_scope_carries_the_answered_value_into_the_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR 0024, at the layer that decides it: the plan is what the writer reads.
+
+    The value is put in the plan and not handed to the writer beside it, because
+    the plan is the whole of what `execute` consumes — a second channel is a
+    second thing the screen and the disk could disagree about.
+    """
+    plan = _planned(tmp_path, monkeypatch, Scope.GLOBAL, secrets={SLOT_VARIABLE: "pt_live_x"})
+
+    assert _environment_of(plan) == {
+        "PANEL_URL": "https://panel.example.com",
+        SLOT_VARIABLE: "pt_live_x",
+    }
+
+
+def test_the_project_scope_refuses_the_value_however_it_was_answered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other half of the rule, and it is enforced **here** rather than upstream.
+
+    A caller that gathered a value and then asked for a project-scope plan gets
+    the reference back regardless — the file goes to the git, and no argument
+    reaches this function that can change that.
+    """
+    plan = _planned(tmp_path, monkeypatch, Scope.PROJECT, secrets={SLOT_VARIABLE: "pt_live_x"})
+
+    assert _environment_of(plan) == {
+        "PANEL_URL": "https://panel.example.com",
+        SLOT_VARIABLE: f"${{{SLOT_VARIABLE}}}",
+    }
+
+
+def test_the_vault_target_keeps_its_prompt_even_in_the_machine_scope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Scope opens the door; the dialect still decides who walks through it."""
+    plan = _planned(
+        tmp_path, monkeypatch, Scope.GLOBAL, "vscode", secrets={SLOT_VARIABLE: "pt_live_x"}
+    )
+
+    assert _environment_of(plan) == {
+        "PANEL_URL": "https://panel.example.com",
+        SLOT_VARIABLE: "${input:panel-token}",
+    }
+
+
+def test_the_plan_names_the_secrets_it_would_ask_about(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """What `--dry-run` announces and what the prompt loop walks — one answer, two readers."""
+    plan = _planned(tmp_path, monkeypatch, Scope.GLOBAL)
+
+    assert askable_slots(plan, Scope.GLOBAL) == (SLOT_VARIABLE,)
+
+
+def test_a_project_scope_plan_would_ask_about_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The prompt is a machine-scope act, so in a repository there is nothing to count."""
+    plan = _planned(tmp_path, monkeypatch, Scope.PROJECT)
+
+    assert askable_slots(plan, Scope.PROJECT) == ()
+
+
+def test_the_vault_target_alone_would_ask_about_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """VS Code asks for itself, so the overpower asking too would be one prompt too many."""
+    plan = _planned(tmp_path, monkeypatch, Scope.GLOBAL, "vscode")
+
+    assert askable_slots(plan, Scope.GLOBAL) == ()
+
+
+def test_a_variable_written_into_the_document_is_no_longer_unset_here(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The warning is about a reference nothing will expand, and a value is not one.
+
+    Left alone it would tell somebody to export a variable that is already in
+    the file — the same defect as the approval line appearing everywhere, which
+    is a warning nobody can act on.
+    """
+    plan = _planned(tmp_path, monkeypatch, Scope.GLOBAL, secrets={SLOT_VARIABLE: "pt_live_x"})
+
+    assert unset_slots(plan, {}, Scope.GLOBAL) == (SLOT_VARIABLE,)
+    assert unset_slots(plan, {}, Scope.GLOBAL, written=(SLOT_VARIABLE,)) == ()

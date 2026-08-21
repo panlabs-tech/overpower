@@ -52,11 +52,13 @@ from overpower.planning import (
     DestinationExistsError,
     MissingClass,
     Request,
+    askable_slots,
     existing_destinations,
     pending_activation,
     plan_for,
     refuse_broken_documents,
     refuse_unmet_preconditions,
+    stored_secrets,
     unset_slots,
 )
 from overpower.recipes import Recipe
@@ -84,6 +86,7 @@ from overpower.screens import (
     framework_screen,
     installed_screen,
     mcp_screen,
+    noted,
     opened,
     plan_screen,
     railed,
@@ -909,6 +912,7 @@ def _perform(  # noqa: PLR0913 — one argument per thing `plan_for` itself take
         # Before the closing line and not after it: `--dry-run` resolves
         # everything, so what it knows about the environment it knows *now*, and
         # a report ends with what it did rather than with an aside.
+        _announce_secrets(plan, request)
         _warn_about_skipped_classes(plan)
         _warn_about_unset_slots(plan, environment, request.scope)
         _out.print(Text.assemble(("dry run", "op.warn"), " ", ("nothing was written", "op.dim")))
@@ -936,6 +940,17 @@ def _perform(  # noqa: PLR0913 — one argument per thing `plan_for` itself take
             _stopped("nothing was written")
             raise typer.Exit(ExitCode.CANNOT_RUN)
 
+    # **After the plan and the confirmation, before the first byte** (ADR 0024).
+    # Asking earlier would collect a secret for a write the person can still
+    # refuse; asking later would leave the file holding a placeholder for an
+    # instant. The plan is re-derived rather than edited, because a plan built
+    # any other way than by `plan_for` is a second thing the screen and the disk
+    # can disagree about — and re-deriving is free: the function is pure, and
+    # what changed is one argument.
+    secrets = _gathered_secrets(plan, request, environment)
+    if secrets:
+        plan = plan_for(request, catalog, root, environment, sources, secrets)
+
     report = execute(plan)
     if not _out.is_terminal:
         _out.print(
@@ -952,7 +967,7 @@ def _perform(  # noqa: PLR0913 — one argument per thing `plan_for` itself take
         listed = ", ".join(str(path) for path in report.degraded)
         _out.print(Text.assemble(("degraded to copy", "op.warn"), " ", (listed, "op.dim")))
     _warn_about_skipped_classes(plan)
-    _warn_about_unset_slots(plan, environment, request.scope)
+    _warn_about_unset_slots(plan, environment, request.scope, written=tuple(secrets))
     _warn_about_activation(plan, request.scope, root)
     _finished()
 
@@ -972,7 +987,110 @@ def _print_instructions(plan: Plan) -> None:
                 _out.print(Text(carried.instructions, style="op.dim"))
 
 
-def _warn_about_unset_slots(plan: Plan, environment: Environment, scope: Scope) -> None:
+def _gathered_secrets(plan: Plan, request: Request, environment: Environment) -> Mapping[str, str]:
+    """Every slot value this run will write, asked for or already in the file (ADR 0024).
+
+    Two sources and one answer, because the plan takes one: what a person types
+    now, and what a previous run of the same line already put in the document.
+
+    **What is already there is carried forward on every path, terminal or not.**
+    The graft replaces the whole server key, so a slot this function leaves out
+    is a slot the reference is written back over — and *"kept"* has to survive
+    the run that does not ask, or the second `install --yes` of an unchanged line
+    would quietly demote a working secret to a placeholder at exit 0. Nothing
+    about that widens the rule: on a machine that never answered a prompt there
+    is nothing stored to carry, and the run renders exactly what it rendered
+    before this function existed.
+
+    An answer of nothing is not stored, which is the documented gesture rather
+    than an oversight: `${VAR}` goes back and the secret leaves the file
+    ([ADR 0025](docs/adr/0025-nao-nasce-uninstall.md)).
+    """
+    stored = stored_secrets(plan, request.scope)
+    asked = _pending_secrets(plan, request, stored)
+    answers = {name: value for name, value in stored.items() if name not in asked}
+    for name in asked:
+        typed = _answered_secret(name, environment.variables.get(name))
+        if typed:
+            answers[name] = typed
+    return answers
+
+
+def _pending_secrets(plan: Plan, request: Request, stored: Mapping[str, str]) -> tuple[str, ...]:
+    """The slots this run would actually stop and ask about — the count and the walk.
+
+    One function so the number `--dry-run` prints and the questions the real run
+    puts up cannot disagree: a report that announced a question the run then
+    skips is a report about a different installation, which is the same argument
+    that put `refuse_broken_documents` on both paths.
+
+    `_asking` and not a new predicate: *terminal, and no `--yes`* is already what
+    decides whether this command stops for a human, and ADR 0024 asks for the
+    prompt on exactly that condition. `--force` is what reopens a question the
+    stored value had settled — it already means *overwrite what is occupying the
+    destination*, and a value in the document is what is occupying it.
+    """
+    if not _asking(request):
+        return ()
+    wanted = askable_slots(plan, request.scope)
+    if request.force:
+        return wanted
+    return tuple(name for name in wanted if name not in stored)
+
+
+def _answered_secret(name: str, default: str | None) -> str:
+    """One value, typed behind a mask, with the exported variable offered as the default.
+
+    `password` and not `text` for the property the whole feature turns on: the
+    keystrokes are masked, so the value never lands in scrollback, in a screen
+    share, or in the terminal recording of somebody's demo. The value never
+    reaches the product's own output either — nothing here prints it, and what
+    it becomes is a byte in a file.
+
+    **The default is a real convenience and not a leak**: an exported variable is
+    pre-filled into the same masked buffer, so pressing enter adopts it without
+    it ever having been drawn. Offering it is what makes the ordinary case — the
+    person who already exported the token to try the server by hand — one
+    keystroke instead of a copy and paste out of a shell.
+
+    The message names the variable and what an empty answer does, because empty
+    is a **decision** here (ADR 0025) and an undocumented one would read as a
+    slip. `ask()` answers `None` on an interrupt, which is the same gesture as
+    answering nothing and is treated as one.
+    """
+    answer = questionary.password(
+        f"{name}? (empty writes ${{{name}}} back)",
+        default=default or "",
+        qmark=f"{ACTIVE_MARK} ",
+        style=QUESTIONARY_STYLE,
+    ).ask()
+    return answer if isinstance(answer, str) else ""
+
+
+def _announce_secrets(plan: Plan, request: Request) -> None:
+    """Say how many secrets a real run of this line would ask about, and which.
+
+    `--dry-run` is the one path that reaches here: it resolves everything and
+    asks nothing, so without this line the report would be silent about the only
+    part of the run that stops for a human.
+
+    It counts what `_pending_secrets` counts, off the same stored values, so a
+    line whose secret is already in the document announces nothing — which is
+    what the real run would then do.
+    """
+    stored = stored_secrets(plan, request.scope)
+    pending = _pending_secrets(plan, replace(request, dry_run=False), stored)
+    if not pending:
+        return
+    one = len(pending) == 1
+    _out.print(
+        noted(f"{len(pending)} secret{'' if one else 's'} will be asked for: {', '.join(pending)}")
+    )
+
+
+def _warn_about_unset_slots(
+    plan: Plan, environment: Environment, scope: Scope, written: Sequence[str] = ()
+) -> None:
     """Name the slot variables this environment does not have, at exit 0.
 
     A slot is the one thing the overpower **refuses to write**, so the value has
@@ -992,7 +1110,7 @@ def _warn_about_unset_slots(plan: Plan, environment: Environment, scope: Scope) 
     Which document the plan lands in is a fact of (runtime, scope), so the scope
     has to travel — the same argument that put it on `_warn_about_activation`.
     """
-    missing = unset_slots(plan, environment.variables, scope)
+    missing = unset_slots(plan, environment.variables, scope, written)
     if not missing:
         return
     one = len(missing) == 1

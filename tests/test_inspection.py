@@ -595,15 +595,19 @@ def test_a_copy_and_a_graft_are_summed_into_one_pair_of_numbers(
 MCP_URL = "https://mcp.cloudflare.com/mcp"
 
 SOURCED = """\
-description = "A server with code of its own."
-transport = "stdio"
+description: "A server with code of its own."
+transport: "stdio"
 
-[source]
-url = "https://github.com/example/homegrown-mcp"
+source:
+  url: "https://github.com/example/homegrown-mcp"
 
-[server]
-command = "uv"
-args = ["run", "--project", "{source}", "server.py"]
+server:
+  command: "uv"
+  args:
+    - "run"
+    - "--project"
+    - "{source}"
+    - "server.py"
 """
 
 

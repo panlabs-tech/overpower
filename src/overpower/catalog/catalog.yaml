@@ -12,7 +12,7 @@
 # `content/frameworks/<name>/<type>/<artifact>/`. Adding a file inside a skill
 # touches nothing here; adding a whole skill touches nothing here.
 #
-# Two things qualify in v0.1.0:
+# Three things qualify:
 #
 #   - a **bundle**, which by definition has no tree — it is a manifest that
 #     names artifacts of the pool and carries no content of its own;
@@ -20,7 +20,11 @@
 #     with skills inside it and no frontmatter of its own. The upstream keeps
 #     one in `.claude-plugin/plugin.json`, but that file is outside the vendored
 #     slice and could not be brought into `content/`: `content/` lands whole,
-#     and ADR 0003 forbids adding anything to what lands.
+#     and ADR 0003 forbids adding anything to what lands;
+#   - **the recipe of an MCP server**, under `mcp:`, because a recipe never
+#     lands either — what lands is the fragment rendered out of it — so it has
+#     no tree to be discovered by walking. It arrived here from
+#     `catalog/mcps/<slug>.toml` in issue #164 (ADR 0021).
 #
 # A skill needs no line: its description comes from its own `SKILL.md`, whole
 # and never truncated.
@@ -36,16 +40,23 @@
 # not know the name. What fails loudly needs no verification. The asymmetry was
 # measured in issue #10.
 #
-# THE FORMAT IS YAML, and it was TOML until issue #136. The move buys one thing:
-# the manifest a homemade repository federates in `.overpower/catalog.yaml` is
-# read by the *same* reader as this file, so there is never a second validator
-# to disagree with the first. The recipe of an MCP server next door stayed TOML
-# on purpose — that reader is a closed allowlist under the promise that a recipe
-# which gets past it is a recipe that renders, and rewriting it for cosmetic
-# consistency buys nothing. `.overpower/` is a namespace, not a format.
+# ONE FILE, ONE FORMAT, ONE READER (ADR 0021). The format is YAML, and it was
+# TOML until issue #136; the recipe followed it here in issue #164. Everything a
+# repository offers is declared in one file — this one inside the wheel, and
+# `.overpower.yaml` at the root of a homemade repository — read by the *same*
+# reader, so there is never a second validator to disagree with the first. The
+# top-level keys are a closed set, and a key outside it is refused **by name**:
+# that is what a `version:` marker was considered for and lost to.
 #
-# Descriptions are quoted even when they would parse bare: a plain YAML scalar
-# may not carry `: `, and the framework line below already does.
+# Block style is the convention of this house and has no mechanism behind it:
+# `slots: [{name: X, role: env}]` is the same document to any parser, and
+# refusing to read it would cost a second parser to buy cosmetic uniformity in
+# somebody else's repository. It is rule 43 — *sem mecanismo, confere-se em
+# review*.
+#
+# Short descriptions are quoted even when they would parse bare: a plain YAML
+# scalar may not carry `: `, and the framework line below already does. The long
+# ones are folded blocks, which carry a colon without quoting and read as prose.
 
 bundles:
   api-python:
@@ -55,3 +66,108 @@ bundles:
 frameworks:
   matt-pocock:
     description: "Matt Pocock's agent skills for real engineering: grilling, spec and ticket flows, TDD, code review, domain modelling and more."
+
+mcp:
+  # The first embedded recipe, and it is not invented: this is the `cloudflare`
+  # entry that three repositories of this organisation already keep by hand, in
+  # three copies that happen to agree. Copying it a fourth time is the work the
+  # graft exists to stop.
+  cloudflare:
+    description: >-
+      Cloudflare's remote MCP server, over streamable HTTP. It carries no secret
+      in the file: the connection authorises in the browser the first time an
+      agent uses it, so nothing here has to be filled in before the server works.
+    transport: http
+    server:
+      url: "https://mcp.cloudflare.com/mcp"
+
+  # The recipe that made the schema what it is. Measured across four repositories
+  # of this organisation, this one server produced five configurations that
+  # disagree: two spell the address as `${COOLIFY_BASE_URL:-…}`, which is Claude
+  # Code's syntax alone and reaches the server **literally** in the other two
+  # runtimes that read the same file; one pastes the token in plain text.
+  #
+  # The address is **not** a secret and the token is, so they are declared as two
+  # different things: `server.env` is written into the file, the slot never is.
+  # A schema with only slots could not render this server at all — the address
+  # would never be written, and the server would come up not knowing where to talk.
+  coolify:
+    description: >-
+      Coolify's API server, run as a local process. It deploys and inspects the
+      applications, databases and servers of a Coolify panel — the address of the
+      panel is configuration and is written into the file, while the access token
+      is a secret and is only ever referenced.
+    transport: stdio
+    server:
+      command: "npx"
+      args:
+        - "-y"
+        - "@masonator/coolify-mcp@2.12.0"
+      env:
+        COOLIFY_BASE_URL: "https://vps.panlabs.tech"
+    slots:
+      - name: "COOLIFY_ACCESS_TOKEN"
+        role: "env"
+    # `npx` ships with Node, and this recipe cannot start a process without it.
+    # Left undeclared, a machine with no Node took the write, exited 0, and
+    # failed much later inside the agent — the exact "find out afterwards" that
+    # declaring it ends. The check only ever *reads* the machine: nothing it
+    # finds travels back into the recipe or into what gets written.
+    preconditions:
+      - check: "command_exists"
+        value: "npx"
+
+  # The one server of this organisation whose secret travels in a header, taken
+  # from the template a fourth repository already carries — where the note next to
+  # it reads *"Codex typically needs a bearer via GITHUB_PAT_TOKEN"*.
+  #
+  # The word `Bearer` does not appear here on purpose: the role says what the
+  # secret is for, and the renderer assembles `Authorization: Bearer <secret>` out
+  # of it. That is what will let a target which spells the same intent as a field —
+  # Codex's `bearer_token_env_var` — be served from this very recipe, with no new
+  # field to add and nothing to re-read.
+  github:
+    description: >-
+      GitHub's remote MCP server, reached over HTTP. It reads and writes issues,
+      pull requests and workflows in the repositories your token can see, and it
+      is authorised with a personal access token sent on every request.
+    transport: http
+    server:
+      url: "https://api.githubcopilot.com/mcp"
+    slots:
+      - name: "GITHUB_PAT_TOKEN"
+        role: "bearer"
+
+  # Not invented either: this is the `hostinger-vps` entry four repositories of
+  # this organisation keep by hand, and the four **disagree about whether it needs
+  # a token at all** — three carry `"env": {}` and one carries the slot. The server
+  # needs it, so this is the copy that stops being copied.
+  hostinger-vps:
+    description: >-
+      Hostinger's API server, run as a local process. It manages VPS instances,
+      DNS records and domains through the Hostinger API, and every call it makes
+      is authorised with your API token — so the token has to be in the
+      environment the runtime starts in.
+    transport: stdio
+    # The version is pinned exactly, and `@latest` is forbidden in an embedded
+    # recipe: a server that resolves a new package on every start changes
+    # behaviour with nobody having changed anything, and the version it changed
+    # at is written down nowhere.
+    server:
+      command: "npx"
+      args:
+        - "-y"
+        - "--package"
+        - "hostinger-api-mcp@0.2.5"
+        - "hostinger-vps-mcp"
+    slots:
+      - name: "HOSTINGER_API_TOKEN"
+        role: "env"
+    # The twin of the declaration in `coolify` above, and for the same reason:
+    # this server is a process `npx` launches, so a machine without Node cannot
+    # run what the write would configure. Declared here rather than assumed,
+    # because what reproved was never requiring tooling — it was requiring it
+    # without saying so.
+    preconditions:
+      - check: "command_exists"
+        value: "npx"

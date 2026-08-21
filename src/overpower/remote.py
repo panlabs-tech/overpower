@@ -11,8 +11,8 @@ left out **by decision rather than by adjournment**: an AI Framework is a folder
 of this wheel, so there is nothing in a third-party repository for the flag to
 name. The reason that once excluded bundle alongside it — *"they only exist in a
 repository that already knows the overpower"* — stopped holding the moment a
-federated recipe shipped, since a repository that writes `.overpower/` knows the
-overpower by construction.
+federated recipe shipped, since a repository that writes `.overpower.yaml` knows
+the overpower by construction.
 
 **The URL is a search root, not an address.** The repository root, a subfolder
 and the artifact's own folder give the *same* result, and the deepest one only
@@ -23,7 +23,7 @@ no field of our own — reproducibility for free.
 (https://github.com/ThiagoPanini/overpower/issues/135). Named a unit, the URL is
 that search root and the walk is free-depth: *reach*. Named none, the question is
 the one before the name — *what does this repository offer?* — and the answer is
-**anchored** at `skills/` and `.overpower/mcp/` as direct children of the
+**anchored** at `skills/` and `.overpower.yaml` as direct children of the
 repository, with the URL's subpath ignored entirely. An offer is a property of
 the repository, so the root URL and a subfolder's have to answer the same.
 
@@ -36,14 +36,20 @@ a **tie-break** — a copy never wins against an offer, and never hides what wou
 otherwise be the only answer. That unmakes an ambiguity the reach used to refuse
 falsely, and costs nothing where the copy is all there is.
 
-**A skill is found by its own `SKILL.md`; a recipe, by the fixed convention path
-`.overpower/mcp/<slug>.toml`; a bundle, by the manifest at
-`.overpower/catalog.yaml`** (`docs/agents/domain.md` § Vocabulário). The first
-two obey the same root rule and differ only in what they match at the bottom of
-the walk. The third does not walk at all: a manifest is read at the repository
-root or it is somebody else's, which is the anchor `_FEDERATED_CATALOG` carries
-the reasoning for. `.overpower/` holds two formats on purpose — it is a
-namespace, not a format (ADR 0020).
+**A skill is found by its own `SKILL.md`; a recipe and a bundle are read out of
+the one file the repository declares itself in, `.overpower.yaml` at its root**
+(`docs/agents/domain.md` § Vocabulário). Only the skill walks, because only a
+skill *has* a tree to be found in. The declaration does not walk at all: it is
+read at the repository root or it is somebody else's, which is the anchor
+`FEDERATED_FILE` carries the reasoning for. One file, one format, one reader —
+the very reader the wheel's own `catalog.yaml` goes through (ADR 0021, which
+replaced the two addresses and the two formats of ADR 0020).
+
+**The recipe stopped reaching, and that is the visible change of ADR 0021.**
+`--mcp <slug> --from <url>` used to walk for `.overpower/mcp/<slug>.toml` at any
+depth; now the slug is a key of the declaration, and a declaration is anchored.
+A repository still carrying the old layout and no `.overpower.yaml` is refused
+naming the file to write (`LegacyRecipeLayoutError`), never read half-way.
 
 **Obtention has two paths and one search** (ADR 0007,
 https://github.com/ThiagoPanini/overpower/issues/25):
@@ -103,9 +109,9 @@ from urllib.request import urlopen
 
 from overpower.discovery import SKILL_FILE, ArtifactType, Bundle, Catalog, artifact_at
 from overpower.errors import BadInvocationError, OverpowerError, RefusedError
-from overpower.recipes import RECIPE_SUFFIX, read_recipe
+from overpower.recipes import MCP_KEY
 from overpower.runtimes import RUNTIMES, Scope
-from overpower.written import read_written_catalog
+from overpower.written import WrittenCatalog, read_written_catalog
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Mapping, Sequence
@@ -145,29 +151,33 @@ _FALLBACK_DIR = "tarball"
 """Each path unpacks into its own subdirectory of the scratch, so a primary that
 failed halfway cannot leave debris inside the tree the fallback then lands."""
 
-_FEDERATED_MCP_DIR = (".overpower", "mcp")
-"""The fixed two segments a recipe's parent directory must end in.
+FEDERATED_FILE = ".overpower.yaml"
+"""The one file a repository writes about everything it offers, at its root.
 
-A recipe has no folder of its own the way a skill does — one flat directory
-holds every `<slug>.toml` — so the search matches a **fixed path suffix**
-instead of a free-form folder name. Checked as the last two `.parts` of the
-match's parent rather than as a prefix of `root`, which is what makes the same
-check pass at any of the three depths: the suffix is there whether `root` is
-the repository, `.overpower`, or `.overpower/mcp` itself."""
+Bundles under `bundles:` and recipes under `mcp:`, read by the very reader the
+wheel's own `catalog.yaml` goes through — one file, one format, one reader
+(ADR 0021). It replaced two addresses in two formats, and the publisher is who
+paid for those: the first real repository to federate carried three files, two
+formats and one namespace, with **zero lines of the product** teaching either
+address.
 
-_FEDERATED_CATALOG = (".overpower", "catalog.yaml")
-"""The one file a repository writes about its own content, as a direct child of its root.
-
-Sibling of `_FEDERATED_MCP_DIR` in the same namespace and in the other format,
-which is ADR 0020 in two constants: `.overpower/` is a **namespace**, not a
-format, so the manifest is YAML and the recipe beside it stays TOML.
-
-Anchored rather than reached, and the anchor is not a shortcut. A manifest
-answers *what does this repository compose?* — the same question the showcase
+Anchored rather than reached, and the anchor is not a shortcut. A declaration
+answers *what does this repository offer?* — the same question the showcase
 answers about `skills/`, and a property of the repository the URL names. A
-vendored dependency carrying its own `.overpower/catalog.yaml` speaks for its
-own repository, so a reach that found one would let the URL's subpath change
-what this repository is said to offer (ADR 0019)."""
+vendored dependency carrying its own `.overpower.yaml` speaks for its own
+repository, so a reach that found one would let the URL's subpath change what
+this repository is said to offer (ADR 0019). It is also why `--mcp` stopped
+walking: the recipe became part of the declaration, so it is anchored with it."""
+
+_LEGACY_MCP_DIR = (".overpower", "mcp")
+"""Where a recipe lived before ADR 0021, and refusing is all this is still for.
+
+Nothing is ever read from here. A repository laid out the old way and carrying
+no `.overpower.yaml` is refused naming the file to write instead, because the
+alternative is the silent half — a showcase that lists the skills, omits the
+servers and exits 0, leaving the author believing they federate something the
+product never saw. Checked at the repository root only, like the declaration it
+stands in for: a vendored dependency's leftovers are not this repository's."""
 
 OFFER_DIR = "skills"
 """The one folder a repository's **offer** lives in, as a direct child of its root.
@@ -250,7 +260,7 @@ class MissingSubpathError(RefusedError):
 
 
 class NothingOfferedError(RefusedError):
-    """The repository has no `skills/` and no `.overpower/mcp/` to show.
+    """The repository has no `skills/` and no `.overpower.yaml` to show.
 
     Exit **3**, on the same axis every other refusal on this path sits: the URL
     parsed, the repository was obtained, the walk ran, and the answer is no. The
@@ -261,11 +271,38 @@ class NothingOfferedError(RefusedError):
     """
 
     def __init__(self, source: Source) -> None:
-        """Name the repository, and both folders that would have made it an offer."""
+        """Name the repository, and both things that would have made it an offer."""
         self.source = source
         super().__init__(
             f"{source.shown} offers nothing to install: "
-            f"no `{OFFER_DIR}/` and no `{'/'.join(_FEDERATED_MCP_DIR)}/` at its root"
+            f"no `{OFFER_DIR}/` and no `{FEDERATED_FILE}` at its root"
+        )
+
+
+class LegacyRecipeLayoutError(RefusedError):
+    """Recipes at the address the format left behind, and no `.overpower.yaml` beside them.
+
+    Exit **3**, and it names the fix the way every exit 3 of this product does:
+    which files were found, that the format is gone, and the one file to write in
+    their place. The alternative is the silent half — list the skills, omit the
+    servers, exit 0 — which describes the repository as offering less than its
+    author declared, with no line anywhere to point at.
+
+    There is no compatibility window, and the reason is measured rather than
+    taken on principle: on the day of ADR 0021 the whole installed base was
+    **two untracked files** in a repository that did not yet have a commit, and a
+    window would have cost two readers for one schema for as long as it lasted.
+    """
+
+    def __init__(self, source: Source, found: Sequence[Path], tree: Path) -> None:
+        """Name the files that were found, and the one file to write instead."""
+        self.source = source
+        self.found = tuple(found)
+        listed = ", ".join(path.relative_to(tree).as_posix() for path in self.found)
+        super().__init__(
+            f"{source.shown} declares its MCP servers at {listed}, which this version no "
+            f"longer reads: a recipe is an entry of the `{MCP_KEY}:` key of "
+            f"`{FEDERATED_FILE}`, at the repository root. Write that file instead"
         )
 
 
@@ -307,43 +344,28 @@ class AmbiguousRemoteSkillError(RefusedError):
 
 
 class RemoteRecipeNotFoundError(RefusedError):
-    """No `.overpower/mcp/<slug>.toml` under the search root names this recipe.
+    """No entry of that name under the `mcp:` key of the repository's declaration.
 
-    Exit **3**, the same axis as `RemoteSkillNotFoundError`: the search space is
-    a whole repository someone else owns, so the product ran, looked, and the
-    answer is no — not the exit **2** the embedded catalog's closed list answers
-    a typo with.
+    Exit **3**, the same axis as `RemoteSkillNotFoundError`: the file is a
+    stranger's and it is optional, so a name that is not in it — or a repository
+    that declares none at all — is the product having looked and the answer being
+    no, never the exit **2** a closed list answers a typo with.
+
+    **It has no ambiguous twin, and that is what anchoring bought.** While a
+    recipe was reached by walking, two copies of `.overpower/mcp/<slug>.toml`
+    under one root were a real outcome and had to be refused by name. A key
+    appears once in a mapping, so the question stopped existing (ADR 0021).
     """
 
     def __init__(self, name: str, source: Source) -> None:
         """Name what was looked for and where, in the terms of the URL."""
         self.name = name
         self.source = source
-        super().__init__(f"no recipe named `{name}` under {source.shown}")
-
-
-class AmbiguousRemoteRecipeError(RefusedError):
-    """More than one `.overpower/mcp/{name}.toml` sits under the search root.
-
-    Same reasoning as `AmbiguousRemoteSkillError`: picking one would be the
-    class of defect this product exists not to commit, so every candidate
-    travels in the message and the fix stays in the caller's hands.
-    """
-
-    def __init__(self, name: str, source: Source, found: Sequence[Path]) -> None:
-        """Name every candidate, relative to the search root, so a deeper URL is one edit."""
-        self.name = name
-        self.source = source
-        self.found = tuple(found)
-        listed = ", ".join(path.as_posix() for path in self.found)
-        super().__init__(
-            f"`{name}` is ambiguous under {source.shown}: {listed}. "
-            "Point --from at one of them instead"
-        )
+        super().__init__(f"no recipe named `{name}` in {source.shown}")
 
 
 class RemoteBundleNotFoundError(RefusedError):
-    """No entry of that name in the repository's `.overpower/catalog.yaml`.
+    """No entry of that name in the repository's `.overpower.yaml`.
 
     Exit **3**, on the axis its two siblings above sit on: the manifest is a
     file someone else owns and it is optional, so a name that is not in it — or
@@ -477,16 +499,18 @@ def catalog_from(
 
     | | walks from | matches |
     | --- | --- | --- |
-    | reach, `--skill`/`--mcp` | the **search root**, so the URL narrows it | any depth |
-    | `--bundle` | the **repository**, so the URL narrows nothing | the manifest |
+    | reach, `--skill` | the **search root**, so the URL narrows it | any depth |
+    | `--mcp`/`--bundle` | the **repository**, so the URL narrows nothing | the declaration |
     | showcase, no selector | the **repository**, so the URL narrows nothing | the anchors |
 
     The showcase ignoring the subpath is not an oversight of the search-root
     doctrine but its complement: an offer is a property of the repository, so
     pasting the root URL and pasting a subfolder's have to answer the same. A
-    bundle sits on that side of the table rather than with the other two
-    selectors because a composition is that same kind of property — there is one
-    manifest per repository, and it is at the root or it is somebody else's.
+    bundle and a recipe sit on that side of the table rather than with the one
+    remaining selector because both are *declared* rather than found — there is
+    one declaration per repository, and it is at the root or it is somebody
+    else's (ADR 0021). Only a skill is still reached, because only a skill has a
+    tree of its own to be reached in.
 
     The scratch is removed in the `finally`, so it goes whether the search
     answered, refused or the caller declined the confirmation inside the block.
@@ -500,61 +524,96 @@ def catalog_from(
             return
         # Resolved **only** where it is read, and that is not a micro-optimisation.
         # `search_root` refuses a subpath the repository does not have, and a line
-        # whose only selector is `--bundle` must never meet that refusal: the
-        # manifest is anchored at the repository, so the URL's subpath narrows
+        # whose selectors are all anchored must never meet that refusal: the
+        # declaration is read at the repository, so the URL's subpath narrows
         # nothing for it — and a rule that narrows nothing cannot be allowed to
-        # fail anything either. The `tree` fallback is never read: without one of
-        # those two selectors, both comprehensions below are empty.
-        root = search_root(tree, source) if skills or mcps else tree
+        # fail anything either. The `tree` fallback is never read: without
+        # `--skill`, the comprehension below is empty.
+        root = search_root(tree, source) if skills else tree
         yield Catalog(
             frameworks=(),
             pool=tuple(_skill_called(name, root, tree, source) for name in dict.fromkeys(skills)),
             bundles=_bundles_called(dict.fromkeys(bundles), tree, source),
-            mcps=tuple(_mcp_called(name, root, source) for name in dict.fromkeys(mcps)),
+            mcps=tuple(_mcp_called(name, tree, source) for name in dict.fromkeys(mcps)),
         )
     finally:
         discard(scratch)
 
 
 def _offered_by(tree: Path, source: Source) -> Catalog:
-    """The showcase: what `skills/`, `.overpower/mcp/` and `.overpower/catalog.yaml` hold.
+    """The showcase: what `skills/` holds and what `.overpower.yaml` declares.
 
-    All three halves anchored at `tree` — the repository — and not at the search
-    root, which is what makes the URL's subpath irrelevant here.
+    Both halves anchored at `tree` — the repository — and not at the search root,
+    which is what makes the URL's subpath irrelevant here.
 
     An empty result is refused rather than returned. A `Catalog` with nothing in
     it renders as a screen with no rows and opens a wizard with no choices, and
     both of those describe the invocation as the problem when the problem is the
     URL (`NothingOfferedError`). The bundles are not part of that test and could
     not be: a bundle carries no content of its own, so a repository whose only
-    file is a manifest offers nothing to install and its own `items` are the
-    first thing that would refuse.
+    file is a declaration of bundles offers nothing to install and its own
+    `items` are the first thing that would refuse.
     """
     offers = _skills_offered(tree)
+    declared = _declared_by(tree, source)
     catalog = Catalog(
         frameworks=(),
         pool=offers,
-        bundles=_bundles_offered(tree, source, offers),
-        mcps=_mcps_offered(tree),
+        bundles=_bundles_of(declared, offers, source),
+        mcps=declared.mcps,
     )
     if not catalog.pool and not catalog.mcps:
         raise NothingOfferedError(source)
     return catalog
 
 
-def _bundles_offered(tree: Path, source: Source, offers: Sequence[Artifact]) -> tuple[Bundle, ...]:
-    """Every bundle `<tree>/.overpower/catalog.yaml` declares, over the skills `tree` offers.
+_NOTHING_DECLARED = WrittenCatalog(bundles=(), frameworks={}, mcps=())
+"""What a repository with no `.overpower.yaml` declares, which is a real answer.
 
-    **The manifest is optional**, and a repository that has not written one is
-    not defective: it keeps its skills listed and installable, and only the
-    section goes. The author adopts when they want to.
+The file is **optional**, and a repository that has not written one is not
+defective: it keeps its skills listed and installable, and only what the file
+would have declared is absent. The author adopts when they want to.
+"""
 
-    Read through `read_written_catalog` — *the* reader, the one the embedded
-    written file goes through — so a manifest that reaches the screen is a
-    manifest the product would have written itself, and a malformed one is
-    refused naming the same field on both sides. There is no second validator
-    anywhere in the product, which is the whole reason this ticket came after
-    the move to YAML rather than before it.
+
+def _declared_by(tree: Path, source: Source) -> WrittenCatalog:
+    """Everything `<tree>/.overpower.yaml` declares, through *the* reader.
+
+    The one place a federated declaration is read, which is what makes the
+    anchor a fact rather than a convention repeated in three functions: bundles,
+    recipes and the showcase all arrive here, and none of them sees a path.
+
+    Read through `read_written_catalog` — the reader the wheel's own written file
+    goes through — so a declaration that reaches the screen is one the product
+    would have written itself, and a malformed one is refused naming the same
+    field on both sides. There is no second validator anywhere in the product.
+    """
+    manifest = tree / FEDERATED_FILE
+    if manifest.is_file():
+        return read_written_catalog(manifest)
+    _refuse_the_old_layout(tree, source)
+    return _NOTHING_DECLARED
+
+
+def _refuse_the_old_layout(tree: Path, source: Source) -> None:
+    """Exit 3 when the recipes are at the address the format left behind.
+
+    Checked only where the declaration would have been — the repository root —
+    so a vendored dependency's leftovers refuse nothing. Absence of the old
+    layout is the ordinary case and answers nothing at all.
+    """
+    legacy = tree.joinpath(*_LEGACY_MCP_DIR)
+    if not legacy.is_dir():
+        return
+    found = sorted(path for path in legacy.glob("*.toml") if path.is_file())
+    if found:
+        raise LegacyRecipeLayoutError(source, found, tree)
+
+
+def _bundles_of(
+    declared: WrittenCatalog, offers: Sequence[Artifact], source: Source
+) -> tuple[Bundle, ...]:
+    """Every bundle the repository declares, resolved over the skills it offers.
 
     `items` resolve against `offers` — the **enumerated** skills of this
     repository — and against nothing else. Not the embedded catalog, because
@@ -571,11 +630,8 @@ def _bundles_offered(tree: Path, source: Source, offers: Sequence[Artifact]) -> 
     miss costs (exit 1 there, exit 3 here, ADR 0009). A helper parameterised on
     everything that differs is longer than the two loops it replaces and hides
     the one line worth reading. What must not diverge is the *reader*, and that
-    one really is shared.
+    one really is shared — `_declared_by` is the only door.
     """
-    manifest = tree.joinpath(*_FEDERATED_CATALOG)
-    if not manifest.is_file():
-        return ()
     by_name = {artifact.name: artifact for artifact in offers}
     return tuple(
         Bundle(
@@ -585,28 +641,29 @@ def _bundles_offered(tree: Path, source: Source, offers: Sequence[Artifact]) -> 
                 _offered_item(written.name, item, by_name, source) for item in written.items
             ),
         )
-        for written in read_written_catalog(manifest).bundles
+        for written in declared.bundles
     )
 
 
 def _bundles_called(names: Iterable[str], tree: Path, source: Source) -> tuple[Bundle, ...]:
-    """The bundles named, in the order they were typed, out of the one manifest.
+    """The bundles named, in the order they were typed, out of the one declaration.
 
-    The whole manifest is read and resolved even when one name was asked for,
+    The whole declaration is read and resolved even when one name was asked for,
     and that is the embedded behaviour rather than a shortcut: `load_catalog`
-    resolves every bundle it finds, so a manifest with a broken entry is a
-    broken manifest on both sides. Resolving lazily here would make the
+    resolves every bundle it finds, so a declaration with a broken entry is a
+    broken declaration on both sides. Resolving lazily here would make the
     federated path forgive what the wheel refuses, which is the divergence this
     ticket exists to prevent.
     """
-    declared = {
-        bundle.name: bundle for bundle in _bundles_offered(tree, source, _skills_offered(tree))
+    offered = {
+        bundle.name: bundle
+        for bundle in _bundles_of(_declared_by(tree, source), _skills_offered(tree), source)
     }
     chosen: list[Bundle] = []
     for name in names:
-        if name not in declared:
+        if name not in offered:
             raise RemoteBundleNotFoundError(name, source)
-        chosen.append(declared[name])
+        chosen.append(offered[name])
     return tuple(chosen)
 
 
@@ -649,25 +706,6 @@ def _skills_offered(tree: Path) -> tuple[Artifact, ...]:
         if match.is_file() and match.parent != offers
     }
     return tuple(artifact_at(folder, ArtifactType.SKILL) for folder in sorted(found))
-
-
-def _mcps_offered(tree: Path) -> tuple[Recipe, ...]:
-    """Every recipe in `<tree>/.overpower/mcp/`, and in no other copy of that path.
-
-    Anchored where the skills half is anchored, and for the same reason: the
-    *reach* accepts the convention path at any depth — a vendored dependency's
-    `.overpower/mcp/` answers `--mcp <slug>` — while the showcase speaks only
-    for the repository the URL names.
-
-    Read through `read_recipe`, the same reader the embedded catalog uses, so a
-    recipe that reaches the screen is a recipe that renders.
-    """
-    folder = tree.joinpath(*_FEDERATED_MCP_DIR)
-    if not folder.is_dir():
-        return ()
-    return tuple(
-        read_recipe(match) for match in sorted(folder.glob(f"*{RECIPE_SUFFIX}")) if match.is_file()
-    )
 
 
 def _is_a_runtime_destination(folder: Path, tree: Path) -> bool:
@@ -1001,24 +1039,20 @@ def _skill_called(name: str, root: Path, tree: Path, source: Source) -> Artifact
     return artifact_at(matches[0], ArtifactType.SKILL)
 
 
-def _mcp_called(name: str, root: Path, source: Source) -> Recipe:
-    """The one recipe named `name` under `.overpower/mcp/` somewhere below `root`.
+def _mcp_called(name: str, tree: Path, source: Source) -> Recipe:
+    """The recipe named `name` under the `mcp:` key of the repository's declaration.
 
-    Read through `read_recipe` — the same reader the embedded catalog uses — so
-    a recipe that gets past this function is a recipe that renders, whether it
-    came from `catalog/mcps/` or from someone else's repository.
+    `tree` and not the search root: a declaration is anchored, so `--mcp` reads
+    the same entry whether the URL named the repository or a folder inside it
+    (ADR 0021). The subpath keeps narrowing `--skill`, which is the one selector
+    that still walks.
+
+    Read through `_declared_by`, so the recipe passed the same contract the
+    embedded catalog's did — a recipe that gets past this function is a recipe
+    that renders, whether it came from the wheel or from someone else's
+    repository.
     """
-    matches = sorted(
-        {
-            found
-            for found in root.rglob(f"{name}{RECIPE_SUFFIX}")
-            if found.is_file() and found.parent.parts[-2:] == _FEDERATED_MCP_DIR
-        }
-    )
-    if not matches:
-        raise RemoteRecipeNotFoundError(name, source)
-    if len(matches) > 1:
-        raise AmbiguousRemoteRecipeError(
-            name, source, [match.relative_to(root) for match in matches]
-        )
-    return read_recipe(matches[0])
+    for recipe in _declared_by(tree, source).mcps:
+        if recipe.name == name:
+            return recipe
+    raise RemoteRecipeNotFoundError(name, source)

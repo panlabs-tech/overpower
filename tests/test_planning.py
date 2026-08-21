@@ -623,15 +623,19 @@ def test_a_skill_naming_other_skills_in_its_text_writes_only_itself(
 # --------------------------------------------------------------------------- #
 
 SOURCED = """\
-description = "A server with code of its own."
-transport = "stdio"
+description: "A server with code of its own."
+transport: "stdio"
 
-[source]
-url = "https://github.com/example/homegrown-mcp"
+source:
+  url: "https://github.com/example/homegrown-mcp"
 
-[server]
-command = "uv"
-args = ["run", "--project", "{source}", "server.py"]
+server:
+  command: "uv"
+  args:
+    - "run"
+    - "--project"
+    - "{source}"
+    - "server.py"
 """
 
 

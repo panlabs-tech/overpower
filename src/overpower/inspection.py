@@ -871,8 +871,8 @@ _CLONE_DIR = (".overpower", "mcp")
 """Where a `[source]` recipe's clone lands under the machine root.
 
 The same two segments `overpower.planning._SOURCE_DIR` and
-`overpower.remote._FEDERATED_MCP_DIR` each already name for their own question
-— a third copy here rather than a shared import, for the reason those two are
+`overpower.remote._LEGACY_MCP_DIR` each already name for their own question — a
+third copy here rather than a shared import, for the reason those two are
 already two and not one: this module asks *"is the clone still there"*, which
 is a question neither of the others answers.
 """

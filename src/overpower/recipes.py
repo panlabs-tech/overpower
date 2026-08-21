@@ -1,10 +1,18 @@
-"""TOML in, a `Recipe` out: the reader, and the whole of a recipe's validation.
+"""A subtree of the manifest in, a `Recipe` out: the whole of a recipe's validation.
 
 A **recipe** is the logical declaration of an MCP server — transport, command or
 URL, and (from the slices after this one) slots, preconditions and source. It
 **never lands**: what lands is the fragment rendered out of it, which is why it
-lives under the root that never lands (`catalog/mcps/<slug>.toml`) and not under
-`content/`, whose invariant is *100% lands* (`docs/agents/domain.md`).
+lives under the root that never lands and not under `content/`, whose invariant
+is *100% lands* (`docs/agents/domain.md`).
+
+**One file, one format, one reader** (ADR 0021). A recipe is an entry of the
+`mcp:` key of the one written file — `catalog/catalog.yaml` inside the wheel,
+`.overpower.yaml` at the root of a homemade repository — so this module opens
+nothing: `overpower.written` decodes the document once and hands each entry down
+here as an already-parsed subtree. That is what makes *the same reader* a fact of
+the code rather than a promise: there is one decoder, one contract, and no
+second validator that could admit on one side what the other refuses.
 
 **A recipe that gets past this module is a recipe that renders.** Every rule the
 contract has is checked here — the closed set of transports, the fields each
@@ -12,8 +20,8 @@ transport admits, and the one substitution token — so `overpower.rendering` is
 total function over what this returns rather than a second validator that could
 disagree with the first.
 
-The vocabulary of this version is **`description`, `transport`, `[server]`,
-`[[slots]]`, `[[preconditions]]`, `instructions` and `[source]`**
+The vocabulary of this version is **`description`, `transport`, `server:`,
+`slots:`, `preconditions:`, `instructions` and `source:`**
 (https://github.com/ThiagoPanini/overpower/issues/76, /78, /82 and /84). A
 recipe that declares a field outside this set is refused **by name** rather
 than read half-way: silent partial acceptance is exactly the class of defect
@@ -21,24 +29,23 @@ the graft exists not to commit, and it is the reason the unknown-field check
 is a closed allowlist rather than a `get` per known key.
 
 **A recipe carries a secret and a configuration, and the difference is the whole
-point**: a slot is what the overpower **refuses to write**, `[server.env]` is
+point**: a slot is what the overpower **refuses to write**, `server.env:` is
 what it writes because it can. The distinction came from a measured server —
 `COOLIFY_BASE_URL` is the address of a panel, not a secret, and a schema that
 could only hold slots would never write it, bringing the server up not knowing
 where to talk. It is the same line the official MCP registry draws with
 `isSecret`.
 
-**The decoder returns `object`, and that is a tripwire rather than a style** —
-the same discipline `overpower.written` runs on, measured in
+**What arrives is `object`, and that is a tripwire rather than a style** — the
+same discipline `overpower.written` runs on, measured in
 https://github.com/ThiagoPanini/overpower/issues/2: pyright strict has a blind
 spot on `Any`, so `return data["name"]` inside a `-> str` function type-checks
-and blows up at runtime. `tomllib.load` hands back `dict[str, Any]`, so the
-decode is confined to `_loads` and every field is narrowed in the open.
+and blows up at runtime. The subtree crosses in as `object` and every field is
+narrowed in the open, on this side of the boundary.
 """
 
 from __future__ import annotations
 
-import tomllib
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
@@ -50,13 +57,20 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
     from pathlib import Path
 
-RECIPE_SUFFIX = ".toml"
-"""One file per MCP, and the stem is the slug `--mcp` names."""
+MCP_KEY = "mcp"
+"""The key of the written file the recipes live under, and the slug is the entry's name.
+
+Declared here rather than in `overpower.written` because it is the recipe's own
+address: the module that owns the contract owns where the contract is written,
+and the assembler of the document imports the name from it. It is also what every
+message inside a recipe is prefixed with — one file now holds several recipes, so
+`transport` alone would cost the reader a bisection to find which one.
+"""
 
 SOURCE_TOKEN = "{source}"  # noqa: S105 — a substitution token, not a credential
 """The **only** substitution token, and the one thing we resolve rather than the runtime.
 
-It stands for the absolute path of the clone a recipe with `[source]` brings, so
+It stands for the absolute path of the clone a recipe with `source:` brings, so
 a recipe can name a directory whose path it cannot know. It is not a slot and it
 is not runtime interpolation — measured, each target spells interpolation
 differently and one of them has none at all
@@ -106,17 +120,18 @@ _PRECONDITION_KEYS = frozenset({_CHECK_FIELD, _VALUE_FIELD})
 _URL_FIELD = "url"
 
 _SOURCE_KEYS = frozenset({_URL_FIELD})
-"""What `[source]` is made of: the one field, a GitHub repository URL.
+"""What `source:` is made of: the one field, a GitHub repository URL.
 
 The same shape `--from` parses (`overpower.remote.parse`) — owner, repository,
 and optionally `tree/<ref>/<path>` to pin a ref or narrow the clone to a
 folder inside a monorepo. Read here as an opaque string and parsed there,
 because the two modules cannot import from each other: `overpower.remote`
-already imports `read_recipe` from this one.
+reaches a recipe through `overpower.written`, which imports `recipe_from` from
+this one.
 """
 
 NO_ENVIRONMENT: Mapping[str, str] = MappingProxyType({})
-"""The default `[server.env]`: empty, and immutable so it can be one value.
+"""The default `server.env`: empty, and immutable so it can be one value.
 
 A `field(default_factory=dict)` would answer the same thing and cost the
 reader a mutable default to reason about — this is a frozen value class, and
@@ -357,9 +372,14 @@ can spell *neither* or *both* is a value the renderer would have to re-validate.
 class Recipe:
     """One MCP server, declared logically — never in the spelling of any target.
 
-    `name` is the file's stem and never a field: the tree is the catalog
-    (rule 8, ADR 0006), so the slug `--mcp` names comes from the filename the
-    same way a skill's name comes from its directory.
+    `name` is the entry's key under `mcp:` and never a field of its own, which
+    is rule 8 (ADR 0006) said in the one place a recipe has instead of a tree: a
+    recipe has no folder to take a name from — it never lands — so the slug
+    `--mcp` names is where the declaration sits, not something declared twice.
+
+    `path` is the written file the entry came out of, carried only so a message
+    can name it. Two recipes now share one file, which is why every key in a
+    message is prefixed `mcp.<slug>.`.
     """
 
     name: str
@@ -411,7 +431,7 @@ class Recipe:
 
 
 class MalformedRecipeError(OverpowerError):
-    """The recipe parsed as TOML and is not shaped like a recipe.
+    """The document parsed as YAML and this entry of it is not shaped like a recipe.
 
     It names the file **and the field**, because a recipe is read by the person
     who wrote it — the curator here, the author of a federated one later — and
@@ -506,7 +526,7 @@ class CollidingSlotError(OverpowerError):
 
     The place, never the name: two `bearer` slots carry two different variables
     and fill the **same** header, and a table built out of them would silently
-    keep the last. So would a slot whose variable `[server.env]` already writes —
+    keep the last. So would a slot whose variable `server.env` already writes —
     there the loser is either *the address never lands* or *the secret does*.
 
     Refused here so that the renderer has no such branch at all. Every other
@@ -551,7 +571,7 @@ class MismatchedSlotRoleError(OverpowerError):
 
 
 class SourcelessSubstitutionError(OverpowerError):
-    """`{source}` in a recipe that declares no `[source]` to resolve it against.
+    """`{source}` in a recipe that declares no `source:` to resolve it against.
 
     The token stands for the path of a clone, so a recipe that uses it without
     declaring where the code comes from names a directory that will never exist.
@@ -564,91 +584,110 @@ class SourcelessSubstitutionError(OverpowerError):
         self.path = path
         self.key = key
         super().__init__(
-            f"{path}: `{key}` uses {SOURCE_TOKEN} and the recipe declares no [source] to resolve it"
+            f"{path}: `{key}` uses {SOURCE_TOKEN} and the recipe declares no `source` to resolve it"
         )
 
 
-def read_recipe(path: Path) -> Recipe:
-    """The recipe at `path`, whole, or the named error that says why it is not one."""
-    document = _table(path, "the file", _loads(path, path.read_text(encoding="utf-8")), "a table")
-    _known(path, "", document, _RECIPE_KEYS)
-    transport = _transport(path, document.get(TRANSPORT_KEY))
-    source = _source(path, document.get(SOURCE_KEY))
+def recipe_from(path: Path, name: str, value: object) -> Recipe:
+    """The entry `mcp.<name>` of the document at `path`, whole, or the named error.
+
+    `value` is the already-decoded subtree, because the decoding happened once
+    for the whole file in `overpower.written`. `path` and `name` travel only so
+    that a message can say *which file* and *which recipe* — the two things the
+    reader of the message needs before the field is any use to them.
+    """
+    at = f"{MCP_KEY}.{name}"
+    document = _table(path, at, value, "a table")
+    _known(path, f"{at}.", document, _RECIPE_KEYS)
+    transport = _transport(path, at, document.get(TRANSPORT_KEY))
+    source = _source(path, at, document)
     has_source = source is not None
-    server = _server(path, transport, document.get(SERVER_KEY), has_source=has_source)
+    server = _server(path, at, transport, document.get(SERVER_KEY), has_source=has_source)
     return Recipe(
-        name=path.stem,
+        name=name,
         path=path,
-        description=_text(path, DESCRIPTION_KEY, document.get(DESCRIPTION_KEY)),
+        description=_text(path, f"{at}.{DESCRIPTION_KEY}", document.get(DESCRIPTION_KEY)),
         server=server,
-        slots=_slots(path, transport, server, document.get(SLOTS_KEY, []), has_source=has_source),
-        preconditions=_preconditions(
-            path, document.get(PRECONDITIONS_KEY, []), has_source=has_source
+        slots=_slots(
+            path, at, transport, server, document.get(SLOTS_KEY, []), has_source=has_source
         ),
-        instructions=_instructions(path, document.get(INSTRUCTIONS_KEY)),
+        preconditions=_preconditions(
+            path, at, document.get(PRECONDITIONS_KEY, []), has_source=has_source
+        ),
+        instructions=_instructions(path, at, document),
         source=source,
     )
 
 
-def _source(path: Path, value: object) -> str | None:
-    """`[source]`, or `None` when the recipe brings no code of its own to clone."""
-    if value is None:
+def _source(path: Path, at: str, document: Mapping[str, object]) -> str | None:
+    """`source:`, or `None` when the recipe brings no code of its own to clone.
+
+    **Absent, not empty**, and the format is what makes the difference sayable.
+    YAML answers `None` to a key written with nothing under it, so `source:`
+    alone on a line is a declaration somebody started and did not finish — it
+    falls through to the refusal that names the field, instead of quietly
+    meaning *no source at all*. TOML had no null and could not tell the two
+    apart; reading the emptier one as absence would be exactly the silent
+    partial acceptance this module exists to refuse.
+    """
+    if SOURCE_KEY not in document:
         return None
-    table = _table(path, SOURCE_KEY, value, "a table")
-    _known(path, f"{SOURCE_KEY}.", table, _SOURCE_KEYS)
-    return _text(path, f"{SOURCE_KEY}.{_URL_FIELD}", table.get(_URL_FIELD))
+    key = f"{at}.{SOURCE_KEY}"
+    table = _table(path, key, document[SOURCE_KEY], "a table")
+    _known(path, f"{key}.", table, _SOURCE_KEYS)
+    return _text(path, f"{key}.{_URL_FIELD}", table.get(_URL_FIELD))
 
 
-def _transport(path: Path, value: object) -> Transport:
+def _transport(path: Path, at: str, value: object) -> Transport:
     """The declared transport, as a member of the closed set."""
     if not isinstance(value, str):
-        raise MalformedRecipeError(path, TRANSPORT_KEY, "a string")
+        raise MalformedRecipeError(path, f"{at}.{TRANSPORT_KEY}", "a string")
     if value not in {member.value for member in Transport}:
         raise ForbiddenTransportError(path, value)
     return Transport(value)
 
 
-def _server(path: Path, transport: Transport, value: object, *, has_source: bool) -> Server:
-    """The `[server]` table, read in the shape its transport admits.
+def _server(
+    path: Path, at: str, transport: Transport, value: object, *, has_source: bool
+) -> Server:
+    """The `server:` table, read in the shape its transport admits.
 
     The transport decides which fields exist, so a `url` under `stdio` is an
     unknown field rather than a field with a wrong value — which is what makes
     the message point at the line that has to change.
     """
-    table = _table(path, SERVER_KEY, value, "a table")
+    key = f"{at}.{SERVER_KEY}"
+    table = _table(path, key, value, "a table")
     match transport:
         case Transport.STDIO:
-            _known(path, f"{SERVER_KEY}.", table, _STDIO_KEYS)
-            args = _strings(path, f"{SERVER_KEY}.args", table.get("args", []))
+            _known(path, f"{key}.", table, _STDIO_KEYS)
+            args = _strings(path, f"{key}.args", table.get("args", []))
             return StdioServer(
-                command=_field(
-                    path, f"{SERVER_KEY}.command", table.get("command"), has_source=has_source
-                ),
+                command=_field(path, f"{key}.command", table.get("command"), has_source=has_source),
                 args=tuple(
-                    _sourceless(path, f"{SERVER_KEY}.args", item, has_source=has_source)
-                    for item in args
+                    _sourceless(path, f"{key}.args", item, has_source=has_source) for item in args
                 ),
-                env=_environment(path, table.get("env", {}), has_source=has_source),
+                env=_environment(path, f"{key}.env", table.get("env", {}), has_source=has_source),
             )
         case Transport.HTTP:
-            _known(path, f"{SERVER_KEY}.", table, _HTTP_KEYS)
+            _known(path, f"{key}.", table, _HTTP_KEYS)
             return HttpServer(
-                url=_field(path, f"{SERVER_KEY}.url", table.get("url"), has_source=has_source)
+                url=_field(path, f"{key}.url", table.get("url"), has_source=has_source)
             )
         case _ as unreachable:
             assert_never(unreachable)
 
 
-def _slots(
-    path: Path, transport: Transport, server: Server, value: object, *, has_source: bool
+def _slots(  # noqa: PLR0913 — the file, the entry, and the four facts a collision is judged on
+    path: Path, at: str, transport: Transport, server: Server, value: object, *, has_source: bool
 ) -> tuple[Slot, ...]:
-    """`[[slots]]`, each one read whole, and no two of them filling one place.
+    """`slots:`, each one read whole, and no two of them filling one place.
 
     **Uniqueness is of the place a slot fills, never of the name it carries**,
     and the difference is the whole reason this check exists: two `bearer` slots
     carry different variables and fill the *same* header, so a renderer building
     a table would keep one of them and drop the other at exit 0 — a secret gone
-    from a file nobody re-reads. `[server.env]` joins the same comparison,
+    from a file nobody re-reads. `server.env` joins the same comparison,
     because a literal and a slot end up as keys of one table too.
 
     **A slot occupies two places, not one**, and the second is the prompt. One
@@ -659,18 +698,18 @@ def _slots(
     right about the places and blind to the names, so it is caught beside it.
     """
     if not isinstance(value, list):
-        raise MalformedRecipeError(path, SLOTS_KEY, "a list of tables")
+        raise MalformedRecipeError(path, f"{at}.{SLOTS_KEY}", "a list of tables")
     written = server.env if isinstance(server, StdioServer) else NO_ENVIRONMENT
     # A literal fills the variable it names, and only a stdio server has any —
-    # so this is the whole of the `[server.env]` side of the comparison.
-    taken = dict.fromkeys(written, f"`[{SERVER_KEY}.env]`")
+    # so this is the whole of the `server.env` side of the comparison.
+    taken = dict.fromkeys(written, f"`{SERVER_KEY}.env`")
     slots: list[Slot] = []
     # A second namespace and not a second entry in `taken`: a prompt identifier
     # and a variable name are different places that happen to be strings, and
     # one map would refuse a recipe whose variable spells another's prompt id.
     prompted: dict[str, tuple[str, str]] = {}
     for index, entry in enumerate(cast("list[object]", value)):
-        key = f"{SLOTS_KEY}[{index}]"
+        key = f"{at}.{SLOTS_KEY}[{index}]"
         slot = _slot(path, key, transport, entry, has_source=has_source)
         place = _filled(slot)
         held = taken.get(place)
@@ -755,12 +794,15 @@ def _role(path: Path, key: str, transport: Transport, value: object) -> Role:
     return role
 
 
-def _preconditions(path: Path, value: object, *, has_source: bool) -> tuple[Precondition, ...]:
-    """`[[preconditions]]`, each one read whole, in declaration order."""
+def _preconditions(
+    path: Path, at: str, value: object, *, has_source: bool
+) -> tuple[Precondition, ...]:
+    """`preconditions:`, each one read whole, in declaration order."""
+    key = f"{at}.{PRECONDITIONS_KEY}"
     if not isinstance(value, list):
-        raise MalformedRecipeError(path, PRECONDITIONS_KEY, "a list of tables")
+        raise MalformedRecipeError(path, key, "a list of tables")
     return tuple(
-        _precondition(path, f"{PRECONDITIONS_KEY}[{index}]", entry, has_source=has_source)
+        _precondition(path, f"{key}[{index}]", entry, has_source=has_source)
         for index, entry in enumerate(cast("list[object]", value))
     )
 
@@ -778,16 +820,19 @@ def _precondition(path: Path, key: str, value: object, *, has_source: bool) -> P
     )
 
 
-def _instructions(path: Path, value: object) -> str | None:
-    """The prose the author left, or `None` — the only field that is optional and not a list."""
-    if value is None:
+def _instructions(path: Path, at: str, document: Mapping[str, object]) -> str | None:
+    """The prose the author left, or `None` — the only field that is optional and not a list.
+
+    Membership and not emptiness, for the reason `_source` carries: `instructions:`
+    with nothing under it is a line half written, not a recipe that has none.
+    """
+    if INSTRUCTIONS_KEY not in document:
         return None
-    return _text(path, INSTRUCTIONS_KEY, value)
+    return _text(path, f"{at}.{INSTRUCTIONS_KEY}", document[INSTRUCTIONS_KEY])
 
 
-def _environment(path: Path, value: object, *, has_source: bool) -> Mapping[str, str]:
-    """`[server.env]`: literal values only, and every one of them a string."""
-    key = f"{SERVER_KEY}.env"
+def _environment(path: Path, key: str, value: object, *, has_source: bool) -> Mapping[str, str]:
+    """`server.env`: literal values only, and every one of them a string."""
     table = _table(path, key, value, "a table of strings")
     return {
         name: _field(path, f"{key}.{name}", entry, has_source=has_source)
@@ -801,7 +846,7 @@ def _field(path: Path, key: str, value: object, *, has_source: bool) -> str:
 
 
 def _sourceless(path: Path, key: str, value: str, *, has_source: bool) -> str:
-    """`value`, unless it reaches for a clone this recipe declares no `[source]` for."""
+    """`value`, unless it reaches for a clone this recipe declares no `source:` for."""
     if not has_source and SOURCE_TOKEN in value:
         raise SourcelessSubstitutionError(path, key)
     return value
@@ -830,26 +875,19 @@ def _text(path: Path, key: str, value: object) -> str:
 
 
 def _table(path: Path, key: str, value: object, expected: str) -> dict[str, object]:
-    """A TOML table, typed.
+    """A mapping whose keys were **checked**, twin of `overpower.written._table`.
 
-    The cast is not a shrug: TOML has **no** key type but string, so `dict[str,
-    object]` is what the format guarantees and `isinstance` cannot express. The
-    values stay `object` — that is the point of the whole module.
+    Checked and not cast, and the format is why: TOML had no key type but string,
+    so the cast this used to be was telling the truth. YAML has one — `1:` decodes
+    to an integer and `true:` to a boolean — so the same cast would now be a lie,
+    living in the module whose only reason to exist is being the type tripwire.
+    The values stay `object`, which is the point of the whole module.
     """
     if not isinstance(value, dict):
         raise MalformedRecipeError(path, key, expected)
-    return cast("dict[str, object]", value)
-
-
-def _loads(path: Path, text: str) -> object:
-    """The whole decode surface, and it declares `object` on purpose.
-
-    A syntax error is renamed on the way out: `tomllib` reports the line and the
-    column and never the file, and *which recipe* is the first thing the reader
-    of that message needs — the more so once the file is somebody else's
-    (https://github.com/ThiagoPanini/overpower/issues/83).
-    """
-    try:
-        return tomllib.loads(text)
-    except tomllib.TOMLDecodeError as broken:
-        raise MalformedRecipeError(path, "the file", f"valid TOML ({broken})") from broken
+    checked: dict[str, object] = {}
+    for name, entry in cast("dict[object, object]", value).items():
+        if not isinstance(name, str):
+            raise MalformedRecipeError(path, f"{key}.{name!r}", "a name")
+        checked[name] = entry
+    return checked

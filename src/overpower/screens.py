@@ -431,12 +431,12 @@ def catalog_screen(catalog: Catalog, origin: str | None = None) -> RenderableTyp
       that are;
     - an empty block is dropped instead of drawn. Off the wheel a missing
       bundle list is a real shape of *this* catalog and the heading tells the
-      truth about it; a repository that declared no manifest has no bundles to
-      show, and a heading over nothing there would be the screen inventing one.
+      truth about it; a repository that declared none has no bundles to show,
+      and a heading over nothing there would be the screen inventing one.
 
     Three of the four blocks can be reached through `--from` since #137 — the
-    manifest a repository writes at `.overpower/catalog.yaml` is what carries
-    the bundle across — so three of them take the origin. The AI Framework block
+    `.overpower.yaml` a repository writes at its root is what carries the bundle
+    across — so three of them take the origin. The AI Framework block
     does not, and never will: a framework is a folder of this wheel, so a
     `--from` on its line would point at a repository it could not have come from.
     """

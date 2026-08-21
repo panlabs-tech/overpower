@@ -182,12 +182,12 @@ def installed_skill_files(*names: str, runtime: str = ".claude/skills") -> dict[
     return skill_files(*names, under=runtime)
 
 
-def mcp_recipe_files(*names: str, under: str = ".overpower/mcp") -> dict[str, str]:
-    """A repository tree carrying one minimal recipe per name, at `<under>/<name>.toml`.
+def legacy_recipe_files(*names: str, under: str = ".overpower/mcp") -> dict[str, str]:
+    """A repository laid out the way ADR 0021 stopped reading: `<under>/<name>.toml`.
 
-    The same mapping `build` and `planting` take, and the same convention path
-    `overpower.remote._mcp_called` searches — `.overpower/mcp/<slug>.toml`
-    (`docs/agents/domain.md` § Vocabulário).
+    Nothing reads these any more. They exist so a test can plant the old
+    convention and watch the product **refuse** it by name — the one behaviour
+    the address still has (`overpower.remote.LegacyRecipeLayoutError`).
     """
     return {
         f"{under}/{name}.toml": (
@@ -200,43 +200,64 @@ def mcp_recipe_files(*names: str, under: str = ".overpower/mcp") -> dict[str, st
     }
 
 
-def bundle_catalog_file(
-    bundles: Mapping[str, Sequence[str]], *, at: str = ".overpower/catalog.yaml"
+def declaring(
+    *mcps: str,
+    bundles: Mapping[str, Sequence[str]] | None = None,
+    at: str = ".overpower.yaml",
 ) -> dict[str, str]:
-    """A repository tree carrying `.overpower/catalog.yaml`, one entry per bundle.
+    """A repository tree carrying the one file it declares itself in.
 
-    Sibling of `mcp_recipe_files`, one directory up and in the other format:
-    `.overpower/` is a namespace rather than a format (ADR 0020), and the two
-    functions are what makes a test say so without prose. The same mapping
-    `build` and `planting` take, so it composes —
-    `{**skill_files("alpha"), **bundle_catalog_file({"api": ["alpha"]})}` is a
+    One file, one format, one reader (ADR 0021): the bundles under `bundles:`
+    and the recipes under `mcp:`, in one document read by the reader the wheel's
+    own `catalog.yaml` goes through. The two used to be two builders in two
+    formats, which is exactly the shape the ADR removed.
+
+    The same mapping `build` and `planting` take, so it composes —
+    `{**skill_files("alpha"), **declaring(bundles={"api": ["alpha"]})}` is a
     repository that offers a skill and declares a bundle naming it.
 
-    `at` is a parameter for one reason: the manifest is read from the repository
+    `at` is a parameter for one reason: the declaration is read at the repository
     **root** and nowhere else, and a test of that anchor has to be able to plant
     one somewhere else and watch it be ignored.
     """
-    lines = ["bundles:"]
-    for name, items in bundles.items():
-        lines.append(f"  {name}:")
-        lines.append(f'    description: "The {name} bundle."')
-        lines.append("    items:")
-        lines.extend(f"      - {item}" for item in items)
-    return {at: "\n".join(lines) + "\n"}
+    lines: list[str] = []
+    if bundles:
+        lines.append("bundles:")
+        for name, items in bundles.items():
+            lines.append(f"  {name}:")
+            lines.append(f'    description: "The {name} bundle."')
+            lines.append("    items:")
+            lines.extend(f"      - {item}" for item in items)
+    if mcps:
+        lines.append("mcp:")
+        for name in mcps:
+            lines.append(f"  {name}:")
+            lines.append(f'    description: "The {name} MCP server."')
+            lines.append('    transport: "stdio"')
+            lines.append("    server:")
+            lines.append(f'      command: "{name}"')
+    return {at: "\n".join(lines) + "\n"} if lines else {}
 
 
-def offering(*skills: str, bundles: Mapping[str, Sequence[str]] | None = None) -> dict[str, str]:
-    """A repository that offers `skills` under `skills/` and composes them in `bundles`.
+def offering(
+    *skills: str,
+    bundles: Mapping[str, Sequence[str]] | None = None,
+    mcps: Sequence[str] = (),
+) -> dict[str, str]:
+    """A repository that offers `skills` under `skills/`, and declares the rest in one file.
 
     The two halves a federated bundle needs, in the one shape `build` and
     `planting` take. It exists because `items` resolve against the **enumerated**
-    skills of the same repository, so a manifest and the skills it names are not
-    two independent fixtures — a test that planted only one of them would be
+    skills of the same repository, so a declaration and the skills it names are
+    not two independent fixtures — a test that planted only one of them would be
     describing a repository the product refuses.
+
+    `mcps` joins the same call rather than a second one, because the recipes and
+    the bundles now share a file: two builders returning `{".overpower.yaml": …}`
+    would silently overwrite each other when merged.
     """
     planted = dict(skill_files(*skills))
-    if bundles is not None:
-        planted.update(bundle_catalog_file(bundles))
+    planted.update(declaring(*mcps, bundles=bundles))
     return planted
 
 

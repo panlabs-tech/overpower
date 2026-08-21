@@ -1023,11 +1023,12 @@ def _skill_selection(
 _SOURCE_DIR = (".overpower", "mcp")
 """Where a clone lands under the machine root: `~/.overpower/mcp/<slug>/`.
 
-The same two segments `overpower.remote._FEDERATED_MCP_DIR` names for the
-opposite direction — there, the convention path a federated repository is
-searched at; here, the convention path this product writes a clone to. Two
-constants and not one shared: they answer different questions of different
-modules, and happen to agree because the destination echoes the convention.
+The same two segments `overpower.remote._LEGACY_MCP_DIR` still names, for a
+question that is not this one — there, the address a recipe *used* to be read
+from, kept only to refuse it (ADR 0021); here, the address this product writes a
+clone to, which ADR 0023 keeps. Two constants and not one shared: they answer
+different questions of different modules, and the coincidence of spelling is
+what makes sharing them a trap rather than a saving.
 """
 
 

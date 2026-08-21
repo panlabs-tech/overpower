@@ -23,6 +23,17 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.28.0] - 2026-08-21
+
+### Breaking
+
+- Um repositório caseiro passa a declarar tudo o que oferece num **único arquivo YAML na raiz**, `.overpower.yaml`, com `bundles:` e `mcp:` dentro. O `.overpower/catalog.yaml` e o `.overpower/mcp/<slug>.toml` deixaram de ser lidos, e não há janela de compatibilidade: achar a convenção antiga num repositório sem `.overpower.yaml` é **exit 3 nomeando o arquivo a escrever**. O catálogo embutido migrou junto — as quatro receitas entraram na chave `mcp:` de `catalog/catalog.yaml` e **o TOML saiu do produto** —, então as duas procedências passam pelo mesmo leitor. `--mcp --from <url>` deixou de andar pela árvore: a declaração é ancorada na raiz do repositório apontado, e a subpasta da URL segue estreitando apenas o alcance de `--skill`. ([#164](https://github.com/ThiagoPanini/overpower/issues/164))
+
+### Fixed
+
+- A skill de varredura de documentação nunca disparava no post-merge porque o script procurava o arquivo no caminho errado (`panlabs-overpower-docs-update` em vez de `varredura-overpower`). ([#162](https://github.com/ThiagoPanini/overpower/issues/162))
+
+
 ## [0.27.3] - 2026-08-20
 
 ### Fixed

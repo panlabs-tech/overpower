@@ -6,10 +6,10 @@ they are two (https://github.com/ThiagoPanini/overpower/issues/11):
 - `content/` **100% lands** in the user's repository — the frameworks and the
   pool. P1 and P2 guard it, because content lost is lost *silently*: half a
   skill lands and nobody notices;
-- `catalog/` **0% lands** — one written file, the bundles and one description
-  line per AI Framework. It has no gate on purpose, because losing it fails
-  loudly: the bundle disappears from `list` and `install` answers that it does
-  not know the name.
+- `catalog/` **0% lands** — one written file: the bundles, one description line
+  per AI Framework, and the recipes of the MCP servers. It has no gate on
+  purpose, because losing it fails loudly: the bundle disappears from `list` and
+  `install` answers that it does not know the name.
 
 Nothing here decides *what* is inside either root. The tree is the catalog
 (ADR 0006), so the answer to that question is a walk, in `overpower.discovery`.
@@ -33,8 +33,9 @@ CATALOG_FILE = "catalog.yaml"
 
 It was `catalog.toml` until https://github.com/ThiagoPanini/overpower/issues/136
 moved it, so that the manifest a homemade repository federates goes through the
-same reader as this one. The recipe of an MCP server, which lives in the sibling
-directory, stayed TOML.
+same reader as this one. The recipe of an MCP server followed it in
+https://github.com/ThiagoPanini/overpower/issues/164 and now lives under this
+file's `mcp:` key, which is why `catalog/` holds exactly one file (ADR 0021).
 """
 
 

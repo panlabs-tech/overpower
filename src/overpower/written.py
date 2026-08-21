@@ -1,4 +1,4 @@
-"""The only file the overpower writes about its own content.
+"""The only file the overpower writes about its own content, and the only one it reads.
 
 Sibling of the content root, with the opposite invariant: `content/` **100%
 lands** in the user's repository, this root **0% lands**. The rule that decides
@@ -7,11 +7,24 @@ what may appear here holds forever, and it is ADR 0006:
     what the overpower writes only carries what the tree cannot know.
     A path, never.
 
-Two things qualify in v0.1.0 — **bundles**, which by definition have no tree,
-and **one description line per AI Framework**, because a framework is a folder
-of artifacts with no frontmatter of its own. There is no skill entry, no command
-entry, no agent entry and no path: those are discovered by walking the tree
-(`overpower.discovery`).
+Three things qualify — **bundles**, which by definition have no tree; **one
+description line per AI Framework**, because a framework is a folder of artifacts
+with no frontmatter of its own; and **the recipe of an MCP server**, under the
+key `mcp:`, because a recipe never lands and so has no tree either. There is no
+skill entry, no command entry, no agent entry and no path: those are discovered
+by walking the tree (`overpower.discovery`).
+
+**One file, one format, one reader** (ADR 0021). The same three keys and the same
+reader serve both provenances — `catalog/catalog.yaml` inside the wheel and
+`.overpower.yaml` at the root of a homemade repository — so a declaration that
+reaches the screen is one the product would have written itself, and a malformed
+one is refused naming the same field on both sides.
+
+**The set of top-level keys is closed, and a stranger's key is refused by name.**
+A `version:` marker was considered for the federated file and refused: it is a
+field that only earns its keep in the second version of a schema, and until then
+every publisher copies it without knowing why. The allowlist answers better than
+a version would have — it says *which* key does not exist (ADR 0021).
 
 **The decoder returns `object`, and that is a tripwire rather than a style.**
 Measured in https://github.com/ThiagoPanini/overpower/issues/2: pyright strict
@@ -27,10 +40,13 @@ beside it.
 manifest a homemade repository federates reaches *this* reader, so there is
 never a second validator to disagree with the first. It costs one guarantee.
 TOML had no key type but string; YAML has, so `_table` below **checks** the key
-where it used to cast it. The recipe of an MCP server did not move and will not:
-that module is a closed allowlist under the promise that *a recipe that gets
-past it is a recipe that renders*, and `.overpower/` is a namespace rather than
-a format.
+where it used to cast it — and `overpower.recipes._table` now does the same, for
+the same reason, since the recipe followed the manifest into this format.
+
+**The contract of a recipe is still `overpower.recipes`'s**, and this module
+never opens it: it decodes the document, narrows `mcp:` to a table, and hands
+each entry down as a subtree. What moved is the entry point, not the 700 lines
+of contract behind it.
 """
 
 from __future__ import annotations
@@ -39,11 +55,18 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 from overpower.errors import OverpowerError
+from overpower.recipes import MCP_KEY, Recipe, recipe_from
 from overpower.yamlio import loads_yaml
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Iterable, Mapping
     from pathlib import Path
+
+BUNDLES_KEY = "bundles"
+FRAMEWORKS_KEY = "frameworks"
+
+_WRITTEN_KEYS = frozenset({BUNDLES_KEY, FRAMEWORKS_KEY, MCP_KEY})
+"""The closed set of top-level keys, and there is no `version:` among them."""
 
 
 @dataclass(frozen=True)
@@ -67,6 +90,15 @@ class WrittenCatalog:
     bundles: tuple[WrittenBundle, ...]
     frameworks: Mapping[str, str]
     """Framework name to its one description line."""
+
+    mcps: tuple[Recipe, ...] = ()
+    """The recipes declared under `mcp:`, sorted by slug.
+
+    Whole `Recipe` values and not subtrees: the contract is checked on the way
+    out of this reader, so a manifest that parses is a manifest whose every
+    server renders. Sorted here rather than downstream because a mapping has no
+    order to preserve and a screen needs one of ours.
+    """
 
 
 class UnreadableWrittenCatalogError(OverpowerError):
@@ -95,14 +127,60 @@ class MalformedWrittenCatalogError(OverpowerError):
         super().__init__(f"{path}: `{key}` should be {expected}")
 
 
+class UnknownWrittenFieldError(OverpowerError):
+    """A top-level key this version of the written file does not read.
+
+    Refused rather than ignored, and it is the twin of the refusal a recipe
+    already makes about its own fields: a key nothing reads is a declaration the
+    author believes is in effect, and silence about it is the class of defect
+    this product exists not to commit.
+
+    It is also what paid for refusing a `version:` marker — a closed allowlist
+    names the key that does not exist, which no version number could have
+    (ADR 0021).
+    """
+
+    def __init__(self, path: Path, key: str, known: Iterable[str]) -> None:
+        """Name the key that has no reader, and the whole set that does."""
+        self.path = path
+        self.key = key
+        listed = ", ".join(sorted(known))
+        super().__init__(f"{path}: `{key}` is not a key this version reads; the set is: {listed}")
+
+
 def read_written_catalog(path: Path) -> WrittenCatalog:
-    """Read the one written file, narrowing every field as it goes."""
+    """Read the one written file, narrowing every field as it goes.
+
+    The one reader of the one format, for both provenances: `path` is the
+    wheel's `catalog/catalog.yaml` or a homemade repository's `.overpower.yaml`,
+    and nothing below this line knows which (ADR 0021).
+    """
     decoded = _loads(path)
     document = _table(path, "the file", {} if decoded is None else decoded, "a table")
+    _known(path, document)
     return WrittenCatalog(
-        bundles=_bundles(path, document.get("bundles", {})),
-        frameworks=_frameworks(path, document.get("frameworks", {})),
+        bundles=_bundles(path, document.get(BUNDLES_KEY, {})),
+        frameworks=_frameworks(path, document.get(FRAMEWORKS_KEY, {})),
+        mcps=_mcps(path, document.get(MCP_KEY, {})),
     )
+
+
+def _mcps(path: Path, value: object) -> tuple[Recipe, ...]:
+    """Every entry of `mcp:`, read whole by the module that owns the contract.
+
+    Sorted by slug, because a mapping has no order of its own and the screen
+    needs one that does not depend on how the author typed the file — the same
+    guarantee the walk used to buy by sorting filenames.
+    """
+    table = _table(path, MCP_KEY, value, "a table of recipes")
+    return tuple(recipe_from(path, name, entry) for name, entry in sorted(table.items()))
+
+
+def _known(path: Path, document: Mapping[str, object]) -> None:
+    """Refuse the first top-level key outside the set, sorted so the message is stable."""
+    for name in sorted(document):
+        if name not in _WRITTEN_KEYS:
+            raise UnknownWrittenFieldError(path, name, _WRITTEN_KEYS)
 
 
 def _bundles(path: Path, value: object) -> tuple[WrittenBundle, ...]:

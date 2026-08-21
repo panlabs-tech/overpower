@@ -40,7 +40,9 @@ from overpower.recipes import (
     HeaderSlot,
     HttpServer,
     Recipe,
+    Runner,
     Slot,
+    Source,
     StdioServer,
     Transport,
 )
@@ -100,10 +102,7 @@ def recipe(name: str, server: HttpServer | StdioServer, *slots: Slot) -> Recipe:
 
 
 def server_of(
-    asked: Recipe,
-    document: McpDocument,
-    source: Path | None = None,
-    secrets: Mapping[str, str] = MappingProxyType({}),
+    asked: Recipe, document: McpDocument, secrets: Mapping[str, str] = MappingProxyType({})
 ) -> Fragment:
     """The server graft, which is the first one and in one dialect the only one.
 
@@ -111,7 +110,7 @@ def server_of(
     second one, in `inputs[]` — so the tests that are about the server say which
     graft they mean instead of indexing a tuple in fifteen places.
     """
-    first, *_ = render(asked, document, source, secrets)
+    first, *_ = render(asked, document, secrets)
     assert isinstance(first, Fragment), "the server graft is always the first one"
     return first
 
@@ -120,7 +119,7 @@ def inputs_of(
     asked: Recipe, document: McpDocument, secrets: Mapping[str, str] = MappingProxyType({})
 ) -> Inputs | None:
     """The `inputs[]` graft, or `None` where the dialect asks for none."""
-    found = [graft for graft in render(asked, document, None, secrets) if isinstance(graft, Inputs)]
+    found = [graft for graft in render(asked, document, secrets) if isinstance(graft, Inputs)]
     assert len(found) <= 1, "one document takes one `inputs` graft, however many slots feed it"
     return found[0] if found else None
 
@@ -159,59 +158,6 @@ def test_a_stdio_server_with_nothing_to_say_writes_no_empty_fields() -> None:
     fragment = server_of(recipe("bare", StdioServer(command="uvx")), CLAUDE_PROJECT)
 
     assert fragment.value == {"type": "stdio", "command": "uvx"}
-
-
-# --------------------------------------------------------------------------- #
-# {source}: resolved here, and only here — never in the reader
-# --------------------------------------------------------------------------- #
-
-
-def test_the_source_token_resolves_wherever_it_appears_in_a_stdio_server() -> None:
-    """`command`, every item of `args`, and every `server.env` value all carry it."""
-    server = StdioServer(
-        command="{source}/bin/run",
-        args=("--project", "{source}"),
-        env={"PROJECT_ROOT": "{source}/data"},
-    )
-    clone = Path("/home/dev/.overpower/mcp/homegrown")
-
-    fragment = server_of(recipe("homegrown", server), CLAUDE_PROJECT, clone)
-
-    assert fragment.value == {
-        "type": "stdio",
-        "command": f"{clone}/bin/run",
-        "args": ["--project", str(clone)],
-        "env": {"PROJECT_ROOT": f"{clone}/data"},
-    }
-
-
-def test_the_source_token_resolves_in_an_http_url_too() -> None:
-    clone = Path("/home/dev/.overpower/mcp/homegrown")
-
-    fragment = server_of(recipe("homegrown", HttpServer(url="{source}/mcp")), CLAUDE_PROJECT, clone)
-
-    assert fragment.value["url"] == f"{clone}/mcp"
-
-
-def test_the_source_token_resolves_the_same_way_in_the_devin_dialect() -> None:
-    """The clone is the same path for every target — nothing here varies by dialect."""
-    clone = Path("/home/dev/.overpower/mcp/homegrown")
-
-    fragment = server_of(recipe("homegrown", StdioServer(command="{source}")), DEVIN_PROJECT, clone)
-
-    assert fragment.value["command"] == str(clone)
-
-
-def test_with_no_source_the_token_is_left_exactly_as_written() -> None:
-    """`None` is a recipe with no `source:` to resolve the token against.
-
-    Reached only through a recipe the reader already refused
-    (`overpower.recipes.SourcelessSubstitutionError`), so this is a property of
-    `render` taken in isolation and not a shape a real recipe can carry.
-    """
-    fragment = server_of(recipe("bare", StdioServer(command="{source}")), CLAUDE_PROJECT)
-
-    assert fragment.value["command"] == "{source}"
 
 
 def test_the_fragment_names_the_root_key_the_document_reads() -> None:
@@ -764,38 +710,24 @@ def test_a_recipe_is_offered_every_pair_whose_document_can_spell_it() -> None:
 
 
 def sourced_recipe() -> Recipe:
-    """A recipe that brings its own source code, which is what restricts its scope."""
+    """A recipe that brings its own source code, resolved by its own runner."""
     return Recipe(
         name="acme",
         path=Path("acme.toml"),
-        description="A server this repository builds from source.",
-        server=StdioServer(command="node", args=("{source}/server.js",)),
-        source="https://github.com/acme/servers",
+        description="A server this repository resolves from its own source.",
+        server=StdioServer(command="uvx", args=("--from", "git+https://x/y@v1", "acme")),
+        source=Source(git="https://x/y", ref="v1", runner=Runner.UVX, entrypoint="acme"),
     )
 
 
-def test_a_recipe_that_brings_its_own_source_is_offered_no_project_pair() -> None:
-    """ADR 0015, on the screen that offers before the step that refuses.
+def test_a_recipe_that_brings_its_own_source_keeps_both_scopes() -> None:
+    """ADR 0023: the address renders a static command, so no scope is closed for it.
 
-    *"The set of scopes is a function of the recipe"*, and project is not in it
-    for one that clones: the clone lands on this machine by an absolute path,
-    which cannot go into the team's repository. `overpower.planning` already
-    refuses it with exit 3 and the wizard already declines to offer it — so a
-    `list` that says `scopes project, global` is the one surface still promising
-    what the next step is certain to reject.
-
-    Asserted over the scope of every pair rather than against a literal tuple,
-    so the day the table grows a runtime this says the same thing.
+    ADR 0015 restricted a `source:` recipe to `--global` because the rendered
+    command carried the absolute path of a clone; ADR 0023 removed the clone,
+    and with it the one fact that made project scope unreachable.
     """
     served = targets_of(sourced_recipe())
-
-    assert served
-    assert {target.scope for target in served} == {Scope.GLOBAL}
-
-
-def test_a_recipe_with_no_source_keeps_both_scopes() -> None:
-    """The other half, or the fix above would read as *"scope is always global"*."""
-    served = targets_of(recipe("cloudflare", HttpServer(url="https://x/mcp")))
 
     assert {target.scope for target in served} == {Scope.PROJECT, Scope.GLOBAL}
 

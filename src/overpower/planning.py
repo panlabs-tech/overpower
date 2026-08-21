@@ -111,17 +111,6 @@ class WriteMode(StrEnum):
     boundary stays single — `overpower.writing` gains a branch, not a sibling.
     """
 
-    CLONE = "clone"
-    """The code a `source:` recipe brings, landed exactly like `COPY`.
-
-    Its own member and not a plain `COPY`, because the two disagree on the one
-    axis `existing_destinations` asks about: a global copy that already exists
-    is refused without `--force` (issue #40), and a clone is re-cloned
-    unconditionally, by decision (ADR 0015) — reinstalling must not leave last
-    week's checkout on disk under this week's name. `overpower.writing` lands
-    the two identically; only the refusal tells them apart.
-    """
-
 
 @dataclass(frozen=True)
 class DirectoryTree:
@@ -408,32 +397,6 @@ class RuntimeUnavailableInScopeError(RefusedError):
         )
 
 
-class SourceRequiresMachineScopeError(RefusedError):
-    """A recipe with `source:` asked for in a scope that cannot receive its clone.
-
-    ADR 0015, in the shape ADR 0009 already gave the model: there, the set of
-    **runtimes** `--runtime` accepts is a function of scope; here the same move
-    happens on the other axis — **the set of scopes a recipe can land in is a
-    function of the recipe**, and project is not in it for one that clones. The
-    reason is textually the one the curation criterion already refused a third
-    party for: the rendered command carries the absolute path of the clone,
-    which is a fact of whoever's machine installed it, and a manifest committed
-    to the repository must not carry that.
-
-    Fired before the plan names a single write — the same "refuse before the
-    first byte" reasoning `_refuse_a_runtime_with_no_document` already applies,
-    now against `request.scope` instead of a runtime table.
-    """
-
-    def __init__(self, recipe: str) -> None:
-        """Name the recipe and the fix: the one scope that can receive its clone."""
-        self.recipe = recipe
-        super().__init__(
-            f"`{recipe}`: brings its own source code, which lands on this machine "
-            "and not in the repository; install with --global instead"
-        )
-
-
 class NoRuntimeSelectedError(BadInvocationError):
     """No `--runtime`, and nothing to ask.
 
@@ -578,12 +541,11 @@ class DestinationExistsError(RefusedError):
         super().__init__(f"already exists, use --force to overwrite: {listed}")
 
 
-def plan_for(  # noqa: PLR0913, PLR0917 — the four a plan needs, plus the two a caller obtained
+def plan_for(
     request: Request,
     catalog: Catalog,
     root: Path,
     environment: Environment,
-    sources: Mapping[str, Path] = MappingProxyType({}),
     secrets: Mapping[str, str] = MappingProxyType({}),
 ) -> Plan:
     """The ordered writes `request` costs against `catalog`, landing under `root`.
@@ -599,14 +561,6 @@ def plan_for(  # noqa: PLR0913, PLR0917 — the four a plan needs, plus the two 
     `environment` only feeds global-scope resolution (`overpower.runtimes`) —
     it is unused and still required in project scope, because a function whose
     shape changes with its own input is a harder one to call correctly.
-
-    `sources` is the clone each selected `source:` recipe already brought, keyed
-    by recipe name (`overpower.remote.sources_for`) — obtained outside this
-    function and handed in, the same reason `catalog` itself is: a planner that
-    fetched for itself could not be built from a value that survives past the
-    call that built it, and the writer needs the clone still on disk at
-    `execute()` time. Empty by default, and every recipe with no `source:` never
-    looks itself up in it.
 
     `secrets` is the slot values a person answered for, and **it is dropped
     outside the machine scope right here** (ADR 0024,
@@ -630,7 +584,6 @@ def plan_for(  # noqa: PLR0913, PLR0917 — the four a plan needs, plus the two 
     bundled_recipes = tuple(
         item for bundle in bundles for item in bundle.artifacts if isinstance(item, Recipe)
     )
-    _refuse_a_sourced_recipe_outside_machine_scope((*mcps, *bundled_recipes), request.scope)
     runtimes = _selected_runtimes(request.runtimes, request.scope)
     # Before the first `Selection` is built, so a refusal costs no screen and no
     # byte. Fired only for the classes the line actually carries: a line
@@ -676,8 +629,6 @@ def plan_for(  # noqa: PLR0913, PLR0917 — the four a plan needs, plus the two 
                     bundle,
                     landings,
                     documents,
-                    root,
-                    sources,
                     secrets if request.scope is Scope.GLOBAL else MappingProxyType({}),
                     request.scope,
                 )
@@ -693,8 +644,6 @@ def plan_for(  # noqa: PLR0913, PLR0917 — the four a plan needs, plus the two 
                 _mcp_selection(
                     recipe,
                     documents,
-                    root,
-                    sources.get(recipe.name),
                     secrets if request.scope is Scope.GLOBAL else MappingProxyType({}),
                 )
                 for recipe in mcps
@@ -903,15 +852,28 @@ def refuse_unmet_preconditions(plan: Plan, variables: Mapping[str, str]) -> None
     walks `PATH` the way `shutil.which` does, and never invokes the command it
     finds. A precondition check that executed anything would be the hole axiom
     1 closes, reopened under the name of a feature.
+
+    A recipe with `source:` carries no `command_exists` of its own runner —
+    `overpower.recipes` refuses that by name, since `source.runner` already
+    fixes it — so this is where the derived half of ADR 0023's precondition is
+    checked instead: gone as far as this function can see, never gone in fact.
     """
     for selection in plan.selections:
         for carried in selection.artifacts:
             if not isinstance(carried, Recipe):
                 continue
-            for precondition in carried.preconditions:
+            for precondition in _preconditions_of(carried):
                 reason = _unmet_reason(precondition, variables)
                 if reason is not None:
                     raise PreconditionFailedError(carried.name, precondition, reason)
+
+
+def _preconditions_of(recipe: Recipe) -> tuple[Precondition, ...]:
+    """Every precondition a recipe carries — declared, then the one `source:` derives."""
+    if recipe.source is None:
+        return recipe.preconditions
+    derived = Precondition(check=Check.COMMAND_EXISTS, value=recipe.source.runner.value)
+    return (*recipe.preconditions, derived)
 
 
 def _unmet_reason(precondition: Precondition, variables: Mapping[str, str]) -> str | None:
@@ -1094,21 +1056,6 @@ def _tolerates_jsonc(readers: Sequence[str], scope: Scope) -> bool:
     return bool(known) and all(document.tolerates_jsonc for document in known)
 
 
-def _refuse_a_sourced_recipe_outside_machine_scope(recipes: Sequence[Recipe], scope: Scope) -> None:
-    """Refuse the line if any selected recipe with `source:` is asked for outside `--global`.
-
-    Before `_selected_runtimes` and every refusal that follows it: a recipe that
-    brings its own clone has nowhere legal to land in project scope regardless
-    of which runtime was named, so there is no runtime-shaped question left to
-    ask once this one has an answer (ADR 0015).
-    """
-    if scope is Scope.GLOBAL:
-        return
-    for recipe in recipes:
-        if recipe.source is not None:
-            raise SourceRequiresMachineScopeError(recipe.name)
-
-
 def _refuse_a_runtime_with_no_document(keys: Sequence[str], scope: Scope) -> None:
     """Refuse the line if any selected runtime cannot receive a server in `scope`."""
     for key in keys:
@@ -1180,12 +1127,6 @@ def existing_destinations(plan: Plan, request: Request) -> tuple[Path, ...]:
     https://github.com/ThiagoPanini/overpower/issues/81 unusable in the ordinary
     case: `~/.claude.json` exists on every machine that ever ran the runtime, so
     every `--global` graft would have stopped to ask permission to *add* a key.
-
-    **Neither is the clone class**, and for a reason closer to the graft's than
-    to the copy's: ADR 0015 already decided reinstalling re-clones
-    unconditionally, no cache, no exception — a question this function could
-    ask and get answered *"no"* would contradict a decision already made, not
-    protect equipment this run might overwrite by mistake.
     """
     if request.scope is not Scope.GLOBAL or request.force:
         return ()
@@ -1195,7 +1136,6 @@ def existing_destinations(plan: Plan, request: Request) -> tuple[Path, ...]:
                 write.destination.path
                 for write in plan.writes
                 if not isinstance(write.destination, DocumentKey)
-                and write.mode is not WriteMode.CLONE
                 and write.destination.path.exists()
             }
         )
@@ -1209,12 +1149,10 @@ def _framework_selection(
     return _grouped_selection(framework.name, framework.artifacts, places, scope)
 
 
-def _bundle_selection(  # noqa: PLR0913, PLR0917 — one landing kind's inputs, then the other's
+def _bundle_selection(
     bundle: Bundle,
     places: Mapping[Path, tuple[str, ...]],
     documents: Sequence[McpPlace],
-    root: Path,
-    sources: Mapping[str, Path],
     secrets: Mapping[str, str],
     scope: Scope,
 ) -> Selection:
@@ -1222,9 +1160,9 @@ def _bundle_selection(  # noqa: PLR0913, PLR0917 — one landing kind's inputs, 
 
     ADR 0022: a bundle may name a skill and an MCP server in the same manifest,
     so this reaches for both — `_grouped_selection`'s copy landings for the
-    artifacts it names, `_mcp_selection`'s graft (and clone) landings for the
-    recipes — under the bundle's own name. Each half is all-or-nothing with what
-    it is handed, the same guard `plan_for` already applies per class before
+    artifacts it names, `_mcp_selection`'s graft landings for the recipes —
+    under the bundle's own name. Each half is all-or-nothing with what it is
+    handed, the same guard `plan_for` already applies per class before
     building a `Selection` at all: a half with nowhere to land contributes
     neither a landing nor an entry in `artifacts`, so the screen never promises
     what the write will not do.
@@ -1238,9 +1176,7 @@ def _bundle_selection(  # noqa: PLR0913, PLR0917 — one landing kind's inputs, 
         tuple(
             landing
             for recipe in recipes
-            for landing in _mcp_selection(
-                recipe, documents, root, sources.get(recipe.name), secrets
-            ).landings
+            for landing in _mcp_selection(recipe, documents, secrets).landings
         )
         if recipes and documents
         else ()
@@ -1262,24 +1198,8 @@ def _skill_selection(
     return _grouped_selection(artifact.name, (artifact,), places, scope)
 
 
-_SOURCE_DIR = (".overpower", "mcp")
-"""Where a clone lands under the machine root: `~/.overpower/mcp/<slug>/`.
-
-The same two segments `overpower.remote._LEGACY_MCP_DIR` still names, for a
-question that is not this one — there, the address a recipe *used* to be read
-from, kept only to refuse it (ADR 0021); here, the address this product writes a
-clone to, which ADR 0023 keeps. Two constants and not one shared: they answer
-different questions of different modules, and the coincidence of spelling is
-what makes sharing them a trap rather than a saving.
-"""
-
-
 def _mcp_selection(
-    recipe: Recipe,
-    documents: Sequence[McpPlace],
-    root: Path,
-    cloned: Path | None,
-    secrets: Mapping[str, str],
+    recipe: Recipe, documents: Sequence[McpPlace], secrets: Mapping[str, str]
 ) -> Selection:
     """One MCP server, rendered once per document it lands in.
 
@@ -1292,58 +1212,15 @@ def _mcp_selection(
     there is nothing for a second place to link to. Every document gets the
     fragment its own dialect asks for.
 
-    `cloned` is the scratch tree `overpower.remote.sources_for` already obtained
-    for this recipe, or `None` for a recipe with no `source:`. When it is not
-    `None`, the clone is a **second landing** of this same selection — issue #84
-    is what the model's *"an artifact may cost more than one write, the second
-    possibly outside the repository"* (module docstring) was reserved for — and
-    every document's `{source}` resolves to the clone's **destination**, never
-    to `cloned` itself: `cloned` is a scratch directory this command's own
-    `finally` removes, and a path baked into a committed file must still exist
-    tomorrow.
+    A recipe with `source:` costs no second write since ADR 0023: the address
+    renders a command its own runner resolves, with nothing this plan lands on
+    disk beyond the graft itself.
     """
-    destination = None if cloned is None else root / Path(*_SOURCE_DIR) / recipe.name
-    landings = tuple(_graft_landing(recipe, place, destination, secrets) for place in documents)
-    if cloned is None or destination is None:
-        return Selection(name=recipe.name, artifacts=(recipe,), landings=landings)
-    return Selection(
-        name=recipe.name,
-        artifacts=(recipe,),
-        landings=(_clone_landing(cloned, destination, documents), *landings),
-    )
+    landings = tuple(_graft_landing(recipe, place, secrets) for place in documents)
+    return Selection(name=recipe.name, artifacts=(recipe,), landings=landings)
 
 
-def _clone_landing(cloned: Path, destination: Path, documents: Sequence[McpPlace]) -> Landing:
-    """The clone itself: one write, a real copy, counted like any other tree.
-
-    `readers` is the union of every document's own readers — every runtime this
-    line asked the server for is a runtime whose rendered fragment points here,
-    so every one of them reads what lands at `destination` just as much as it
-    reads the document carrying the pointer.
-    """
-    readers = tuple(dict.fromkeys(reader for place in documents for reader in place.readers))
-    return Landing(
-        place=destination,
-        readers=readers,
-        writes=(
-            Write(
-                source=cloned,
-                destination=DirectoryTree(destination),
-                mode=WriteMode.CLONE,
-                files=_files_in(cloned),
-            ),
-        ),
-    )
-
-
-def _files_in(tree: Path) -> int:
-    """How many files `tree` carries — what the clone's `Write.files` counts."""
-    return sum(1 for entry in tree.rglob("*") if entry.is_file())
-
-
-def _graft_landing(
-    recipe: Recipe, place: McpPlace, source: Path | None, secrets: Mapping[str, str]
-) -> Landing:
+def _graft_landing(recipe: Recipe, place: McpPlace, secrets: Mapping[str, str]) -> Landing:
     """The document, everyone who reads it, and every key that lands in it.
 
     **One landing however many keys**, because a landing is a *place* and the
@@ -1355,11 +1232,6 @@ def _graft_landing(
     so the reference is written before the declaration it points at. Nothing
     depends on that — both are keys of a file nobody has read yet — and it is
     still the order the screen reads best in.
-
-    `source` is the clone's **destination**, threaded through to `render` so
-    `{source}` resolves to a path that still exists after this command exits —
-    `None` for a recipe with no `source:`, in which recipe the token cannot
-    occur at all (`overpower.recipes.SourcelessSubstitutionError`).
     """
     return Landing(
         place=place.path,
@@ -1374,7 +1246,7 @@ def _graft_landing(
                 # disk; the rest edit what is already there.
                 files=1 if index == 0 else 0,
             )
-            for index, graft in enumerate(render(recipe, place.document, source, secrets))
+            for index, graft in enumerate(render(recipe, place.document, secrets))
         ),
     )
 

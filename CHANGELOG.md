@@ -23,6 +23,13 @@ navigable index of the decisions that produced it.
 
 <!-- towncrier release notes start -->
 
+## [0.31.0] - 2026-08-21
+
+### Breaking
+
+- Uma receita cujo servidor tem código-fonte próprio passa a declarar `source: {git, ref, runner, entrypoint}` — o **endereço** — e o overpower renderiza `uvx --from git+<git>@<ref> <entrypoint>` (ou `npx --yes --package git+<git>#<ref> <entrypoint>`), com `server.args` apostos ao fim. **Nada é clonado**: `~/.overpower/mcp/` deixa de existir, e uma receita com fonte volta a instalar em **escopo de projeto**, com um arquivo escrito idêntico em toda máquina. `ref` é obrigatório e `runner` é vocabulário fechado (`uvx`, `npx`) — os dois recusados por nome fora dessas condições — e `transport`, `server.command` e a precondição `command_exists` do runner passam a **derivados**: declará-los ao lado de `source:` também é recusa por nome. O antigo `source: {url}` e o token `{source}` deixam de ser lidos, sem janela de compatibilidade. O `doctor` perde as duas checagens de clone (`MissingClone`, `OrphanClone`) e ganha uma: re-roda a precondição do runner contra `PATH`, offline. `list --from` passa a mostrar a origem e a ref na linha do servidor. ([#165](https://github.com/ThiagoPanini/overpower/issues/165))
+
+
 ## [0.30.0] - 2026-08-21
 
 ### Breaking

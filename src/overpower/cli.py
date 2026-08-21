@@ -35,7 +35,6 @@ from dataclasses import replace
 from enum import IntEnum
 from importlib import metadata
 from pathlib import Path
-from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated
 
 import questionary
@@ -62,7 +61,7 @@ from overpower.planning import (
     unset_slots,
 )
 from overpower.recipes import Recipe
-from overpower.remote import catalog_from, sources_for
+from overpower.remote import catalog_from
 from overpower.rendering import targets_of
 from overpower.runtimes import Environment, Scope
 from overpower.scope import git_root
@@ -744,18 +743,10 @@ def install(  # noqa: PLR0913 — one keyword per CLI flag, and the three select
             # is a real cost and not a tidiness point.
             if already_read is None:
                 already_read = load_catalog(content_root(), catalog_file())
-            # The scratch lives exactly as long as the block, which has to cover
-            # the write as well as the plan: `execute()` needs a `source:`
-            # recipe's clone still on disk at the point it copies it to its
-            # destination.
-            names = (*request.mcps, *_mcp_names_carried(already_read, request.bundles))
-            sources = obtained.enter_context(sources_for(already_read, names, request.scope))
-            _perform(request, already_read, root, environment, sources, banner=not wizarding)
+            _perform(request, already_read, root, environment, banner=not wizarding)
             return
         catalog = _what_the_remote_install_writes_from(from_, request, already_read, obtained)
-        names = (*request.mcps, *_mcp_names_carried(catalog, request.bundles))
-        sources = obtained.enter_context(sources_for(catalog, names, request.scope))
-        _perform(request, catalog, root, environment, sources, banner=not wizarding)
+        _perform(request, catalog, root, environment, banner=not wizarding)
 
 
 def _what_the_artifacts_step_reads(from_: str | None, obtained: ExitStack) -> Catalog:
@@ -860,28 +851,11 @@ def _flag_already_claiming(catalog: Catalog, name: str) -> str | None:
     return None
 
 
-def _mcp_names_carried(catalog: Catalog, bundles: Sequence[str]) -> tuple[str, ...]:
-    """Every recipe name a selected bundle reaches, alongside `--mcp`'s own names.
-
-    `sources_for` only obtains a clone for a name it is handed — a recipe with
-    `source:` reached only through `--bundle` (ADR 0022) needs to be handed too,
-    or it renders with no clone and `{source}` lands in the document literally
-    instead of resolving.
-    """
-    return tuple(
-        item.name
-        for name in bundles
-        for item in catalog.bundle(name).artifacts
-        if isinstance(item, Recipe)
-    )
-
-
-def _perform(  # noqa: PLR0913 — one argument per thing `plan_for` itself takes, plus `banner`
+def _perform(
     request: Request,
     catalog: Catalog,
     root: Path,
     environment: Environment,
-    sources: Mapping[str, Path] = MappingProxyType({}),
     *,
     banner: bool = True,
 ) -> None:
@@ -891,10 +865,6 @@ def _perform(  # noqa: PLR0913 — one argument per thing `plan_for` itself take
     decides **where the catalog comes from** and changes nothing about what
     happens to one. A dry run therefore resolves the remote exactly as the real
     run does, which is what keeps it a report about *this* installation.
-
-    `sources` is every `source:` recipe's clone, already obtained by the
-    caller's `remote.sources_for` block — passed through to `plan_for` and
-    otherwise untouched here, the same way `catalog` is.
 
     `banner` is off for the wizard alone, and the asymmetry is the reason the
     flag exists: the wizard has already drawn it as context for the questions it
@@ -906,7 +876,7 @@ def _perform(  # noqa: PLR0913 — one argument per thing `plan_for` itself take
     # ask about it, is exit 2 or exit 3 with nothing written and nothing
     # announced. `--dry-run` is a report, never a session, so it never asks
     # either — https://github.com/ThiagoPanini/overpower/issues/69.
-    plan = plan_for(request, catalog, root, environment, sources)
+    plan = plan_for(request, catalog, root, environment)
     # Read before anything is drawn and before the first byte, and on **both**
     # paths: a `--dry-run` that answered 0 to a line the real run refuses with 3
     # would be a report about a different installation
@@ -968,7 +938,7 @@ def _perform(  # noqa: PLR0913 — one argument per thing `plan_for` itself take
     # what changed is one argument.
     secrets = _gathered_secrets(plan, request, environment)
     if secrets:
-        plan = plan_for(request, catalog, root, environment, sources, secrets)
+        plan = plan_for(request, catalog, root, environment, secrets)
 
     report = execute(plan)
     if not _out.is_terminal:

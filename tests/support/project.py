@@ -15,7 +15,9 @@ address moves.
 
 from __future__ import annotations
 
+import os
 import re
+import stat
 from textwrap import indent
 from typing import TYPE_CHECKING, assert_never, cast
 
@@ -274,6 +276,22 @@ def custom_recipe(tmp_path: Path, slug: str, body: str) -> Path:
     opened = written if f"{MCP_KEY}:\n" in written else f"{written}{MCP_KEY}:\n"
     path.write_text(f"{opened}  {slug}:\n{indent(body, '    ')}", encoding="utf-8", newline="\n")
     return path
+
+
+def runner_on_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, name: str = "uvx") -> None:
+    """Put a stub `name` on `PATH`, so a `source:` recipe's own runner precondition is met.
+
+    Real `uvx`/`npx` are not guaranteed on a test machine, and installing or
+    diagnosing a `source:` recipe now checks for the runner (ADR 0023) — the
+    same `shutil.which` walk `command_exists` already uses, so a file with the
+    execute bit set is indistinguishable from the real thing.
+    """
+    stubs = tmp_path / "stubs"
+    stubs.mkdir(exist_ok=True)
+    stub = stubs / name
+    stub.write_text("#!/bin/sh\n", encoding="utf-8")
+    stub.chmod(stub.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    monkeypatch.setenv("PATH", f"{stubs}{os.pathsep}{os.environ.get('PATH', '')}")
 
 
 def _written(

@@ -198,13 +198,7 @@ def run_wizard(  # noqa: PLR0913 — the five the steps need, plus the console t
         ai_frameworks, bundles, skills, mcps = picked
 
     if scoped is None:
-        # `catalog` is `None` on a `--from` line — the artifacts step never
-        # opens there, since `--from` already requires a selection (`--skill`
-        # or `--mcp`) before `run_wizard` is even reached. The safety net is
-        # still `overpower.planning`'s refusal; this is only the wizard's own
-        # question not getting ahead of an answer it cannot yet see.
-        sourced = catalog is not None and any(catalog.mcp(name).source is not None for name in mcps)
-        answered = ask_scope(cwd, environment, console, sourced=sourced)
+        answered = ask_scope(cwd, environment, console)
         if answered is None:
             return None
         scope, root = answered
@@ -289,10 +283,8 @@ def artifact_choices(catalog: Catalog) -> list[questionary.Separator | questiona
     return choices
 
 
-def ask_scope(
-    cwd: Path, environment: Environment, console: Console, *, sourced: bool = False
-) -> tuple[Scope, Path] | None:
-    """Project or the machine — and two conditions leave only one legal answer.
+def ask_scope(cwd: Path, environment: Environment, console: Console) -> tuple[Scope, Path] | None:
+    """Project or the machine — and one condition leaves only one legal answer.
 
     Offering `Project` with nowhere to write would be the anti-pattern ADR
     0008 and ADR 0009 already refuse one layer further down: a screen that
@@ -301,21 +293,12 @@ def ask_scope(
     wizard's equivalent of that explicitness is not asking a question that has
     only one legal answer, rather than asking it and disabling the other one.
 
-    `sourced` is the same move for ADR 0015: **the set of scopes is a function
-    of the recipe**, the way ADR 0009 already made the set of runtimes a
-    function of scope, so a line that already named a `source:` recipe has
-    already answered this step too — offering `Project` would draw a screen
-    `overpower.planning`'s refusal is certain to reject three steps later.
-
     **It is reported rather than skipped** (#65). Before, the one legal answer
     was taken in silence and the session showed nothing at all where a step
     belonged — so the person could not tell that scope had been decided, let
     alone how. Now it collapses to the same two lines an answered step
     collapses to, with the reason on it.
     """
-    if sourced:
-        console.print(stepped(_SCOPE_QUESTION, "Global — a selected recipe brings its own source"))
-        return Scope.GLOBAL, environment.home
     if git_root(cwd) is None:
         console.print(stepped(_SCOPE_QUESTION, "Global — outside a git repository"))
         return Scope.GLOBAL, environment.home

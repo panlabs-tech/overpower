@@ -63,6 +63,8 @@ from overpower.recipes import (
     HttpServer,
     Precondition,
     Recipe,
+    Runner,
+    Source,
     StdioServer,
     role_of,
 )
@@ -1384,6 +1386,29 @@ def test_the_catalog_screen_gives_the_mcp_servers_a_block_of_their_own(width: in
         assert " ".join(recipe.description.split()) in joined
 
 
+def test_the_catalog_screen_shows_a_sourced_recipes_origin_and_ref() -> None:
+    """`list --from` reads the address on the same block a plain recipe answers with its transport.
+
+    `mcp_screen` carries the twin of this property
+    (`test_the_mcp_screen_names_the_source_and_ref_of_a_sourced_recipe`) — both
+    screens draw a recipe's head line through the same `_mcp_weight`, so this
+    is the compact `list` line the acceptance criterion names, not the
+    single-recipe detail view.
+    """
+    recipe = Recipe(
+        name="homegrown",
+        path=Path("homegrown.toml"),
+        description="A server with code of its own.",
+        server=StdioServer(command="uvx", args=("--from", "git+https://x/y@v1", "homegrown")),
+        source=Source(git="https://x/y", ref="v1", runner=Runner.UVX, entrypoint="homegrown"),
+    )
+    catalog = Catalog(frameworks=(), pool=(), bundles=(), mcps=(recipe,))
+
+    joined = unwrapped(render(catalog_screen(catalog), 80))
+
+    assert "homegrown https://x/y@v1" in joined
+
+
 @pytest.mark.parametrize("width", WIDTH_CASES)
 def test_the_mcp_screen_shows_the_description_whole(width: int) -> None:
     """The rule the catalog screen already obeys, on the screen a server is judged on.
@@ -1411,6 +1436,27 @@ def test_the_mcp_screen_names_the_transport_and_the_url_of_an_http_recipe(width:
 
     assert "cloudflare http" in rendered
     assert "url https://mcp.cloudflare.com/mcp" in rendered
+
+
+@pytest.mark.parametrize("width", WIDTH_CASES)
+def test_the_mcp_screen_names_the_source_and_ref_of_a_sourced_recipe(width: int) -> None:
+    """ADR 0023: `list --from` reads where the code comes from, not the implied transport.
+
+    A `source:` recipe only ever renders stdio (`overpower.recipes._transport`),
+    so the head line answers with the one fact the transport could not: where
+    this server's code comes from, and at which ref.
+    """
+    recipe = Recipe(
+        name="homegrown",
+        path=Path("homegrown.toml"),
+        description="A server with code of its own.",
+        server=StdioServer(command="uvx", args=("--from", "git+https://x/y@v1", "homegrown")),
+        source=Source(git="https://x/y", ref="v1", runner=Runner.UVX, entrypoint="homegrown"),
+    )
+
+    rendered = rows(render(mcp_screen(recipe, targets_of(recipe)), width))
+
+    assert "homegrown https://x/y@v1" in rendered
 
 
 @pytest.mark.parametrize("width", WIDTH_CASES)

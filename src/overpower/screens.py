@@ -52,8 +52,7 @@ from overpower.inspection import (
     DanglingLink,
     Divergence,
     LinkTurnedText,
-    MissingClone,
-    OrphanClone,
+    MissingRunner,
     PendingApproval,
     UnsetSlot,
 )
@@ -492,7 +491,7 @@ def catalog_screen(catalog: Catalog, origin: str | None = None) -> RenderableTyp
             [
                 _entry(
                     recipe.name,
-                    str(recipe.transport),
+                    _mcp_weight(recipe),
                     recipe.description,
                     commands=(
                         _install(MCP_FLAG, recipe.name, origin),
@@ -621,7 +620,11 @@ def mcp_screen(
     The head line reads the **transport** where the other three screens read a
     size, because a recipe weighs nothing — it never lands, and what lands is
     the fragment rendered out of it. So the fact that occupies the place of
-    *"what it costs"* is the one that says how the server is reached.
+    *"what it costs"* is the one that says how the server is reached — or, for
+    a `source:` recipe, where it comes from and at which ref (`_mcp_weight`):
+    the transport is implied the moment a runner resolves it (ADR 0023), so the
+    one fact worth the head line is the one nothing else on this screen states
+    as plainly.
     """
     return _block(
         "MCP server",
@@ -629,7 +632,7 @@ def mcp_screen(
         [
             _entry(
                 recipe.name,
-                str(recipe.transport),
+                _mcp_weight(recipe),
                 recipe.description,
                 commands=(_install(MCP_FLAG, recipe.name, origin),),
                 facts=_recipe_facts(recipe, targets),
@@ -938,10 +941,9 @@ def _finding(finding: Finding, roots: _Roots, glyphs: _Glyphs) -> RenderableType
         case PendingApproval(destination, name):
             place = _located(destination, roots, glyphs)
             return _flagged("pending approval", [f"{place}  (`{name}`)"])
-        case MissingClone(destination, name, clone):
+        case MissingRunner(destination, name, runner):
             place = _located(destination, roots, glyphs)
-            shown = roots.shorten(clone)
-            return _flagged("clone is gone", [f"{place}  (`{name}`)  {arrow} {shown}"])
+            return _flagged("runner is gone", [f"{place}  (`{name}`)  {arrow} {runner}"])
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -952,9 +954,6 @@ def _notice(notice: Notice, roots: _Roots, glyphs: _Glyphs) -> RenderableType:
         case UnsetSlot(destination, name, variable):
             place = _located(destination, roots, glyphs)
             return _flagged(f"`{variable}` not set here", [f"{place}  (`{name}`)"], style="op.dim")
-        case OrphanClone(path):
-            headline = "clone not referenced by any config"
-            return _flagged(headline, [f"{roots.shorten(path)}/"], style="op.dim")
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -1513,6 +1512,19 @@ def _weight(size: int, files: int) -> str:
     function is not asked, rather than asked and answered with a zero.
     """
     return f"{human(size)} · {files} {_plural('file', files)}"
+
+
+def _mcp_weight(recipe: Recipe) -> str:
+    """What a server costs, in the same place `_weight` answers it for a copy.
+
+    A recipe with `source:` answers with where its code comes from and at
+    which ref — the fact `list --from` is asked to show (ADR 0023) — because
+    the transport is implied the moment a runner resolves the address; a
+    recipe with none answers with its transport, unchanged.
+    """
+    if recipe.source is None:
+        return str(recipe.transport)
+    return f"{recipe.source.git}@{recipe.source.ref}"
 
 
 def _plural(word: str, count: int) -> str:

@@ -276,32 +276,6 @@ def test_ask_scope_outside_a_repository_has_one_answer_and_asks_nothing(
     assert asked == []
 
 
-def test_ask_scope_with_a_sourced_recipe_has_one_answer_and_asks_nothing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """ADR 0015, the same move as the outside-repository case: `Project` is not a legal answer.
-
-    Inside a real repository on purpose — the only fact that must decide the
-    answer here is `sourced`, not `git_root`, which the outside-repository case
-    already covers on its own.
-    """
-    repo = tmp_path / "repo"
-    (repo / ".git").mkdir(parents=True)
-    asked: list[object] = []
-
-    def refuse_to_ask(*_args: object, **_kwargs: object) -> _Answered:
-        asked.append(1)
-        return _Answered(None)
-
-    monkeypatch.setattr(wizard.questionary, "select", refuse_to_ask)
-    environment = _environment(tmp_path / "home")
-
-    result = wizard.ask_scope(repo, environment, _console(), sourced=True)
-
-    assert result == (Scope.GLOBAL, environment.home)
-    assert asked == []
-
-
 # --------------------------------------------------------------------------- #
 # step 3: runtimes
 # --------------------------------------------------------------------------- #
@@ -955,26 +929,24 @@ def test_run_wizard_opens_the_mcp_runtime_step_for_an_mcp_the_artifacts_step_jus
     assert request.runtimes == ("claude-code",)
 
 
-def test_run_wizard_asks_scope_naming_a_selected_recipe_that_brings_its_own_source(
+def test_run_wizard_asks_scope_plainly_for_a_recipe_that_brings_its_own_source(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """ADR 0015: a `source:` recipe is known before scope is asked, so the step can say so."""
+    """ADR 0023: `source:` no longer restricts scope — the step asks exactly as for any recipe."""
     # given
     content = catalog_of(tmp_path, monkeypatch)
     custom_recipe(
         tmp_path,
         "homegrown",
-        'description: "x"\ntransport: "stdio"\n\nsource:\n  url: "https://github.com/x/y"\n\n'
-        'server:\n  command: "uv"\n',
+        'description: "x"\n\nsource:\n  git: "https://github.com/x/y"\n  ref: "v1"\n'
+        '  runner: "uvx"\n  entrypoint: "y"\n',
     )
     catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
     asked = Request(mcps=("homegrown",))
-    seen: list[bool] = []
+    calls: list[tuple[object, ...]] = []
 
-    def scope_step(
-        _cwd: Path, _environment: Environment, _console: Console, *, sourced: bool = False
-    ) -> tuple[Scope, Path]:
-        seen.append(sourced)
+    def scope_step(_cwd: Path, _environment: Environment, _console: Console) -> tuple[Scope, Path]:
+        calls.append(())
         return Scope.GLOBAL, tmp_path
 
     monkeypatch.setattr(wizard, "ask_artifacts", _never_called)
@@ -986,80 +958,7 @@ def test_run_wizard_asks_scope_naming_a_selected_recipe_that_brings_its_own_sour
     )
 
     assert outcome is not None
-    assert seen == [True]
-
-
-def test_run_wizard_asks_scope_naming_a_source_the_artifacts_step_just_picked(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The same ADR 0015 restriction, for a `source:` recipe picked *inside* the wizard.
-
-    `sourced` has to be computed off what the artifacts step just answered,
-    not off `asked.mcps` — which is still empty at this point on a line that
-    never named one on its own.
-    """
-    # given
-    content = catalog_of(tmp_path, monkeypatch)
-    custom_recipe(
-        tmp_path,
-        "homegrown",
-        'description: "x"\ntransport: "stdio"\n\nsource:\n  url: "https://github.com/x/y"\n\n'
-        'server:\n  command: "uv"\n',
-    )
-    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
-    seen: list[bool] = []
-
-    def picked_mcp(
-        _catalog: Catalog,
-    ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
-        return ((), (), (), ("homegrown",))
-
-    def scope_step(
-        _cwd: Path, _environment: Environment, _console: Console, *, sourced: bool = False
-    ) -> tuple[Scope, Path]:
-        seen.append(sourced)
-        return Scope.GLOBAL, tmp_path
-
-    monkeypatch.setattr(wizard, "ask_artifacts", picked_mcp)
-    monkeypatch.setattr(wizard, "ask_scope", scope_step)
-    monkeypatch.setattr(wizard, "ask_mcp_runtimes", _fixed_mcp_runtimes)
-
-    outcome = wizard.run_wizard(
-        Request(), catalog, Environment.from_process(), tmp_path, None, console=_console()
-    )
-
-    assert outcome is not None
-    assert seen == [True]
-    request, _ = outcome
-    assert request.mcps == ("homegrown",)
-
-
-def test_run_wizard_asks_scope_naming_no_source_for_an_ordinary_recipe(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The ordinary case, unaffected: no `source:`, the wizard still asks freely."""
-    # given
-    content = catalog_of(tmp_path, monkeypatch, mcps={"cloudflare": "https://mcp.example.com/mcp"})
-    catalog = load_catalog(content, tmp_path / "packaged" / "catalog.yaml")
-    asked = Request(mcps=("cloudflare",))
-    seen: list[bool] = []
-
-    def scope_step(
-        _cwd: Path, _environment: Environment, _console: Console, *, sourced: bool = False
-    ) -> tuple[Scope, Path]:
-        seen.append(sourced)
-        return Scope.GLOBAL, tmp_path
-
-    monkeypatch.setattr(wizard, "ask_artifacts", _never_called)
-    monkeypatch.setattr(wizard, "ask_scope", scope_step)
-    monkeypatch.setattr(wizard, "ask_mcp_runtimes", _fixed_mcp_runtimes)
-
-    outcome = wizard.run_wizard(
-        asked, catalog, Environment.from_process(), tmp_path, None, console=_console()
-    )
-
-    assert outcome is not None
-    assert seen == [False]
+    assert calls == [()]
 
 
 @pytest.mark.parametrize(

@@ -16,9 +16,9 @@ second validator that could admit on one side what the other refuses.
 
 **A recipe that gets past this module is a recipe that renders.** Every rule the
 contract has is checked here — the closed set of transports, the fields each
-transport admits, and the one substitution token — so `overpower.rendering` is a
-total function over what this returns rather than a second validator that could
-disagree with the first.
+transport admits, and the command a `source:` address derives — so
+`overpower.rendering` is a total function over what this returns rather than a
+second validator that could disagree with the first.
 
 The vocabulary of this version is **`description`, `transport`, `server:`,
 `slots:`, `preconditions:`, `instructions` and `source:`**
@@ -67,22 +67,6 @@ message inside a recipe is prefixed with — one file now holds several recipes,
 `transport` alone would cost the reader a bisection to find which one.
 """
 
-SOURCE_TOKEN = "{source}"  # noqa: S105 — a substitution token, not a credential
-"""The **only** substitution token, and the one thing we resolve rather than the runtime.
-
-It stands for the absolute path of the clone a recipe with `source:` brings, so
-a recipe can name a directory whose path it cannot know. It is not a slot and it
-is not runtime interpolation — measured, each target spells interpolation
-differently and one of them has none at all
-(`docs/research/mcp-config-formats.md`).
-
-**This module only refuses or admits the token — it never resolves it.** `path`
-is only known once (type, runtime, scope) are, which this reader never sees;
-resolving it into the absolute path of a real clone is
-`overpower.rendering.render`'s job, at plan-build time
-(https://github.com/ThiagoPanini/overpower/issues/84).
-"""
-
 DESCRIPTION_KEY = "description"
 TRANSPORT_KEY = "transport"
 SERVER_KEY = "server"
@@ -117,18 +101,53 @@ _VALUE_FIELD = "value"
 _PRECONDITION_KEYS = frozenset({_CHECK_FIELD, _VALUE_FIELD})
 """What a precondition is made of: which check, and what it checks for."""
 
-_URL_FIELD = "url"
+_GIT_FIELD = "git"
+_REF_FIELD = "ref"
+_RUNNER_FIELD = "runner"
+_ENTRYPOINT_FIELD = "entrypoint"
 
-_SOURCE_KEYS = frozenset({_URL_FIELD})
-"""What `source:` is made of: the one field, a GitHub repository URL.
+_SOURCE_KEYS = frozenset({_GIT_FIELD, _REF_FIELD, _RUNNER_FIELD, _ENTRYPOINT_FIELD})
+"""What `source:` is made of: the repository, the ref pinned to it, the runner
+that resolves it, and the entrypoint the runner launches (ADR 0023).
 
-The same shape `--from` parses (`overpower.remote.parse`) — owner, repository,
-and optionally `tree/<ref>/<path>` to pin a ref or narrow the clone to a
-folder inside a monorepo. Read here as an opaque string and parsed there,
-because the two modules cannot import from each other: `overpower.remote`
-reaches a recipe through `overpower.written`, which imports `recipe_from` from
-this one.
+`ref` has no default: measured against a real remote, `npx` with no ref ran the
+HEAD of a repository that has a tag — a server that changes behaviour with
+nobody having changed anything, in a version written nowhere. Declaring it a
+plain field and never a default is what makes that impossible to reach.
 """
+
+
+class Runner(StrEnum):
+    """What resolves a `source:` address into a running process — closed at two.
+
+    Each member is a fetch-and-run tool this product already trusts to install
+    nothing itself (axiom 1 admits no script from a recipe): `uvx` and `npx`
+    both fetch the entrypoint at the pinned `ref` and run it, and neither is a
+    general-purpose installer this recipe could smuggle a second command past.
+    A third member is one row in this table and one render branch, never a
+    field a recipe could spell freely — the hole a free-form `command` on a
+    federated recipe would reopen (ADR 0023's second considered option).
+    """
+
+    UVX = "uvx"
+    NPX = "npx"
+
+
+@dataclass(frozen=True)
+class Source:
+    """The address of code a server's process is resolved from, never cloned.
+
+    Fully static: every field here is a string the recipe declared, so the
+    command it renders to needs nothing this reader does not already have —
+    unlike the clone ADR 0015 drew and ADR 0023 replaced, no scope, no runtime
+    and no disk decide what it says.
+    """
+
+    git: str
+    ref: str
+    runner: Runner
+    entrypoint: str
+
 
 NO_ENVIRONMENT: Mapping[str, str] = MappingProxyType({})
 """The default `server.env`: empty, and immutable so it can be one value.
@@ -139,6 +158,9 @@ the empty case is a constant.
 """
 
 _STDIO_KEYS = frozenset({"command", "args", "env"})
+_SOURCED_STDIO_KEYS = frozenset({"args", "env"})
+"""What `server:` admits when `source:` is declared — `command` is derived from it."""
+
 _HTTP_KEYS = frozenset({"url"})
 
 
@@ -402,14 +424,14 @@ class Recipe:
     """Prose the author left for what the overpower cannot automate — asking a
     credential, naming who on the team holds it. `None` when the recipe has none."""
 
-    source: str | None = None
-    """The GitHub URL of the code this server's process is cloned from, or `None`.
+    source: Source | None = None
+    """The address of code this server's process resolves itself from, or `None`.
 
-    Its presence is what lets `{source}` appear elsewhere in the recipe and what
-    restricts the scopes this recipe can land in to the machine — the URL is not
-    resolved here, both because resolving it means fetching it (this reader does
-    no I/O) and because *where* the clone lands is a fact of scope, which this
-    reader never sees (ADR 0015, https://github.com/ThiagoPanini/overpower/issues/84).
+    Its presence is what already decided `server` (ADR 0023): `_server` derives
+    `command` and the leading `args` from it rather than reading them off the
+    document, because `runner`, `git`, `ref` and `entrypoint` are the whole of
+    what `uvx --from git+…` or `npx --package git+…` needs, and every one of
+    them is already here — no scope, no runtime and no disk get a say.
     """
 
     @property
@@ -478,6 +500,46 @@ class ForbiddenTransportError(RefusedError):
         super().__init__(
             f"{path}: `{key}` is `{transport}`, which is not a transport this product writes; "
             f"the set is: {allowed}"
+        )
+
+
+class ForbiddenRunnerError(RefusedError):
+    """A `source.runner` outside the closed set — exit 3, and the runner is named.
+
+    `_transport`'s own axis, moved to the field ADR 0023 gave it: the value is
+    well-formed, the product read it, computed the answer, and the answer is no
+    — a runner outside `uvx`/`npx` is not this reader's to invent a render for.
+    """
+
+    def __init__(self, path: Path, key: str, runner: str) -> None:
+        """Name the recipe, the runner it declared, and the two that exist."""
+        self.path = path
+        self.key = key
+        self.runner = runner
+        allowed = ", ".join(sorted(member.value for member in Runner))
+        super().__init__(
+            f"{path}: `{key}` is `{runner}`, which is not a runner this product resolves; "
+            f"the set is: {allowed}"
+        )
+
+
+class DerivedFieldDeclaredError(OverpowerError):
+    """A field `source:` already determines, declared anyway.
+
+    `transport`, `server.command` and the runner's own `command_exists`
+    precondition are the runner said twice (ADR 0023): `source.runner` already
+    fixes all three, so a value declared here could only ever agree with it or
+    silently drift from it the day one of the two is edited alone. Refused
+    before either becomes possible — rule 4, *what is derivable is derived,
+    never declared*.
+    """
+
+    def __init__(self, path: Path, key: str, derived_from: str) -> None:
+        """Name the recipe, the field that must not be declared, and what derives it."""
+        self.path = path
+        self.key = key
+        super().__init__(
+            f"{path}: `{key}` is derived from `{derived_from}` and must not be declared"
         )
 
 
@@ -572,24 +634,6 @@ class MismatchedSlotRoleError(OverpowerError):
         )
 
 
-class SourcelessSubstitutionError(OverpowerError):
-    """`{source}` in a recipe that declares no `source:` to resolve it against.
-
-    The token stands for the path of a clone, so a recipe that uses it without
-    declaring where the code comes from names a directory that will never exist.
-    Writing it through literally is the silent half of this defect: the server
-    would be launched against a directory called `{source}`.
-    """
-
-    def __init__(self, path: Path, key: str) -> None:
-        """Name the recipe and the field the token was found in."""
-        self.path = path
-        self.key = key
-        super().__init__(
-            f"{path}: `{key}` uses {SOURCE_TOKEN} and the recipe declares no `source` to resolve it"
-        )
-
-
 def recipe_from(path: Path, name: str, value: object) -> Recipe:
     """The entry `mcp.<name>` of the document at `path`, whole, or the named error.
 
@@ -601,28 +645,23 @@ def recipe_from(path: Path, name: str, value: object) -> Recipe:
     at = f"{MCP_KEY}.{name}"
     document = _table(path, at, value, "a table")
     _known(path, f"{at}.", document, _RECIPE_KEYS)
-    transport = _transport(path, at, document.get(TRANSPORT_KEY))
     source = _source(path, at, document)
-    has_source = source is not None
-    server = _server(path, at, transport, document.get(SERVER_KEY), has_source=has_source)
+    transport = _transport(path, at, document, source=source)
+    server = _server(path, at, transport, document.get(SERVER_KEY), source=source)
     return Recipe(
         name=name,
         path=path,
         description=_text(path, f"{at}.{DESCRIPTION_KEY}", document.get(DESCRIPTION_KEY)),
         server=server,
-        slots=_slots(
-            path, at, transport, server, document.get(SLOTS_KEY, []), has_source=has_source
-        ),
-        preconditions=_preconditions(
-            path, at, document.get(PRECONDITIONS_KEY, []), has_source=has_source
-        ),
+        slots=_slots(path, at, transport, server, document.get(SLOTS_KEY, [])),
+        preconditions=_preconditions(path, at, document.get(PRECONDITIONS_KEY, []), source=source),
         instructions=_instructions(path, at, document),
         source=source,
     )
 
 
-def _source(path: Path, at: str, document: Mapping[str, object]) -> str | None:
-    """`source:`, or `None` when the recipe brings no code of its own to clone.
+def _source(path: Path, at: str, document: Mapping[str, object]) -> Source | None:
+    """`source:`, or `None` when the recipe brings no code of its own to resolve.
 
     **Absent, not empty**, and the format is what makes the difference sayable.
     YAML answers `None` to a key written with nothing under it, so `source:`
@@ -637,12 +676,39 @@ def _source(path: Path, at: str, document: Mapping[str, object]) -> str | None:
     key = f"{at}.{SOURCE_KEY}"
     table = _table(path, key, document[SOURCE_KEY], "a table")
     _known(path, f"{key}.", table, _SOURCE_KEYS)
-    return _text(path, f"{key}.{_URL_FIELD}", table.get(_URL_FIELD))
+    return Source(
+        git=_text(path, f"{key}.{_GIT_FIELD}", table.get(_GIT_FIELD)),
+        ref=_text(path, f"{key}.{_REF_FIELD}", table.get(_REF_FIELD)),
+        runner=_runner(path, f"{key}.{_RUNNER_FIELD}", table.get(_RUNNER_FIELD)),
+        entrypoint=_text(path, f"{key}.{_ENTRYPOINT_FIELD}", table.get(_ENTRYPOINT_FIELD)),
+    )
 
 
-def _transport(path: Path, at: str, value: object) -> Transport:
-    """The declared transport, as a member of the closed set."""
+def _runner(path: Path, key: str, value: object) -> Runner:
+    """The declared runner, as a member of the closed set — `_transport`'s own axis."""
+    if not isinstance(value, str):
+        raise MalformedRecipeError(path, key, "a string")
+    if value not in {member.value for member in Runner}:
+        raise ForbiddenRunnerError(path, key, value)
+    return Runner(value)
+
+
+def _transport(
+    path: Path, at: str, document: Mapping[str, object], *, source: Source | None
+) -> Transport:
+    """The declared transport, as a member of the closed set — or the one `source` derives.
+
+    A recipe with `source:` never declares this at all: `source.runner` already
+    fixes it at stdio (ADR 0023) — a server a runner resolves and launches has
+    no other shape to take — so a value here could only ever repeat that or
+    drift from it the day one of the two is edited alone.
+    """
     key = f"{at}.{TRANSPORT_KEY}"
+    if source is not None:
+        if TRANSPORT_KEY in document:
+            raise DerivedFieldDeclaredError(path, key, f"{at}.{SOURCE_KEY}.{_RUNNER_FIELD}")
+        return Transport.STDIO
+    value = document.get(TRANSPORT_KEY)
     if not isinstance(value, str):
         raise MalformedRecipeError(path, key, "a string")
     if value not in {member.value for member in Transport}:
@@ -650,39 +716,73 @@ def _transport(path: Path, at: str, value: object) -> Transport:
     return Transport(value)
 
 
+def _sourced_command(source: Source) -> tuple[str, tuple[str, ...]]:
+    """`(runner, leading args)` — the address `source` names, resolved by its own runner.
+
+    Measured in ADR 0023: `uvx` and `npx` agree on fetching `git+<url>` at a
+    pinned ref and disagree on how the ref is spelled onto it — `@ref` against
+    `#ref` — which is the one thing a third runner would bring its own branch
+    for, and the whole reason this is a `match` and not one shared template.
+    """
+    match source.runner:
+        case Runner.UVX:
+            return "uvx", ("--from", f"git+{source.git}@{source.ref}", source.entrypoint)
+        case Runner.NPX:
+            return "npx", (
+                "--yes",
+                "--package",
+                f"git+{source.git}#{source.ref}",
+                source.entrypoint,
+            )
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
 def _server(
-    path: Path, at: str, transport: Transport, value: object, *, has_source: bool
+    path: Path, at: str, transport: Transport, value: object, *, source: Source | None
 ) -> Server:
     """The `server:` table, read in the shape its transport admits.
 
     The transport decides which fields exist, so a `url` under `stdio` is an
     unknown field rather than a field with a wrong value — which is what makes
     the message point at the line that has to change.
+
+    A sourced recipe may omit `server:` entirely — ADR 0023's own examples do,
+    since `args` and `env` are the only fields it still declares and a recipe
+    with neither has nothing left to say there.
     """
     key = f"{at}.{SERVER_KEY}"
-    table = _table(path, key, value, "a table")
+    table = {} if source is not None and value is None else _table(path, key, value, "a table")
     match transport:
         case Transport.STDIO:
+            if source is not None:
+                if "command" in table:
+                    raise DerivedFieldDeclaredError(
+                        path, f"{key}.command", f"{at}.{SOURCE_KEY}.{_RUNNER_FIELD}"
+                    )
+                _known(path, f"{key}.", table, _SOURCED_STDIO_KEYS)
+                command, leading = _sourced_command(source)
+                declared = _strings(path, f"{key}.args", table.get("args", []))
+                return StdioServer(
+                    command=command,
+                    args=(*leading, *declared),
+                    env=_environment(path, f"{key}.env", table.get("env", {})),
+                )
             _known(path, f"{key}.", table, _STDIO_KEYS)
-            args = _strings(path, f"{key}.args", table.get("args", []))
             return StdioServer(
-                command=_field(path, f"{key}.command", table.get("command"), has_source=has_source),
-                args=tuple(
-                    _sourceless(path, f"{key}.args", item, has_source=has_source) for item in args
-                ),
-                env=_environment(path, f"{key}.env", table.get("env", {}), has_source=has_source),
+                command=_text(path, f"{key}.command", table.get("command")),
+                args=_strings(path, f"{key}.args", table.get("args", [])),
+                env=_environment(path, f"{key}.env", table.get("env", {})),
             )
         case Transport.HTTP:
             _known(path, f"{key}.", table, _HTTP_KEYS)
-            return HttpServer(
-                url=_field(path, f"{key}.url", table.get("url"), has_source=has_source)
-            )
+            return HttpServer(url=_text(path, f"{key}.url", table.get("url")))
         case _ as unreachable:
             assert_never(unreachable)
 
 
-def _slots(  # noqa: PLR0913 — the file, the entry, and the four facts a collision is judged on
-    path: Path, at: str, transport: Transport, server: Server, value: object, *, has_source: bool
+def _slots(
+    path: Path, at: str, transport: Transport, server: Server, value: object
 ) -> tuple[Slot, ...]:
     """`slots:`, each one read whole, and no two of them filling one place.
 
@@ -713,7 +813,7 @@ def _slots(  # noqa: PLR0913 — the file, the entry, and the four facts a colli
     prompted: dict[str, tuple[str, str]] = {}
     for index, entry in enumerate(cast("list[object]", value)):
         key = f"{at}.{SLOTS_KEY}[{index}]"
-        slot = _slot(path, key, transport, entry, has_source=has_source)
+        slot = _slot(path, key, transport, entry)
         place = _filled(slot)
         held = taken.get(place)
         if held is not None:
@@ -756,11 +856,11 @@ def _filled(slot: Slot) -> str:
             assert_never(unreachable)
 
 
-def _slot(path: Path, key: str, transport: Transport, value: object, *, has_source: bool) -> Slot:
+def _slot(path: Path, key: str, transport: Transport, value: object) -> Slot:
     """One slot: the variable that holds the secret, and what that secret is for."""
     table = _table(path, key, value, "a table")
     _known(path, f"{key}.", table, _SLOT_KEYS)
-    name = _field(path, f"{key}.{_NAME_FIELD}", table.get(_NAME_FIELD), has_source=has_source)
+    name = _text(path, f"{key}.{_NAME_FIELD}", table.get(_NAME_FIELD))
     role = _role(path, f"{key}.{_ROLE_FIELD}", transport, table.get(_ROLE_FIELD))
     header = table.get(_HEADER_FIELD)
     if role is not Role.HEADER and header is not None:
@@ -773,10 +873,7 @@ def _slot(path: Path, key: str, transport: Transport, value: object, *, has_sour
         case Role.BEARER:
             return BearerSlot(name=name)
         case Role.HEADER:
-            return HeaderSlot(
-                name=name,
-                header=_field(path, f"{key}.{_HEADER_FIELD}", header, has_source=has_source),
-            )
+            return HeaderSlot(name=name, header=_text(path, f"{key}.{_HEADER_FIELD}", header))
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -798,29 +895,40 @@ def _role(path: Path, key: str, transport: Transport, value: object) -> Role:
 
 
 def _preconditions(
-    path: Path, at: str, value: object, *, has_source: bool
+    path: Path, at: str, value: object, *, source: Source | None
 ) -> tuple[Precondition, ...]:
     """`preconditions:`, each one read whole, in declaration order."""
     key = f"{at}.{PRECONDITIONS_KEY}"
     if not isinstance(value, list):
         raise MalformedRecipeError(path, key, "a list of tables")
     return tuple(
-        _precondition(path, f"{key}[{index}]", entry, has_source=has_source)
+        _precondition(path, f"{key}[{index}]", entry, at=at, source=source)
         for index, entry in enumerate(cast("list[object]", value))
     )
 
 
-def _precondition(path: Path, key: str, value: object, *, has_source: bool) -> Precondition:
-    """One precondition: the check, out of the closed set, and what it checks for."""
+def _precondition(
+    path: Path, key: str, value: object, *, at: str, source: Source | None
+) -> Precondition:
+    """One precondition: the check, out of the closed set, and what it checks for.
+
+    `command_exists` against `source.runner`'s own value is refused **here**,
+    by name (ADR 0023): it is the runner said a second time, in a field the
+    reader has no way to keep in step with the one that already fixes it —
+    every other check and every other value still declares normally.
+    """
     table = _table(path, key, value, "a table")
     _known(path, f"{key}.", table, _PRECONDITION_KEYS)
     declared = _text(path, f"{key}.{_CHECK_FIELD}", table.get(_CHECK_FIELD))
     if declared not in {member.value for member in Check}:
         raise UnknownPreconditionCheckError(path, f"{key}.{_CHECK_FIELD}", declared)
-    return Precondition(
-        check=Check(declared),
-        value=_field(path, f"{key}.{_VALUE_FIELD}", table.get(_VALUE_FIELD), has_source=has_source),
-    )
+    check = Check(declared)
+    checked = _text(path, f"{key}.{_VALUE_FIELD}", table.get(_VALUE_FIELD))
+    if source is not None and check is Check.COMMAND_EXISTS and checked == source.runner.value:
+        raise DerivedFieldDeclaredError(
+            path, f"{key}.{_VALUE_FIELD}", f"{at}.{SOURCE_KEY}.{_RUNNER_FIELD}"
+        )
+    return Precondition(check=check, value=checked)
 
 
 def _instructions(path: Path, at: str, document: Mapping[str, object]) -> str | None:
@@ -834,25 +942,10 @@ def _instructions(path: Path, at: str, document: Mapping[str, object]) -> str | 
     return _text(path, f"{at}.{INSTRUCTIONS_KEY}", document[INSTRUCTIONS_KEY])
 
 
-def _environment(path: Path, key: str, value: object, *, has_source: bool) -> Mapping[str, str]:
+def _environment(path: Path, key: str, value: object) -> Mapping[str, str]:
     """`server.env`: literal values only, and every one of them a string."""
     table = _table(path, key, value, "a table of strings")
-    return {
-        name: _field(path, f"{key}.{name}", entry, has_source=has_source)
-        for name, entry in table.items()
-    }
-
-
-def _field(path: Path, key: str, value: object, *, has_source: bool) -> str:
-    """A required string field, narrowed and checked for the one token we resolve."""
-    return _sourceless(path, key, _text(path, key, value), has_source=has_source)
-
-
-def _sourceless(path: Path, key: str, value: str, *, has_source: bool) -> str:
-    """`value`, unless it reaches for a clone this recipe declares no `source:` for."""
-    if not has_source and SOURCE_TOKEN in value:
-        raise SourcelessSubstitutionError(path, key)
-    return value
+    return {name: _text(path, f"{key}.{name}", entry) for name, entry in table.items()}
 
 
 def _known(path: Path, prefix: str, table: Mapping[str, object], allowed: frozenset[str]) -> None:

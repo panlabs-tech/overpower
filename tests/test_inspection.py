@@ -26,9 +26,8 @@ from __future__ import annotations
 import shutil
 from typing import TYPE_CHECKING
 
-from overpower import remote
 from overpower.writing import points_elsewhere
-from tests.support.git_remote import build, git, instead_of_github
+from tests.support.git_remote import git
 from tests.support.project import (
     AGENTS,
     CLAUDE,
@@ -38,6 +37,7 @@ from tests.support.project import (
     custom_recipe,
     joined,
     run,
+    runner_on_path,
     workspace,
 )
 
@@ -589,25 +589,19 @@ def test_a_copy_and_a_graft_are_summed_into_one_pair_of_numbers(
 
 
 # --------------------------------------------------------------------------- #
-# MCP grafts: unapproved, a vanished clone, an unset slot, an orphan clone
+# MCP grafts: unapproved, a missing runner, an unset slot
 # --------------------------------------------------------------------------- #
 
 MCP_URL = "https://mcp.cloudflare.com/mcp"
 
 SOURCED = """\
 description: "A server with code of its own."
-transport: "stdio"
 
 source:
-  url: "https://github.com/example/homegrown-mcp"
-
-server:
-  command: "uv"
-  args:
-    - "run"
-    - "--project"
-    - "{source}"
-    - "server.py"
+  git: "https://github.com/example/homegrown-mcp"
+  ref: "v0.3.1"
+  runner: "uvx"
+  entrypoint: "homegrown-mcp"
 """
 
 
@@ -672,26 +666,24 @@ def test_an_mcp_server_claude_code_has_approved_is_healthy(
     assert "pending approval" not in joined(output)
 
 
-def test_a_config_pointing_at_a_missing_clone_exits_three(
+def test_a_missing_runner_exits_three(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:
-    """#84 clones to the machine; when the clone is gone, the config still names it."""
+    """ADR 0023: the one precondition an installed `source:` server has left to lose."""
     # given
     catalog_of(tmp_path, monkeypatch)
     custom_recipe(tmp_path, "homegrown", SOURCED)
-    _, home = workspace(tmp_path, monkeypatch)
-    local = build(tmp_path / "origin", {"server.py": "print('hi')\n"})
-    monkeypatch.setattr(remote, "fetch_with_git", instead_of_github(local))
+    workspace(tmp_path, monkeypatch)
+    runner_on_path(monkeypatch, tmp_path)
     run(capsys, "install", "--mcp", "homegrown", "--runtime", "claude-code", "--global")
-    destination = home / ".overpower" / "mcp" / "homegrown"
-    assert destination.is_dir()
-    shutil.rmtree(destination)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
 
     code, output = run(capsys, "doctor")
 
     said = joined(output)
     assert code == 3
     assert "homegrown" in said
+    assert "uvx" in said
     assert ".claude.json" in said
 
 
@@ -718,19 +710,18 @@ def test_a_slot_not_set_in_this_environment_is_a_notice_not_a_failure(
     assert "not set" in said
 
 
-def test_a_clone_directory_no_config_references_is_named_and_not_removed(
+def test_a_present_runner_is_healthy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:
-    """`doctor` never deletes: an orphan clone is named, and left exactly where it was."""
+    """The offline recheck reads `PATH`, never the network — present is present."""
     # given
-    _, home = workspace(tmp_path, monkeypatch)
-    orphan = home / ".overpower" / "mcp" / "leftover"
-    orphan.mkdir(parents=True)
-    (orphan / "server.py").write_text("print('hi')\n", encoding="utf-8")
+    catalog_of(tmp_path, monkeypatch)
+    custom_recipe(tmp_path, "homegrown", SOURCED)
+    workspace(tmp_path, monkeypatch)
+    runner_on_path(monkeypatch, tmp_path)
+    run(capsys, "install", "--mcp", "homegrown", "--runtime", "claude-code", "--global")
 
     code, output = run(capsys, "doctor")
 
-    said = joined(output)
     assert code == 0
-    assert "leftover" in said
-    assert (orphan / "server.py").is_file()
+    assert "uvx" not in joined(output)

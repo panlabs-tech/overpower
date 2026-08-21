@@ -37,7 +37,6 @@ from typing import TYPE_CHECKING, assert_never, cast
 
 from overpower.recipes import (
     AUTHORIZATION,
-    SOURCE_TOKEN,
     BearerSlot,
     EnvSlot,
     HeaderSlot,
@@ -50,7 +49,6 @@ from overpower.runtimes import MCP_DOCUMENTS, Dialect, Scope
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
-    from pathlib import Path
 
     from overpower.recipes import Recipe, Slot
     from overpower.runtimes import McpDocument
@@ -282,27 +280,21 @@ def targets_of(
     changes"* is only assertable if the table can be handed in, and a test that
     monkeypatched the module constant would be asserting the patch.
 
-    **Two terms and not one**, because two different things decide a pair. The
-    document decides whether the transport can be spelled at all; the *recipe*
-    decides which scopes are open to it, and a recipe with `source:` clones to
-    an absolute path on this machine, which cannot go into the team's repository
-    (ADR 0015). `overpower.planning` refuses that pair with exit 3 and the
-    wizard declines to offer it — this is the third surface, and a screen that
-    offers what the next step is certain to reject is the one place the three
-    could disagree.
+    **One term and not two**, since ADR 0023: a recipe with `source:` renders a
+    command its own runner resolves, exactly as static as any other recipe's,
+    so which scopes it can land in is once again a fact of the document alone —
+    the same question `_transports` already answers.
     """
     return tuple(
         Target(runtime=runtime, scope=scope)
         for (runtime, scope), document in documents.items()
         if recipe.transport in _transports(document.dialect)
-        and (recipe.source is None or scope is Scope.GLOBAL)
     )
 
 
 def render(
     recipe: Recipe,
     document: McpDocument,
-    source: Path | None = None,
     secrets: Mapping[str, str] = MappingProxyType({}),
 ) -> tuple[Graft, ...]:
     """Every graft `recipe` becomes inside `document`, in the order they are written.
@@ -317,13 +309,6 @@ def render(
     third graft is one more element, and a dialect that needs none is a shorter
     tuple — neither one is a field the other dialects carry as `None`.
 
-    `source` is the absolute path of the clone `recipe.source` brings, resolved
-    by the caller (`overpower.planning`) from (root, recipe.name) — no I/O, and
-    no filesystem, the same discipline this whole module keeps: the path is
-    computed, never read off a disk this function never touches. `None` for a
-    recipe that declares no `source:`, which is every recipe the reader would let
-    `{source}` appear nowhere in.
-
     `secrets` is the value of a slot by name, for the slots the caller asked a
     person about (ADR 0024, https://github.com/ThiagoPanini/overpower/issues/167).
     Empty by default, which is every non-interactive run and every project-scope
@@ -336,34 +321,22 @@ def render(
     """
     match document.dialect:
         case Dialect.CLAUDE:
-            value = _server(recipe, document, source, secrets)
+            value = _server(recipe, document, secrets)
             return (Fragment(root_key=document.root_key, name=recipe.name, value=value),)
         case Dialect.VSCODE:
-            value = _server(recipe, document, source, secrets)
+            value = _server(recipe, document, secrets)
             server = Fragment(root_key=document.root_key, name=recipe.name, value=value)
             prompts = _vscode_inputs(recipe.slots)
             return (server,) if prompts is None else (server, prompts)
         case Dialect.DEVIN:
-            value = _devin(recipe, source, secrets)
+            value = _devin(recipe, secrets)
             return (Fragment(root_key=document.root_key, name=recipe.name, value=value),)
         case _ as unreachable:
             assert_never(unreachable)
 
 
-def _resolved(value: str, source: Path | None) -> str:
-    """`value`, with `{source}` replaced by the clone's absolute path.
-
-    The one substitution this product performs, and the reason it can — the
-    reader already refused every recipe that uses the token with no `source:`
-    to resolve it against (`overpower.recipes.SourcelessSubstitutionError`), so
-    a `source` of `None` reaching here with the token still in `value` is a
-    contract this module trusts rather than re-checks.
-    """
-    return value if source is None else value.replace(SOURCE_TOKEN, str(source))
-
-
 def _server(
-    recipe: Recipe, document: McpDocument, source: Path | None, secrets: Mapping[str, str]
+    recipe: Recipe, document: McpDocument, secrets: Mapping[str, str]
 ) -> Mapping[str, JsonValue]:
     """The server table, in the fields both dialects admit and one spells apart.
 
@@ -380,16 +353,16 @@ def _server(
     reference = _filled(document.dialect, secrets)
     match recipe.server:
         case HttpServer(url):
-            rendered: dict[str, JsonValue] = {"type": "http", "url": _resolved(url, source)}
+            rendered: dict[str, JsonValue] = {"type": "http", "url": url}
             headers = _headers(recipe.slots, reference)
             if headers:
                 rendered["headers"] = headers
             return rendered
         case StdioServer(command, args, environment):
-            rendered = {"type": "stdio", "command": _resolved(command, source)}
+            rendered = {"type": "stdio", "command": command}
             if args:
-                rendered["args"] = [_resolved(arg, source) for arg in args]
-            variables = _environment(environment, recipe.slots, reference, source)
+                rendered["args"] = list(args)
+            variables = _environment(environment, recipe.slots, reference)
             if variables:
                 rendered["env"] = variables
             return rendered
@@ -493,9 +466,7 @@ def _filled(dialect: Dialect, secrets: Mapping[str, str]) -> Reference:
     return spelled
 
 
-def _devin(
-    recipe: Recipe, source: Path | None, secrets: Mapping[str, str]
-) -> Mapping[str, JsonValue]:
+def _devin(recipe: Recipe, secrets: Mapping[str, str]) -> Mapping[str, JsonValue]:
     """The Devin-style spelling: `transport` on HTTP, and nothing at all on stdio.
 
     The asymmetry is the vendor's, not a shortcut taken here: `transport` is
@@ -516,16 +487,16 @@ def _devin(
     reference = _filled(Dialect.DEVIN, secrets)
     match recipe.server:
         case HttpServer(url):
-            rendered: dict[str, JsonValue] = {"transport": "http", "url": _resolved(url, source)}
+            rendered: dict[str, JsonValue] = {"transport": "http", "url": url}
             headers = _headers(recipe.slots, reference)
             if headers:
                 rendered["headers"] = headers
             return rendered
         case StdioServer(command, args, environment):
-            rendered = {"command": _resolved(command, source)}
+            rendered = {"command": command}
             if args:
-                rendered["args"] = [_resolved(arg, source) for arg in args]
-            variables = _environment(environment, recipe.slots, reference, source)
+                rendered["args"] = list(args)
+            variables = _environment(environment, recipe.slots, reference)
             if variables:
                 rendered["env"] = variables
             return rendered
@@ -534,7 +505,7 @@ def _devin(
 
 
 def _environment(
-    literals: Mapping[str, str], slots: Sequence[Slot], reference: Reference, source: Path | None
+    literals: Mapping[str, str], slots: Sequence[Slot], reference: Reference
 ) -> Mapping[str, JsonValue]:
     """The `env` table: what is written because it can be, then what never is.
 
@@ -552,7 +523,7 @@ def _environment(
     from being stated once per target and drifting once.
     """
     return {
-        **{name: _resolved(value, source) for name, value in literals.items()},
+        **literals,
         **{slot.name: reference(slot.name) for slot in slots if isinstance(slot, EnvSlot)},
     }
 

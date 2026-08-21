@@ -1401,226 +1401,160 @@ def test_a_line_that_mixes_a_skill_and_a_server_writes_both(
 
 
 # --------------------------------------------------------------------------- #
-# #84: `source:` clones code to the machine, and restricts the scope
+# #165: `source:` is an address the tooling resolves, never a clone (ADR 0023)
 # --------------------------------------------------------------------------- #
 
 SOURCED = """\
 description: "A server with code of its own."
-transport: "stdio"
 
 source:
-  url: "https://github.com/example/homegrown-mcp"
-
-server:
-  command: "uv"
-  args:
-    - "run"
-    - "--project"
-    - "{source}"
-    - "server.py"
+  git: "https://github.com/example/homegrown-mcp"
+  ref: "v0.3.1"
+  runner: "uvx"
+  entrypoint: "homegrown-mcp"
 """
 
 
-def test_a_sourced_recipe_clones_to_the_machine_and_resolves_the_token(
+def test_a_sourced_recipe_installs_deriving_the_command_from_its_runner(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:
-    """#84: the clone lands under `--global`, and `{source}` points at where it landed."""
-    # given
-    project.catalog_of(tmp_path, monkeypatch)
-    project.custom_recipe(tmp_path, "homegrown", SOURCED)
-    home = tmp_path / "home"
-    project.at_home(monkeypatch, home)
-    monkeypatch.setattr(cli, "_out", project.pinned(tty=False))
-    local = git_remote.build(tmp_path / "origin", {"server.py": "print('hi')\n"})
-    monkeypatch.setattr(remote, "fetch_with_git", git_remote.instead_of_github(local))
-
-    code, _ = project.run(
-        capsys, "install", "--mcp", "homegrown", "--runtime", "claude-code", "--global"
-    )
-
-    assert code == 0
-    destination = home / ".overpower" / "mcp" / "homegrown"
-    assert (destination / "server.py").read_text(encoding="utf-8") == "print('hi')\n"
-    document = project.parsed(home / ".claude.json")
-    assert document["mcpServers"] == {
-        "homegrown": {
-            "type": "stdio",
-            "command": "uv",
-            "args": ["run", "--project", str(destination), "server.py"],
-        }
-    }
-
-
-def test_a_clone_and_a_graft_are_two_writes_because_they_are_two_places(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
-) -> None:
-    """The half that fixes the unit, from #75: *"a federated MCP costs two writes"*.
-
-    Collapsing a server and its prompt into one write and collapsing *everything*
-    into one are the same edit if nobody asserts the difference. Here the two
-    writes land in two different places — a folder on the machine and a key in a
-    document — so nothing collapses, and the count stays two.
-
-    That is also why this line settles which unit the spec meant and the
-    federated case alone could not: two landings **and** two write objects agree
-    on 2, so it reads the same under either. The VS Code pair is the case where
-    they disagree.
-    """
-    # given
-    project.catalog_of(tmp_path, monkeypatch)
-    project.custom_recipe(tmp_path, "homegrown", SOURCED)
-    home = tmp_path / "home"
-    project.at_home(monkeypatch, home)
-    monkeypatch.setattr(cli, "_out", project.pinned(tty=False))
-    local = git_remote.build(tmp_path / "origin", {"server.py": "print('hi')\n"})
-    monkeypatch.setattr(remote, "fetch_with_git", git_remote.instead_of_github(local))
-
-    code, output = project.run(
-        capsys, "install", "--mcp", "homegrown", "--runtime", "claude-code", "--global"
-    )
-
-    assert code == 0
-    assert "2 writes" in project.joined(output)
-
-
-def test_a_sourced_recipe_in_project_scope_is_refused_naming_the_fix(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
-) -> None:
-    """ADR 0015: the absolute path of the clone must not enter a committed manifest.
-
-    Refused before any obtention, since the answer is already known from the
-    scope alone — the assertion on `called` is what proves that, not just the
-    exit code.
-    """
+    """ADR 0023: `uvx --from git+<url>@<ref> <entrypoint>` — nothing is cloned."""
     # given
     project.catalog_of(tmp_path, monkeypatch)
     project.custom_recipe(tmp_path, "homegrown", SOURCED)
     root = project.target(tmp_path, monkeypatch)
-    called: list[str] = []
+    project.runner_on_path(monkeypatch, tmp_path)
 
-    def fetch(url: str, _ref: str, into: Path) -> Path:
-        called.append(url)
-        return into
+    code, _ = project.run(capsys, "install", "--mcp", "homegrown", "--runtime", "claude-code")
 
-    monkeypatch.setattr(remote, "fetch_with_git", fetch)
+    assert code == 0
+    document = project.parsed(root / ".mcp.json")
+    assert document["mcpServers"] == {
+        "homegrown": {
+            "type": "stdio",
+            "command": "uvx",
+            "args": [
+                "--from",
+                "git+https://github.com/example/homegrown-mcp@v0.3.1",
+                "homegrown-mcp",
+            ],
+        }
+    }
+
+
+def test_a_sourced_recipes_written_file_carries_no_absolute_machine_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """The consequence the issue names: the file is the same on every machine."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch)
+    project.custom_recipe(tmp_path, "homegrown", SOURCED)
+    root = project.target(tmp_path, monkeypatch)
+    project.runner_on_path(monkeypatch, tmp_path)
+
+    code, _ = project.run(capsys, "install", "--mcp", "homegrown", "--runtime", "claude-code")
+
+    assert code == 0
+    written = (root / ".mcp.json").read_text(encoding="utf-8")
+    assert str(root) not in written
+    assert str(tmp_path) not in written
+
+
+def test_a_dry_run_of_a_sourced_recipe_lands_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """No obtention left to promise: the address renders without touching the network."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch)
+    project.custom_recipe(tmp_path, "homegrown", SOURCED)
+    root = project.target(tmp_path, monkeypatch)
+    project.runner_on_path(monkeypatch, tmp_path)
+
+    code, output = project.run(
+        capsys, "install", "--mcp", "homegrown", "--runtime", "claude-code", "--dry-run"
+    )
+
+    assert code == 0
+    assert "homegrown" in project.joined(output)
+    assert not (root / ".mcp.json").exists()
+
+
+def test_installing_a_sourced_recipe_with_no_runner_on_path_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
+) -> None:
+    """ADR 0023: the runner's own precondition, re-derived and checked before the first byte."""
+    # given
+    project.catalog_of(tmp_path, monkeypatch)
+    project.custom_recipe(tmp_path, "homegrown", SOURCED)
+    root = project.target(tmp_path, monkeypatch)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
 
     code, output = project.run(capsys, "install", "--mcp", "homegrown", "--runtime", "claude-code")
 
     assert code == 3
     joined = project.joined(output)
     assert "homegrown" in joined
-    assert "--global" in joined
+    assert "uvx" in joined
     assert list(root.iterdir()) == []
-    assert called == []
 
 
-def test_a_dry_run_obtains_the_clone_but_lands_nothing(
+def test_a_bundled_sourced_recipe_derives_the_command_too(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:
-    """The same promise `--from` makes: a dry run resolves exactly what the real run would."""
-    # given
-    project.catalog_of(tmp_path, monkeypatch)
-    project.custom_recipe(tmp_path, "homegrown", SOURCED)
-    home = tmp_path / "home"
-    project.at_home(monkeypatch, home)
-    monkeypatch.setattr(cli, "_out", project.pinned(tty=False))
-    obtained: list[str] = []
-    planted = git_remote.planting({"server.py": "print('hi')\n"})
-
-    def fetch(url: str, ref: str, into: Path) -> Path:
-        obtained.append(url)
-        return planted(url, ref, into)
-
-    monkeypatch.setattr(remote, "fetch_with_git", fetch)
-
-    code, output = project.run(
-        capsys,
-        "install",
-        "--mcp",
-        "homegrown",
-        "--runtime",
-        "claude-code",
-        "--global",
-        "--dry-run",
-    )
-
-    assert code == 0
-    assert obtained
-    assert "homegrown" in project.joined(output)
-    assert not (home / ".overpower" / "mcp" / "homegrown").exists()
-    assert not (home / ".claude.json").exists()
-
-
-def test_reinstalling_a_sourced_recipe_re_clones_without_force(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
-) -> None:
-    """ADR 0015: re-cloned unconditionally — the existing-destination gate never asks."""
-    # given
-    project.catalog_of(tmp_path, monkeypatch)
-    project.custom_recipe(tmp_path, "homegrown", SOURCED)
-    home = tmp_path / "home"
-    project.at_home(monkeypatch, home)
-    monkeypatch.setattr(cli, "_out", project.pinned(tty=False))
-    local = git_remote.build(tmp_path / "origin", {"server.py": "print('hi')\n"})
-    monkeypatch.setattr(remote, "fetch_with_git", git_remote.instead_of_github(local))
-    selectors = ("install", "--mcp", "homegrown", "--runtime", "claude-code", "--global")
-
-    first_code, _ = project.run(capsys, *selectors)
-    second_code, _ = project.run(capsys, *selectors)
-
-    assert first_code == 0
-    assert second_code == 0
-    assert (home / ".overpower" / "mcp" / "homegrown" / "server.py").is_file()
-
-
-def test_a_bundled_sourced_recipe_clones_to_the_machine_too(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
-) -> None:
-    """ADR 0022: a `source:` recipe reached only through `--bundle` still gets its clone."""
+    """ADR 0022 meets 0023: a `source:` recipe reached only through `--bundle` still resolves."""
     # given
     project.catalog_of(tmp_path, monkeypatch, bundles={"api-python": ["mcp:homegrown"]})
     project.custom_recipe(tmp_path, "homegrown", SOURCED)
     home = tmp_path / "home"
     project.at_home(monkeypatch, home)
     monkeypatch.setattr(cli, "_out", project.pinned(tty=False))
-    local = git_remote.build(tmp_path / "origin", {"server.py": "print('hi')\n"})
-    monkeypatch.setattr(remote, "fetch_with_git", git_remote.instead_of_github(local))
+    project.runner_on_path(monkeypatch, tmp_path)
 
     code, _ = project.run(
         capsys, "install", "--bundle", "api-python", "--runtime", "claude-code", "--global"
     )
 
     assert code == 0
-    destination = home / ".overpower" / "mcp" / "homegrown"
-    assert (destination / "server.py").read_text(encoding="utf-8") == "print('hi')\n"
+    document = project.parsed(home / ".claude.json")
+    assert document["mcpServers"] == {
+        "homegrown": {
+            "type": "stdio",
+            "command": "uvx",
+            "args": [
+                "--from",
+                "git+https://github.com/example/homegrown-mcp@v0.3.1",
+                "homegrown-mcp",
+            ],
+        }
+    }
+    assert not (home / ".overpower" / "mcp").exists()
 
 
-def test_a_bundled_sourced_recipe_in_project_scope_is_refused_naming_the_fix(
+def test_a_bundled_sourced_recipe_installs_in_project_scope_too(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:
-    """The same refusal `--mcp` gets, reached only through `--bundle` this time (ADR 0022)."""
+    """The same freedom `--mcp` gets, reached only through `--bundle` this time (ADR 0022, 0023)."""
     # given
     project.catalog_of(tmp_path, monkeypatch, bundles={"api-python": ["mcp:homegrown"]})
     project.custom_recipe(tmp_path, "homegrown", SOURCED)
     root = project.target(tmp_path, monkeypatch)
-    called: list[str] = []
+    project.runner_on_path(monkeypatch, tmp_path)
 
-    def fetch(url: str, _ref: str, into: Path) -> Path:
-        called.append(url)
-        return into
+    code, _ = project.run(capsys, "install", "--bundle", "api-python", "--runtime", "claude-code")
 
-    monkeypatch.setattr(remote, "fetch_with_git", fetch)
-
-    code, output = project.run(
-        capsys, "install", "--bundle", "api-python", "--runtime", "claude-code"
-    )
-
-    assert code == 3
-    joined = project.joined(output)
-    assert "homegrown" in joined
-    assert "--global" in joined
-    assert list(root.iterdir()) == []
-    assert called == []
+    assert code == 0
+    document = project.parsed(root / ".mcp.json")
+    assert document["mcpServers"] == {
+        "homegrown": {
+            "type": "stdio",
+            "command": "uvx",
+            "args": [
+                "--from",
+                "git+https://github.com/example/homegrown-mcp@v0.3.1",
+                "homegrown-mcp",
+            ],
+        }
+    }
 
 
 # --------------------------------------------------------------------------- #

@@ -1498,54 +1498,63 @@ def test_installing_a_sourced_recipe_with_no_runner_on_path_is_refused(
     assert list(root.iterdir()) == []
 
 
-def test_a_bundled_sourced_recipe_clones_to_the_machine_too(
+def test_a_bundled_sourced_recipe_derives_the_command_too(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:
-    """ADR 0022: a `source:` recipe reached only through `--bundle` still gets its clone."""
+    """ADR 0022 meets 0023: a `source:` recipe reached only through `--bundle` still resolves."""
     # given
     project.catalog_of(tmp_path, monkeypatch, bundles={"api-python": ["mcp:homegrown"]})
     project.custom_recipe(tmp_path, "homegrown", SOURCED)
     home = tmp_path / "home"
     project.at_home(monkeypatch, home)
     monkeypatch.setattr(cli, "_out", project.pinned(tty=False))
-    local = git_remote.build(tmp_path / "origin", {"server.py": "print('hi')\n"})
-    monkeypatch.setattr(remote, "fetch_with_git", git_remote.instead_of_github(local))
+    project.runner_on_path(monkeypatch, tmp_path)
 
     code, _ = project.run(
         capsys, "install", "--bundle", "api-python", "--runtime", "claude-code", "--global"
     )
 
     assert code == 0
-    destination = home / ".overpower" / "mcp" / "homegrown"
-    assert (destination / "server.py").read_text(encoding="utf-8") == "print('hi')\n"
+    document = project.parsed(home / ".claude.json")
+    assert document["mcpServers"] == {
+        "homegrown": {
+            "type": "stdio",
+            "command": "uvx",
+            "args": [
+                "--from",
+                "git+https://github.com/example/homegrown-mcp@v0.3.1",
+                "homegrown-mcp",
+            ],
+        }
+    }
+    assert not (home / ".overpower" / "mcp").exists()
 
 
-def test_a_bundled_sourced_recipe_in_project_scope_is_refused_naming_the_fix(
+def test_a_bundled_sourced_recipe_installs_in_project_scope_too(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: CaptureFixture
 ) -> None:
-    """The same refusal `--mcp` gets, reached only through `--bundle` this time (ADR 0022)."""
+    """The same freedom `--mcp` gets, reached only through `--bundle` this time (ADR 0022, 0023)."""
     # given
     project.catalog_of(tmp_path, monkeypatch, bundles={"api-python": ["mcp:homegrown"]})
     project.custom_recipe(tmp_path, "homegrown", SOURCED)
     root = project.target(tmp_path, monkeypatch)
-    called: list[str] = []
+    project.runner_on_path(monkeypatch, tmp_path)
 
-    def fetch(url: str, _ref: str, into: Path) -> Path:
-        called.append(url)
-        return into
+    code, _ = project.run(capsys, "install", "--bundle", "api-python", "--runtime", "claude-code")
 
-    monkeypatch.setattr(remote, "fetch_with_git", fetch)
-
-    code, output = project.run(
-        capsys, "install", "--bundle", "api-python", "--runtime", "claude-code"
-    )
-
-    assert code == 3
-    joined = project.joined(output)
-    assert "homegrown" in joined
-    assert "--global" in joined
-    assert list(root.iterdir()) == []
-    assert called == []
+    assert code == 0
+    document = project.parsed(root / ".mcp.json")
+    assert document["mcpServers"] == {
+        "homegrown": {
+            "type": "stdio",
+            "command": "uvx",
+            "args": [
+                "--from",
+                "git+https://github.com/example/homegrown-mcp@v0.3.1",
+                "homegrown-mcp",
+            ],
+        }
+    }
 
 
 # --------------------------------------------------------------------------- #

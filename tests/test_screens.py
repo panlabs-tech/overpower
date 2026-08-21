@@ -1255,6 +1255,25 @@ def test_a_bundle_says_what_it_names() -> None:
     assert "Equipment." in joined
 
 
+def test_a_bundle_mixing_a_skill_and_an_mcp_server_weighs_only_the_skill_on_screen() -> None:
+    """ADR 0022: the head line counts both items but weighs bytes for the skill alone."""
+    named = artifact("panlabs-python-standards", "The ruler.", files=3, size=1024)
+    recipe = recorded_recipe()
+    bundle = Bundle(name="api-python", description="Equipment.", artifacts=(named, recipe))
+
+    rendered = render(bundle_screen(bundle), 80)
+    joined = unwrapped(rendered)
+
+    assert "2 artifacts" in joined
+    assert human(bundle.size) in joined
+    assert f"{bundle.files} file" in joined
+    assert bundle.size == named.size
+    assert bundle.files == named.files
+    stacked = rows(rendered)
+    assert f"{named.type} {named.name}" in stacked
+    assert f"mcp server {recipe.name}" in stacked
+
+
 # --------------------------------------------------------------------------- #
 # the three detail screens: what is inside one item
 # --------------------------------------------------------------------------- #
@@ -1309,7 +1328,12 @@ def test_the_bundle_screen_names_exactly_what_the_manifest_names(width: int) -> 
 
     rendered = render(bundle_screen(bundle), width)
 
-    stacked = [f"{inside.type} {inside.name}" for inside in bundle.artifacts]
+    stacked = [
+        f"{inside.type} {inside.name}"
+        if isinstance(inside, Artifact)
+        else f"mcp server {inside.name}"
+        for inside in bundle.artifacts
+    ]
     assert [row for row in rows(rendered) if row in stacked] == stacked
 
 

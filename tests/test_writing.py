@@ -117,7 +117,7 @@ def test_the_three_way_identity_holds_with_all_three_selectors_mixed(
         "alpha",
         "beta",
         frameworks={"matt-pocock": ("gamma",)},
-        bundles={"api-python": ("beta",)},
+        bundles={"api-python": ("skill:beta",)},
     )
     dry_root = target(tmp_path, monkeypatch, "dry")
     real_root = target(tmp_path, monkeypatch, "real")
@@ -220,7 +220,7 @@ def test_the_identity_holds_for_a_bundle_that_came_from_a_remote(
         tmp_path / "origin",
         {
             **git_remote.skill_files("alpha", "beta", "gamma"),
-            **git_remote.declaring(bundles={"api-python": ["alpha", "beta"]}),
+            **git_remote.declaring(bundles={"api-python": ["skill:alpha", "skill:beta"]}),
         },
     )
     monkeypatch.setattr(remote, "fetch_with_git", git_remote.instead_of_github(local))
